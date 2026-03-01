@@ -49,10 +49,10 @@ export async function POST(req: Request) {
             const newPrice = await tx.marketPrice.create({
                 data: {
                     date: data.date ? new Date(data.date) : new Date(),
-                    ici1: data.ici1 ? parseFloat(data.ici1.toString()) : null,
-                    ici2: data.ici2 ? parseFloat(data.ici2.toString()) : null,
-                    ici3: data.ici3 ? parseFloat(data.ici3.toString()) : null,
-                    ici4: data.ici4 ? parseFloat(data.ici4.toString()) : null,
+                    ici1: (data.ici1 !== undefined && data.ici1 !== null) ? parseFloat(data.ici1.toString()) : ((data.ici_1 !== undefined && data.ici_1 !== null) ? parseFloat(data.ici_1.toString()) : null),
+                    ici2: (data.ici2 !== undefined && data.ici2 !== null) ? parseFloat(data.ici2.toString()) : ((data.ici_2 !== undefined && data.ici_2 !== null) ? parseFloat(data.ici_2.toString()) : null),
+                    ici3: (data.ici3 !== undefined && data.ici3 !== null) ? parseFloat(data.ici3.toString()) : ((data.ici_3 !== undefined && data.ici_3 !== null) ? parseFloat(data.ici_3.toString()) : null),
+                    ici4: (data.ici4 !== undefined && data.ici4 !== null) ? parseFloat(data.ici4.toString()) : ((data.ici_4 !== undefined && data.ici_4 !== null) ? parseFloat(data.ici_4.toString()) : null),
                     newcastle: data.newcastle ? parseFloat(data.newcastle.toString()) : null,
                     hba: data.hba ? parseFloat(data.hba.toString()) : null,
                     source: data.source || "Manual Entry"
@@ -96,10 +96,10 @@ export async function PUT(req: Request) {
                 where: { id: data.id },
                 data: {
                     date: data.date ? new Date(data.date) : undefined,
-                    ici1: data.ici1 ? parseFloat(data.ici1.toString()) : undefined,
-                    ici2: data.ici2 ? parseFloat(data.ici2.toString()) : undefined,
-                    ici3: data.ici3 ? parseFloat(data.ici3.toString()) : undefined,
-                    ici4: data.ici4 ? parseFloat(data.ici4.toString()) : undefined,
+                    ici1: (data.ici1 !== undefined && data.ici1 !== null) ? parseFloat(data.ici1.toString()) : ((data.ici_1 !== undefined && data.ici_1 !== null) ? parseFloat(data.ici_1.toString()) : undefined),
+                    ici2: (data.ici2 !== undefined && data.ici2 !== null) ? parseFloat(data.ici2.toString()) : ((data.ici_2 !== undefined && data.ici_2 !== null) ? parseFloat(data.ici_2.toString()) : undefined),
+                    ici3: (data.ici3 !== undefined && data.ici3 !== null) ? parseFloat(data.ici3.toString()) : ((data.ici_3 !== undefined && data.ici_3 !== null) ? parseFloat(data.ici_3.toString()) : undefined),
+                    ici4: (data.ici4 !== undefined && data.ici4 !== null) ? parseFloat(data.ici4.toString()) : ((data.ici_4 !== undefined && data.ici_4 !== null) ? parseFloat(data.ici_4.toString()) : undefined),
                     newcastle: data.newcastle ? parseFloat(data.newcastle.toString()) : undefined,
                     hba: data.hba ? parseFloat(data.hba.toString()) : undefined,
                     source: data.source
