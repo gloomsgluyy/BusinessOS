@@ -312,3 +312,22 @@ model SalesDeal {
   updatedAt          DateTime @updatedAt
   isDeleted          Boolean  @default(false)
 }
+
+model Partner {
+  id              String   @id @default(cuid())
+  name            String
+  type            String   @default("buyer") // buyer, vendor, fleet
+  category        String?
+  contactPerson   String?
+  phone           String?
+  email           String?
+  address         String?
+  city            String?
+  country         String?
+  taxId           String?
+  status          String   @default("active") // active, under_review, inactive
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  isDeleted       Boolean  @default(false)
+}

@@ -22,6 +22,10 @@ const DEFAULT_FORMULAS: Formula[] = [
     { name: "Selling Price 5000", baseIndex: "ici_3", operator: "-", adjustment: 1.5, description: "ICI 3 - $1.50" },
 ];
 
+// Safe number helper to prevent toFixed crash on null values from Memory B
+const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
+const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
+
 export default function MarketPricePage() {
     const { marketPrices, addMarketPrice } = useCommercialStore();
     const { hasPermission } = useAuthStore();
@@ -98,12 +102,12 @@ export default function MarketPricePage() {
     const latest = marketPrices[0];
     const prev = marketPrices[1];
     const changes = latest && prev ? [
-        { label: "ICI 1 (6500)", val: latest.ici_1, diff: latest.ici_1 - prev.ici_1, color: "#ef4444" },
-        { label: "ICI 2 (5800)", val: latest.ici_2, diff: latest.ici_2 - prev.ici_2, color: "#f59e0b" },
-        { label: "ICI 3 (5000)", val: latest.ici_3, diff: latest.ici_3 - prev.ici_3, color: "#3b82f6" },
-        { label: "ICI 4 (4200)", val: latest.ici_4, diff: latest.ici_4 - prev.ici_4, color: "#8b5cf6" },
-        { label: "Newcastle", val: latest.newcastle, diff: latest.newcastle - prev.newcastle, color: "#ec4899" },
-        { label: "HBA", val: latest.hba, diff: latest.hba - prev.hba, color: "#10b981" },
+        { label: "ICI 1 (6500)", val: safeNum(latest.ici_1), diff: safeNum(latest.ici_1) - safeNum(prev.ici_1), color: "#ef4444" },
+        { label: "ICI 2 (5800)", val: safeNum(latest.ici_2), diff: safeNum(latest.ici_2) - safeNum(prev.ici_2), color: "#f59e0b" },
+        { label: "ICI 3 (5000)", val: safeNum(latest.ici_3), diff: safeNum(latest.ici_3) - safeNum(prev.ici_3), color: "#3b82f6" },
+        { label: "ICI 4 (4200)", val: safeNum(latest.ici_4), diff: safeNum(latest.ici_4) - safeNum(prev.ici_4), color: "#8b5cf6" },
+        { label: "Newcastle", val: safeNum(latest.newcastle), diff: safeNum(latest.newcastle) - safeNum(prev.newcastle), color: "#ec4899" },
+        { label: "HBA", val: safeNum(latest.hba), diff: safeNum(latest.hba) - safeNum(prev.hba), color: "#10b981" },
     ] : [];
 
     const handleSubmit = () => {
@@ -254,12 +258,12 @@ export default function MarketPricePage() {
                             <div>
                                 <label className="text-[10px] font-semibold text-muted-foreground uppercase">Base Index</label>
                                 <select value={calc.index} onChange={(e) => setCalc({ ...calc, index: e.target.value })} className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-background border border-border text-sm font-medium outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50 pr-8">
-                                    <option value="ici_1">ICI 1 (6500) - ${latest?.ici_1.toFixed(2)}</option>
-                                    <option value="ici_2">ICI 2 (5800) - ${latest?.ici_2.toFixed(2)}</option>
-                                    <option value="ici_3">ICI 3 (5000) - ${latest?.ici_3.toFixed(2)}</option>
-                                    <option value="ici_4">ICI 4 (4200) - ${latest?.ici_4.toFixed(2)}</option>
-                                    <option value="newcastle">Newcastle - ${latest?.newcastle.toFixed(2)}</option>
-                                    <option value="hba">HBA - ${latest?.hba.toFixed(2)}</option>
+                                    <option value="ici_1">ICI 1 (6500) - ${safeFmt(latest?.ici_1)}</option>
+                                    <option value="ici_2">ICI 2 (5800) - ${safeFmt(latest?.ici_2)}</option>
+                                    <option value="ici_3">ICI 3 (5000) - ${safeFmt(latest?.ici_3)}</option>
+                                    <option value="ici_4">ICI 4 (4200) - ${safeFmt(latest?.ici_4)}</option>
+                                    <option value="newcastle">Newcastle - ${safeFmt(latest?.newcastle)}</option>
+                                    <option value="hba">HBA - ${safeFmt(latest?.hba)}</option>
                                 </select>
                             </div>
                             <div>
@@ -339,12 +343,12 @@ export default function MarketPricePage() {
                             {marketPrices.map((p) => (
                                 <tr key={p.id} className="border-b border-border/50 hover:bg-accent/20">
                                     <td className="px-4 py-2.5 text-xs">{new Date(p.date).toLocaleDateString("en", { day: "2-digit", month: "short", year: "2-digit" })}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${p.ici_1.toFixed(2)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${p.ici_2.toFixed(2)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${p.ici_3.toFixed(2)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${p.ici_4.toFixed(2)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${p.newcastle.toFixed(2)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono font-bold">${p.hba.toFixed(2)}</td>
+                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_1)}</td>
+                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_2)}</td>
+                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_3)}</td>
+                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_4)}</td>
+                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.newcastle)}</td>
+                                    <td className="px-4 py-2.5 text-xs text-right font-mono font-bold">${safeFmt(p.hba)}</td>
                                 </tr>
                             ))}
                         </tbody>
