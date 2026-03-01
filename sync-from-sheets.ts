@@ -1,5 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-import { google } from "googleapis";
+const { PrismaClient } = require('@prisma/client');
+const { google } = require('googleapis');
 
 const prisma = new PrismaClient();
 
