@@ -13,10 +13,19 @@ export async function GET() {
             orderBy: { createdAt: "desc" }
         });
 
-        const formatted = meetings.map(m => ({
-            ...m,
-            attendees: m.attendees ? JSON.parse(m.attendees) : []
-        }));
+        const formatted = meetings.map(m => {
+            let attendees: string[] = [];
+            if (m.attendees) {
+                try {
+                    const parsed = JSON.parse(m.attendees);
+                    attendees = Array.isArray(parsed) ? parsed : [String(parsed)];
+                } catch {
+                    // If it's a comma-separated string from Sheets, split it
+                    attendees = m.attendees.split(',').map((a: string) => a.trim()).filter(Boolean);
+                }
+            }
+            return { ...m, attendees };
+        });
 
         return NextResponse.json({ success: true, meetings: formatted });
     } catch (error) {
