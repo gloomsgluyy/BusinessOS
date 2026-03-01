@@ -3,6 +3,7 @@
 import React from "react";
 import { Search, ChevronDown, X, Check, Menu, Bell, AlertTriangle, Info, BellRing } from "lucide-react";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { cn, getInitials } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
 import { useTaskStore } from "@/store/task-store";
@@ -264,21 +265,12 @@ export function Header() {
                         <>
                             <div className="fixed inset-0 z-50" onClick={() => setRoleOpen(false)} />
                             <div className="absolute right-0 top-full mt-2 w-56 bg-card border border-border shadow-lg rounded-xl z-50 py-1.5 animate-scale-in">
-                                <p className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Switch Role</p>
-                                {ROLES.map((role) => (
-                                    <button
-                                        key={role.value}
-                                        onClick={() => { switchRole(role.value); setRoleOpen(false); }}
-                                        className={cn(
-                                            "w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-accent/80 transition-all duration-200",
-                                            currentUser.role === role.value && "bg-accent"
-                                        )}
-                                    >
-                                        <div className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: role.color }} />
-                                        <span className="font-medium">{role.label}</span>
-                                        {currentUser.role === role.value && <Check className="w-4 h-4 text-primary ml-auto" />}
-                                    </button>
-                                ))}
+                                <button
+                                    onClick={() => { signOut(); setRoleOpen(false); }}
+                                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-red-500/10 hover:text-red-500 transition-all duration-200 text-muted-foreground"
+                                >
+                                    <span className="font-semibold text-xs ml-1">Sign Out</span>
+                                </button>
                             </div>
                         </>
                     )}
