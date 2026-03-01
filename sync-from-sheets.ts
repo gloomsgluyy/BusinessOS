@@ -28,8 +28,8 @@ async function fetchTab(tabName: string) {
             range: `${tabName}!A:Z`,
         });
         return res.data.values || [];
-    } catch (e) {
-        console.warn(`Tab ${tabName} not found or empty.`);
+    } catch (e: any) {
+        console.error(`Error fetching Tab ${tabName}:`, e.message || e);
         return [];
     }
 }
