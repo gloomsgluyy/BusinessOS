@@ -34,7 +34,17 @@ function mapRow(headers, row) {
 }
 
 const parseDate = (d) => { if (!d) return null; const p = new Date(d); return isNaN(p) ? null : p; };
-const num = (s) => { if (!s) return 0; const c = parseFloat(String(s).replace(/,/g, '')); return isNaN(c) ? 0 : c; };
+const num = (s) => {
+    if (!s) return 0;
+    let str = String(s).trim();
+    if (/^[\d.]+,[\d]+$/.test(str)) {
+        str = str.replace(/\./g, '').replace(',', '.');
+    } else {
+        str = str.replace(/,/g, '');
+    }
+    const c = parseFloat(str);
+    return isNaN(c) ? 0 : c;
+};
 
 async function syncAll() {
     console.log("=========================================");
