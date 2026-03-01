@@ -154,7 +154,7 @@ export function AIChatbot() {
         // Relax checking: if attendee string includes name, or if it's the creator
         const myMeetings = meetings.filter(m =>
             (m.attendees && m.attendees.some(a => a.toLowerCase().includes(nameStr))) ||
-            m.createdBy === currentUser?.id ||
+            m.created_by === currentUser?.id ||
             true // Let's just pass all active meetings to the AI for better context since it's an executive dashboard
         );
 
