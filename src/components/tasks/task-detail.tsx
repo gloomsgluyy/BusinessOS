@@ -12,6 +12,7 @@ import { sendWhatsAppReminder } from "@/lib/whatsapp-client";
 export function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
     const { currentUser } = useAuthStore();
     const addComment = useTaskStore((s) => s.addComment);
+    const moveTask = useTaskStore((s) => s.moveTask);
     const [tab, setTab] = React.useState<"comments" | "activity">("comments");
     const [comment, setComment] = React.useState("");
 
@@ -42,9 +43,16 @@ export function TaskDetail({ task, onClose }: { task: Task; onClose: () => void 
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
                         {/* Status & Priority */}
                         <div className="flex items-center gap-2 animate-fade-in">
-                            <span className="status-badge text-[10px]" style={{ color: statusCfg?.color, backgroundColor: `${statusCfg?.color}15` }}>
-                                {statusCfg?.label}
-                            </span>
+                            <select
+                                value={task.status}
+                                onChange={(e) => moveTask(task.id, e.target.value as any, currentUser?.name || "System")}
+                                className="status-badge text-[10px] items-center text-center font-bold outline-none cursor-pointer border-none appearance-none"
+                                style={{ color: statusCfg?.color, backgroundColor: `${statusCfg?.color}15` }}
+                            >
+                                {TASK_STATUSES.map(st => (
+                                    <option key={st.value} value={st.value} style={{ color: '#000' }}>{st.label}</option>
+                                ))}
+                            </select>
                             <span className="status-badge text-[10px]" style={{ color: priCfg?.color, backgroundColor: `${priCfg?.color}15` }}>
                                 {priCfg?.label} Priority
                             </span>

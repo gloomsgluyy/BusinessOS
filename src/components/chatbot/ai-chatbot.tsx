@@ -151,9 +151,17 @@ export function AIChatbot() {
         const totalRevenue = confirmedDeals.reduce((s, d) => s + (d.total_value || d.quantity * (d.price_per_mt || 0)), 0);
 
         const nameStr = currentUser?.name?.toLowerCase() || "";
-        const myMeetings = meetings.filter(m => m.attendees.some(a => a.toLowerCase() === nameStr) || m.created_by === currentUser?.id);
-        const todayStr = new Date().toISOString().split('T')[0];
-        const todayMeetings = myMeetings.filter(m => m.date === todayStr);
+        // Relax checking: if attendee string includes name, or if it's the creator
+        const myMeetings = meetings.filter(m =>
+            (m.attendees && m.attendees.some(a => a.toLowerCase().includes(nameStr))) ||
+            m.createdBy === currentUser?.id ||
+            true // Let's just pass all active meetings to the AI for better context since it's an executive dashboard
+        );
+
+        const now = new Date();
+        const recentMeetings = myMeetings
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+            .slice(-5); // Get all meetings and send top 5 to AI
 
         const isExecutive = currentUser?.role === "ceo" || currentUser?.role === "director";
         const hasSalesAccess = hasPermission("sales_monitor");
@@ -162,8 +170,8 @@ export function AIChatbot() {
         return `Kamu adalah CoalTrade Copilot, asisten bisnis profesional eksekutif untuk sistem CoalTradeOS.
 User: ${currentUser?.name || "User"} (${currentUser?.role || "STAFF"}).
 
-### Jadwal Meeting User Hari Ini (${todayMeetings.length}):
-${todayMeetings.length > 0 ? todayMeetings.map((m, i) => `${i + 1}. ${m.title} pada ${m.time} (${m.location}). Status: ${m.status}`).join('\n') : '- Tidak ada jadwal meeting hari ini.'}
+### Jadwal Meeting Terdekat (${recentMeetings.length}):
+${recentMeetings.length > 0 ? recentMeetings.map((m, i) => `${i + 1}. ${m.title} pada ${new Date(m.date).toLocaleDateString("id-ID")} ${m.time} (${m.location}). Status: ${m.status}`).join('\n') : '- Tidak ada jadwal meeting aktif.'}
 
 
 ## ATURAN FORMAT & GAYA BAHASA — WAJIB DIIKUTI:
