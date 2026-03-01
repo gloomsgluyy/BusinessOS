@@ -14,10 +14,13 @@ export async function GET() {
         });
 
         // Parse OCR back to JSON for UI
-        const formatted = purchases.map(p => ({
-            ...p,
-            ocrData: p.ocrData ? JSON.parse(p.ocrData) : undefined
-        }));
+        const formatted = purchases.map(p => {
+            let ocrData: any = undefined;
+            if (p.ocrData) {
+                try { ocrData = JSON.parse(p.ocrData); } catch { ocrData = undefined; }
+            }
+            return { ...p, ocrData };
+        });
 
         return NextResponse.json({ success: true, purchases: formatted });
     } catch (error) {

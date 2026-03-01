@@ -13,10 +13,13 @@ export async function GET() {
             orderBy: { createdAt: "desc" }
         });
 
-        const formatted = shipments.map(s => ({
-            ...s,
-            milestones: s.milestones ? JSON.parse(s.milestones) : []
-        }));
+        const formatted = shipments.map(s => {
+            let milestones: any[] = [];
+            if (s.milestones) {
+                try { milestones = JSON.parse(s.milestones); } catch { milestones = []; }
+            }
+            return { ...s, milestones };
+        });
 
         return NextResponse.json({ success: true, shipments: formatted });
     } catch (error) {
