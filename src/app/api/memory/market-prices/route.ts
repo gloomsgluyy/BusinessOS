@@ -2,6 +2,24 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { syncAllMarketPriceToSheet } from "@/app/actions/sheet-actions";
+
+async function pushToSheets() {
+    try {
+        const prices = await prisma.marketPrice.findMany({
+            where: { isDeleted: false },
+            orderBy: { date: "desc" }
+        });
+        const formatted = prices.map((m: any) => ({
+            id: m.id, date: m.date ? m.date.toISOString().split('T')[0] : "",
+            ici_1: m.ici1, ici_2: m.ici2, ici_3: m.ici3, ici_4: m.ici4,
+            newcastle: m.newcastle, hba: m.hba, source: m.source
+        }));
+        await syncAllMarketPriceToSheet(formatted);
+    } catch (err) {
+        console.error("Failed to sync Market Prices to sheets:", err);
+    }
+}
 
 export async function GET() {
     try {
@@ -55,6 +73,9 @@ export async function POST(req: Request) {
             return newPrice;
         });
 
+        // Trigger Google Sheets Sync in background
+        pushToSheets();
+
         return NextResponse.json({ success: true, price });
     } catch (error) {
         console.error("POST /api/memory/market-prices error:", error);
@@ -99,6 +120,9 @@ export async function PUT(req: Request) {
             return updatedPrice;
         });
 
+        // Trigger Google Sheets Sync in background
+        pushToSheets();
+
         return NextResponse.json({ success: true, price });
     } catch (error) {
         console.error("PUT /api/memory/market-prices error:", error);
@@ -132,6 +156,9 @@ export async function DELETE(req: Request) {
                 }
             });
         });
+
+        // Trigger Google Sheets Sync in background
+        pushToSheets();
 
         return NextResponse.json({ success: true });
     } catch (error) {
