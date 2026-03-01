@@ -14,6 +14,9 @@ import {
     Anchor, Package, BarChart3, Calendar, Clock, ArrowUpRight,
     Lock, Filter, ChevronDown,
 } from "lucide-react";
+
+const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
+const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSession } from "next-auth/react";
 import {
@@ -288,7 +291,7 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
             <div className="flex items-center justify-between mb-4">
                 <div>
                     <h3 className="text-sm font-semibold">Quantity per Month (MT)</h3>
-                    <p className="text-[10px] text-muted-foreground">Total: {(totalQty / 1000).toFixed(0)}K MT</p>
+                    <p className="text-[10px] text-muted-foreground">Total: {safeFmt(totalQty / 1000, 0)}K MT</p>
                 </div>
                 <a href="/sales-monitor" className="text-xs text-primary hover:underline flex items-center gap-1 group">
                     Detail <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
@@ -300,7 +303,7 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
                         <BarChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(128,128,128,0.1)" />
                             <XAxis dataKey="month" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+                            <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${safeFmt(v / 1000, 0)}K`} />
                             <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }} />
                             <Legend wrapperStyle={{ fontSize: '11px' }} />
                             <Bar dataKey="local" name="Local" fill="#10b981" stackId="qty" radius={[0, 0, 0, 0]} />
@@ -339,7 +342,7 @@ function SalesPlanChart({ shipments }: { shipments: any[] }) {
                         <BarChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(128,128,128,0.1)" />
                             <XAxis dataKey="month" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+                            <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${safeFmt(v / 1000, 0)}K`} />
                             <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }} />
                             <Legend wrapperStyle={{ fontSize: '11px' }} />
                             <Bar dataKey="local" name="Local" fill="#3b82f6" radius={[4, 4, 0, 0]} />
@@ -397,12 +400,12 @@ function StockInventory({ sources }: { sources: any[] }) {
     return (
         <div className="card-elevated p-5 animate-slide-up delay-2">
             <h3 className="text-sm font-semibold mb-3">Stock Inventory</h3>
-            <p className="text-2xl font-bold tracking-tight mb-3">{(totalStock / 1000).toFixed(0)}K MT</p>
+            <p className="text-2xl font-bold tracking-tight mb-3">{safeFmt(totalStock / 1000, 0)}K MT</p>
             <div className="space-y-1.5">
                 {sources.slice(0, 4).map((src) => (
                     <div key={src.id} className="flex items-center justify-between text-xs">
                         <span className="text-muted-foreground truncate max-w-[60%]">{src.name}</span>
-                        <span className="font-semibold">{(src.stock_available / 1000).toFixed(0)}K MT</span>
+                        <span className="font-semibold">{safeFmt(src.stock_available / 1000, 0)}K MT</span>
                     </div>
                 ))}
             </div>
@@ -518,21 +521,21 @@ export default function DashboardPage() {
 
     // Revenue from completed + active shipments (deals in execution)
     const revenueShipments = allActiveShipments;
-    const totalRevenue = revenueShipments.reduce((s, sh) => s + ((sh.quantity_loaded || 0) * (sh.sales_price || 0)), 0);
-    const localRevenue = revenueShipments.filter((sh) => (sh as any).type === "local").reduce((s, sh) => s + ((sh.quantity_loaded || 0) * (sh.sales_price || 0)), 0);
-    const exportRevenue = revenueShipments.filter((sh) => (sh as any).type !== "local").reduce((s, sh) => s + ((sh.quantity_loaded || 0) * (sh.sales_price || 0)), 0);
+    const totalRevenue = revenueShipments.reduce((s, sh) => s + (safeNum(sh.quantity_loaded) * safeNum(sh.sales_price)), 0);
+    const localRevenue = revenueShipments.filter((sh) => (sh as any).type === "local").reduce((s, sh) => s + (safeNum(sh.quantity_loaded) * safeNum(sh.sales_price)), 0);
+    const exportRevenue = revenueShipments.filter((sh) => (sh as any).type !== "local").reduce((s, sh) => s + (safeNum(sh.quantity_loaded) * safeNum(sh.sales_price)), 0);
 
-    const totalQty = revenueShipments.reduce((s, sh) => s + (sh.quantity_loaded || 0), 0);
-    const localQty = revenueShipments.filter((sh) => (sh as any).type === "local").reduce((s, sh) => s + (sh.quantity_loaded || 0), 0);
+    const totalQty = revenueShipments.reduce((s, sh) => s + safeNum(sh.quantity_loaded), 0);
+    const localQty = revenueShipments.filter((sh) => (sh as any).type === "local").reduce((s, sh) => s + safeNum(sh.quantity_loaded), 0);
     const exportQty = totalQty - localQty;
 
     // GP from real margin_mt data
-    const totalGrossProfit = revenueShipments.reduce((s, sh) => s + ((sh.quantity_loaded || 0) * (sh.margin_mt || 0)), 0);
+    const totalGrossProfit = revenueShipments.reduce((s, sh) => s + (safeNum(sh.quantity_loaded) * safeNum(sh.margin_mt)), 0);
     const localGP = localQty > 0
-        ? revenueShipments.filter((sh) => (sh as any).type === "local").reduce((s, sh) => s + (sh.margin_mt || 0), 0) / revenueShipments.filter((sh) => (sh as any).type === "local").length
+        ? revenueShipments.filter((sh) => (sh as any).type === "local").reduce((s, sh) => s + safeNum(sh.margin_mt), 0) / revenueShipments.filter((sh) => (sh as any).type === "local").length
         : 0;
     const exportGP = exportQty > 0
-        ? revenueShipments.filter((sh) => (sh as any).type !== "local").reduce((s, sh) => s + (sh.margin_mt || 0), 0) / revenueShipments.filter((sh) => (sh as any).type !== "local").length
+        ? revenueShipments.filter((sh) => (sh as any).type !== "local").reduce((s, sh) => s + safeNum(sh.margin_mt), 0) / revenueShipments.filter((sh) => (sh as any).type !== "local").length
         : 0;
     const avgGrossProfit = totalQty > 0 ? totalGrossProfit / totalQty : 0;
 
@@ -560,7 +563,7 @@ export default function DashboardPage() {
     });
     const pendingTasks = tasks.filter((t) => t.status === "review").length;
 
-    const formatUSD = (v: number) => `$${(v / 1000).toFixed(0)}K`;
+    const formatUSD = (v: number) => `$${safeFmt(v / 1000, 0)}K`;
 
     return (
         <AppShell>
@@ -621,7 +624,7 @@ export default function DashboardPage() {
                         {/* Top Metrics - Row 1 */}
                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                             {isCeo && <MetricCard label="Total Revenue (USD)" value={formatUSD(totalRevenue)} sub="YTD Confirmed Deals" icon={DollarSign} color="bg-emerald-500/10" delay={1} restricted hasAccess={isCeo} />}
-                            {isCeo && <MetricCard label="Gross Profit (USD)" value={formatUSD(totalGrossProfit)} sub={`$${avgGrossProfit.toFixed(2)}/MT avg`} icon={TrendingUp} color="bg-violet-500/10" delay={2} restricted hasAccess={isCeo} />}
+                            {isCeo && <MetricCard label="Gross Profit (USD)" value={formatUSD(totalGrossProfit)} sub={`$${safeFmt(avgGrossProfit)}/MT avg`} icon={TrendingUp} color="bg-violet-500/10" delay={2} restricted hasAccess={isCeo} />}
                             <MetricCard label="Active Deals" value={preSaleCount + confirmedCount + forecastCount} sub={`${confirmedCount} confirmed · ${preSaleCount} pre-sale`} icon={BarChart3} color="bg-blue-500/10" delay={isCeo ? 3 : 1} />
                             <MetricCard label="Active Shipments" value={activeShipmentsList.length} sub={`${pendingTasks} tasks pending`} icon={Ship} color="bg-amber-500/10" delay={isCeo ? 4 : 2} />
                         </div>
@@ -632,9 +635,9 @@ export default function DashboardPage() {
                                 <SmallStat label="Revenue Local" value={formatUSD(localRevenue)} color="text-blue-500" />
                                 <SmallStat label="Revenue Export" value={formatUSD(exportRevenue)} color="text-violet-500" />
                                 <SmallStat label="GP Total" value={formatUSD(totalGrossProfit)} color="text-emerald-500" />
-                                <SmallStat label="GP Local/MT" value={`$${localGP.toFixed(2)}`} color="text-emerald-500" />
-                                <SmallStat label="GP Export/MT" value={`$${exportGP.toFixed(2)}`} color="text-emerald-500" />
-                                <SmallStat label="GP Total/MT" value={`$${avgGrossProfit.toFixed(2)}`} color="text-emerald-600" />
+                                <SmallStat label="GP Local/MT" value={`$${safeFmt(localGP)}`} color="text-emerald-500" />
+                                <SmallStat label="GP Export/MT" value={`$${safeFmt(exportGP)}`} color="text-emerald-500" />
+                                <SmallStat label="GP Total/MT" value={`$${safeFmt(avgGrossProfit)}`} color="text-emerald-600" />
                             </div>
                         )}
 

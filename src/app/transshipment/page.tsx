@@ -10,6 +10,9 @@ import { SHIPMENT_STATUSES } from "@/lib/constants";
 import { ReportModal } from "@/components/shared/report-modal";
 import { AIAgent } from "@/lib/ai-agent";
 
+const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
+const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
+
 export default function TransshipmentPage() {
     const { shipments } = useCommercialStore();
     const [activeView, setActiveView] = React.useState<"card" | "list">("card");
@@ -117,8 +120,8 @@ Give a 3-sentence mitigation recommendation focusing on route weather, bunker pr
                     <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 relative z-10 mt-6">
                         {[
                             { label: "Total Shipments", value: stats.total.toLocaleString(), color: "text-blue-500", bg: "bg-blue-500/20", icon: Package },
-                            { label: "Total Revenue", value: `$${(stats.revenue / 1000000).toFixed(2)}M`, color: "text-emerald-500", bg: "bg-emerald-500/20", icon: DollarSign },
-                            { label: "Gross Profit", value: `$${(stats.gp / 1000000).toFixed(2)}M`, color: "text-emerald-500", bg: "bg-emerald-500/20", icon: TrendingUp },
+                            { label: "Total Revenue", value: `$${safeFmt(stats.revenue / 1000000)}M`, color: "text-emerald-500", bg: "bg-emerald-500/20", icon: DollarSign },
+                            { label: "Gross Profit", value: `$${safeFmt(stats.gp / 1000000)}M`, color: "text-emerald-500", bg: "bg-emerald-500/20", icon: TrendingUp },
                             { label: "In Transit", value: stats.inTransit, color: "text-purple-500", bg: "bg-purple-500/20", icon: Ship },
                             { label: "Completed", value: stats.completed, color: "text-emerald-500", bg: "bg-emerald-500/20", icon: CheckCircle2 },
                         ].map((metric, i) => {

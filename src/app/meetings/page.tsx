@@ -9,7 +9,7 @@ import { MeetingItem } from "@/types";
 import { Calendar, Plus, Users, MapPin, FileText, Download, X, Play, Mic, Upload, Wand2, Search, Filter, Loader2, FileAudio, CheckCircle2, Video } from "lucide-react";
 import { useTaskStore } from "@/store/task-store";
 import { AIAgent } from "@/lib/ai-agent";
-import jsPDF from "jspdf";
+import { jsPDF } from "jspdf";
 
 export default function MeetingsPage() {
     const { meetings, addMeeting, updateMeeting } = useCommercialStore();

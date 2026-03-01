@@ -6,8 +6,15 @@ import { useCommercialStore } from "@/store/commercial-store";
 import { KYC_STATUSES, PSI_STATUSES } from "@/lib/constants";
 import { cn, generateId } from "@/lib/utils";
 import { SourceSupplier, CoalSpec } from "@/types";
-import { Factory, Search, Plus, X, MapPin, Shield, FlaskConical, LayoutGrid, List, AlertTriangle, TrendingUp, Ship, Navigation, Truck, Settings, Download } from "lucide-react";
+import {
+    MapPin, Package, Download, Plus, Search, Filter,
+    Anchor, Ship, MoreVertical, LayoutGrid, List, AlertTriangle, TrendingUp, TrendingDown,
+    Building2, Users, FileSignature, Factory, X, Navigation, Truck, Settings, Shield, FlaskConical
+} from "lucide-react";
 import { ReportModal } from "@/components/shared/report-modal";
+
+const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
+const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 const emptySource: Partial<SourceSupplier> = {
     name: "", region: "", calorie_range: "",
@@ -107,7 +114,7 @@ export default function SourcesPage() {
                         </div>
                         <div className="bg-background/60 p-4 rounded-xl border border-border/50 text-center">
                             <p className="text-[10px] font-semibold text-muted-foreground uppercase">Avg Stock / Origin</p>
-                            <p className="text-2xl font-bold mt-2 text-blue-500">{sources.length > 0 ? (sources.reduce((a, b) => a + b.stock_available, 0) / sources.length / 1000).toFixed(1) : 0}K</p>
+                            <p className="text-2xl font-bold mt-2 text-blue-500">{sources.length > 0 ? safeFmt((sources.reduce((a, b) => a + safeNum(b.stock_available), 0) / sources.length / 1000), 1) : 0}K</p>
                         </div>
                         <div className="col-span-2 bg-background/60 p-4 rounded-xl border border-border/50">
                             <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-2">Top Region Density</p>
@@ -256,9 +263,9 @@ export default function SourcesPage() {
                                                 <td className="px-4 py-3 text-right font-bold text-xs">
                                                     <span className={isLowStock ? "text-amber-500" : "text-foreground"}>{src.stock_available.toLocaleString()}</span>
                                                 </td>
-                                                <td className="px-4 py-3 text-right text-xs font-mono">{src.fob_barge_price_usd ? `$${src.fob_barge_price_usd.toFixed(2)}` : "-"}</td>
+                                                <td className="px-4 py-3 text-right text-xs font-mono">{src.fob_barge_price_usd ? `$${safeFmt(src.fob_barge_price_usd)}` : "-"}</td>
                                                 <td className="px-4 py-3 text-right text-xs">{src.min_stock_alert ? src.min_stock_alert.toLocaleString() : "-"}</td>
-                                                <td className="px-4 py-3 text-right text-xs font-mono text-muted-foreground">{src.fob_barge_price_usd ? `$${(src.fob_barge_price_usd + 2.50).toFixed(2)}` : "-"}</td>
+                                                <td className="px-4 py-3 text-right text-xs font-mono text-muted-foreground">{src.fob_barge_price_usd ? `$${safeFmt(safeNum(src.fob_barge_price_usd) + 2.50)}` : "-"}</td>
                                                 <td className="px-4 py-3 text-[10px]">
                                                     <span className="px-1.5 py-0.5 rounded" style={{ color: psiCfg?.color, backgroundColor: `${psiCfg?.color}15` }}>{psiCfg?.label}</span>
                                                 </td>

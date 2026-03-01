@@ -12,6 +12,9 @@ import {
     Legend, ResponsiveContainer, LineChart, Line,
 } from "recharts";
 
+const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
+const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
+
 export default function ProfitLossPage() {
     const { hasPermission } = useAuthStore();
     const orders = useSalesStore((s) => s.orders);
@@ -36,7 +39,7 @@ export default function ProfitLossPage() {
     const totalRevenue = approvedRevenue.reduce((s, o) => s + o.amount, 0);
     const totalExpense = approvedExpense.reduce((s, p) => s + p.amount, 0);
     const netProfit = totalRevenue - totalExpense;
-    const margin = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : "0";
+    const margin = totalRevenue > 0 ? safeFmt((netProfit / totalRevenue) * 100, 1) : "0";
 
     // Monthly data
     const monthlyData = React.useMemo(() => {
@@ -105,7 +108,7 @@ export default function ProfitLossPage() {
                             <BarChart data={monthlyData}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.1)" />
                                 <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                                <YAxis tickFormatter={(v) => `${(v / 1000000).toFixed(0)}jt`} tick={{ fontSize: 11 }} />
+                                <YAxis tickFormatter={(v) => `${safeFmt(v / 1000000, 0)}jt`} tick={{ fontSize: 11 }} />
                                 <Tooltip formatter={(v: number) => [formatRupiah(v)]} />
                                 <Legend />
                                 <Bar dataKey="revenue" name="Income" fill="#10b981" radius={[4, 4, 0, 0]} />
@@ -123,7 +126,7 @@ export default function ProfitLossPage() {
                             <LineChart data={monthlyData}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.1)" />
                                 <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                                <YAxis tickFormatter={(v) => `${(v / 1000000).toFixed(0)}jt`} tick={{ fontSize: 11 }} />
+                                <YAxis tickFormatter={(v) => `${safeFmt(v / 1000000, 0)}jt`} tick={{ fontSize: 11 }} />
                                 <Tooltip formatter={(v: number) => [formatRupiah(v)]} />
                                 <Line type="monotone" dataKey="profit" name="Net Profit" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 4 }} />
                             </LineChart>

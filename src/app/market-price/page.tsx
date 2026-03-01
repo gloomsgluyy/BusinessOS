@@ -236,10 +236,10 @@ export default function MarketPricePage() {
                     {changes.map((c) => (
                         <div key={c.label} className="card-elevated p-4 animate-slide-up">
                             <p className="text-[10px] font-semibold text-muted-foreground uppercase">{c.label}</p>
-                            <p className="text-lg font-bold mt-1" style={{ color: c.color }}>${c.val.toFixed(2)}</p>
+                            <p className="text-lg font-bold mt-1" style={{ color: c.color }}>${safeFmt(c.val)}</p>
                             <div className={cn("flex items-center gap-1 text-[10px] mt-0.5", c.diff >= 0 ? "text-emerald-500" : "text-red-500")}>
                                 {c.diff >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                                {c.diff >= 0 ? "+" : ""}{c.diff.toFixed(2)}
+                                {c.diff >= 0 ? "+" : ""}{safeFmt(c.diff)}
                             </div>
                         </div>
                     ))}

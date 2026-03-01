@@ -9,6 +9,9 @@ import { cn, formatRupiah, generateId } from "@/lib/utils";
 import { SALES_DEAL_STATUSES, COUNTRIES } from "@/lib/constants";
 import { SalesDeal } from "@/types";
 
+const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
+const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
+
 export default function SalesPlanPage() {
     const { deals, shipments, addDeal, confirmDeal, deleteDeal } = useCommercialStore();
     const { currentUser, hasPermission } = useAuthStore();
@@ -113,7 +116,7 @@ export default function SalesPlanPage() {
                             <TrendingUp className="w-4 h-4 text-violet-500" />
                             <span className="text-xs font-semibold uppercase">Avg Margin/MT</span>
                         </div>
-                        <p className="text-2xl font-bold font-mono text-violet-400">${Math.max(0, avgMargin).toFixed(2)}</p>
+                        <p className="text-2xl font-bold font-mono text-violet-400">${safeFmt(Math.max(0, avgMargin))}</p>
                     </div>
                 </div>
 
@@ -196,7 +199,7 @@ export default function SalesPlanPage() {
                                             </td>
                                             <td className="px-4 py-3 text-right">
                                                 <span className={cn("font-mono text-xs font-medium", marginMt > 0 ? "text-emerald-500" : "text-red-500")}>
-                                                    ${Math.max(0, marginMt).toFixed(2)}
+                                                    ${safeFmt(Math.max(0, marginMt))}
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3 text-xs text-muted-foreground">

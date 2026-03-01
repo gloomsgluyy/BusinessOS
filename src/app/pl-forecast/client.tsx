@@ -8,7 +8,10 @@ import { useRouter } from "next/navigation";
 import { DollarSign, TrendingUp, TrendingDown, ArrowRight, Activity, Percent, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const formatCurrency = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
+const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
+
+const formatCurrency = (n: number) => `$${safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
 export default function PLForecastClient() {
     const { hasRole } = useAuthStore();
@@ -110,7 +113,7 @@ export default function PLForecastClient() {
                         </div>
                         <div className="card-elevated p-4 border-border/50">
                             <p className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-1.5"><Percent className="w-3.5 h-3.5" /> Overall Global Margin</p>
-                            <p className={cn("text-2xl font-bold mt-1", overallMargin >= 0 ? "text-emerald-500" : "text-red-500")}>{overallMargin.toFixed(2)}% </p>
+                            <p className={cn("text-2xl font-bold mt-1", overallMargin >= 0 ? "text-emerald-500" : "text-red-500")}>{safeFmt(overallMargin)}% </p>
                         </div>
                     </div>
                 )}
@@ -157,7 +160,7 @@ export default function PLForecastClient() {
                                 </div>
                                 <div className={cn("mt-4 p-3 rounded-xl border text-center", liveProfit >= 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600" : "bg-red-500/10 border-red-500/20 text-red-600")}>
                                     <p className="text-[10px] font-semibold uppercase tracking-wider mb-1">Projected Margin</p>
-                                    <p className="text-2xl font-bold">{liveMargin.toFixed(2)}%</p>
+                                    <p className="text-2xl font-bold">{safeFmt(liveMargin)}%</p>
                                 </div>
                             </div>
                         </div>
@@ -197,8 +200,7 @@ export default function PLForecastClient() {
                                         <td className="px-4 py-2 text-right text-sm font-mono">{f.quantity.toLocaleString()}</td>
                                         <td className="px-4 py-2 text-right text-sm font-mono">{formatCurrency(revenue)}</td>
                                         <td className="px-4 py-2 text-right text-sm font-mono text-rose-500">{formatCurrency(cogs)}</td>
-                                        <td className={cn("px-4 py-2 text-right text-sm font-mono font-bold", isProfitable ? "text-emerald-500" : "text-red-500")}>{formatCurrency(profit)}</td>
-                                        <td className="px-4 py-2 text-right text-xs font-bold" style={{ color: isProfitable ? "#10b981" : "#ef4444" }}>{margin.toFixed(2)}%</td>
+                                        <td className="px-4 py-2 text-right text-xs font-bold" style={{ color: isProfitable ? "#10b981" : "#ef4444" }}>{safeFmt(margin)}%</td>
                                     </tr>
                                 );
                             })}

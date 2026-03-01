@@ -15,6 +15,9 @@ import { AIAgent } from "@/lib/ai-agent";
 import { ReportModal } from "@/components/shared/report-modal";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts";
 
+const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
+const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
+
 export default function ShipmentMonitorPage() {
     const { shipments, marketPrices, sources, updateShipment, deleteShipment } = useCommercialStore();
     const [mainTab, setMainTab] = React.useState<"Shipments" | "Route Optimizer" | "Import Data" | "Analytics" | "Risk Assessment">("Shipments");
@@ -117,9 +120,9 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
         loading: shipments.filter(s => s.status === "loading" || s.status === "waiting_loading").length,
         intransit: shipments.filter(s => s.status === "in_transit" || s.status === "anchorage" || s.status === "discharging").length,
         completed: shipments.filter(s => s.status === "completed").length,
-        revenue: shipments.reduce((sum, s) => sum + ((s.quantity_loaded || 0) * (s.sales_price || 0)), 0),
-        gp: shipments.reduce((sum, s) => sum + ((s.quantity_loaded || 0) * (s.margin_mt || 0)), 0),
-        volume: shipments.reduce((sum, s) => sum + (s.quantity_loaded || 0), 0)
+        revenue: shipments.reduce((sum, s) => sum + (safeNum(s.quantity_loaded) * safeNum(s.sales_price)), 0),
+        gp: shipments.reduce((sum, s) => sum + (safeNum(s.quantity_loaded) * safeNum(s.margin_mt)), 0),
+        volume: shipments.reduce((sum, s) => sum + safeNum(s.quantity_loaded), 0)
     };
 
     return (
@@ -184,12 +187,12 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                     </div>
                     <div className="flex flex-wrap gap-3 flex-1 md:justify-end">
                         {latestPrice ? [
-                            { name: "ICI 1", val: `$${latestPrice.ici_1.toFixed(2)}` },
-                            { name: "ICI 2", val: `$${latestPrice.ici_2.toFixed(2)}` },
-                            { name: "ICI 3", val: `$${latestPrice.ici_3.toFixed(2)}` },
-                            { name: "ICI 4", val: `$${latestPrice.ici_4.toFixed(2)}` },
-                            { name: "Newcastle", val: `$${latestPrice.newcastle.toFixed(2)}` },
-                            { name: "HBA", val: `$${latestPrice.hba.toFixed(2)}` },
+                            { name: "ICI 1", val: `$${safeFmt(latestPrice.ici_1)}` },
+                            { name: "ICI 2", val: `$${safeFmt(latestPrice.ici_2)}` },
+                            { name: "ICI 3", val: `$${safeFmt(latestPrice.ici_3)}` },
+                            { name: "ICI 4", val: `$${safeFmt(latestPrice.ici_4)}` },
+                            { name: "Newcastle", val: `$${safeFmt(latestPrice.newcastle)}` },
+                            { name: "HBA", val: `$${safeFmt(latestPrice.hba)}` },
                         ].map((idx, i) => (
                             <div key={i} className="bg-background/50 px-3 py-1.5 rounded-lg border border-border/30 flex flex-col min-w-[100px] shadow-sm">
                                 <span className="text-[10px] text-muted-foreground uppercase">{idx.name}</span>
@@ -330,7 +333,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                     </div>
                                                     <div>
                                                         <p className="text-muted-foreground text-[10px] uppercase">Margin</p>
-                                                        <p className="font-medium text-emerald-500 font-mono">{sh.margin_mt ? `$${sh.margin_mt.toFixed(2)}` : "-"}</p>
+                                                        <p className="font-medium text-emerald-500 font-mono">{sh.margin_mt ? `$${safeFmt(sh.margin_mt)}` : "-"}</p>
                                                     </div>
                                                 </div>
                                             </div>
@@ -381,11 +384,11 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                             <td className="px-4 py-3 font-medium text-xs text-primary">{sh.shipment_number}</td>
                                                             <td className="px-4 py-3 text-xs">{sh.buyer}</td>
                                                             <td className="px-4 py-3 text-xs text-muted-foreground">{sh.discharge_port || "-"}</td>
-                                                            <td className="px-4 py-3 text-right text-xs font-semibold">{sh.quantity_loaded ? sh.quantity_loaded.toLocaleString() : "-"}</td>
+                                                            <td className="px-4 py-3 text-right text-xs font-semibold">{sh.quantity_loaded ? safeNum(sh.quantity_loaded).toLocaleString() : "-"}</td>
                                                             <td className="px-4 py-3 text-xs">{sh.vessel_name || sh.barge_name || "-"}</td>
                                                             <td className="px-4 py-3 text-[10px] text-muted-foreground">{sh.bl_date || "-"}</td>
-                                                            <td className="px-4 py-3 text-right text-xs font-mono">{sh.sales_price ? `$${sh.sales_price.toFixed(2)}` : "-"}</td>
-                                                            <td className="px-4 py-3 text-right text-xs font-mono font-medium text-emerald-500">{sh.margin_mt ? `$${sh.margin_mt.toFixed(2)}` : "-"}</td>
+                                                            <td className="px-4 py-3 text-right text-xs font-mono">{sh.sales_price ? `$${safeFmt(sh.sales_price)}` : "-"}</td>
+                                                            <td className="px-4 py-3 text-right text-xs font-mono font-medium text-emerald-500">{sh.margin_mt ? `$${safeFmt(sh.margin_mt)}` : "-"}</td>
                                                             <td className="px-4 py-3">
                                                                 <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
                                                                     {stCfg?.label}
@@ -787,10 +790,10 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                     <DollarSign className="w-4 h-4 text-muted-foreground" /> Financial
                                                 </h4>
                                                 <div className="space-y-4 text-sm mt-auto">
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Sales Price:</span><span className="font-semibold text-blue-500 text-right">${detailShipment.sales_price || "0"}/MT</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Cost:</span><span className="font-semibold text-foreground text-right">${(detailShipment.sales_price || 0) - (detailShipment.margin_mt || 0)}/MT</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Margin:</span><span className="font-bold text-emerald-500 text-right">${detailShipment.margin_mt || "0"}/MT</span></div>
-                                                    <div className="flex justify-between items-center mt-2 pt-3 border-t border-border/40"><span className="text-muted-foreground">Total Revenue:</span><span className="font-bold text-foreground text-right text-base">${((detailShipment.sales_price || 0) * (detailShipment.quantity_loaded || 0)).toLocaleString()}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Sales Price:</span><span className="font-semibold text-blue-500 text-right">${safeNum(detailShipment.sales_price) || "0"}/MT</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Cost:</span><span className="font-semibold text-foreground text-right">${safeFmt(safeNum(detailShipment.sales_price) - safeNum(detailShipment.margin_mt))}/MT</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Margin:</span><span className="font-bold text-emerald-500 text-right">${safeNum(detailShipment.margin_mt) || "0"}/MT</span></div>
+                                                    <div className="flex justify-between items-center mt-2 pt-3 border-t border-border/40"><span className="text-muted-foreground">Total Revenue:</span><span className="font-bold text-foreground text-right text-base">${(safeNum(detailShipment.sales_price) * safeNum(detailShipment.quantity_loaded)).toLocaleString()}</span></div>
                                                 </div>
                                             </div>
                                         </div>
