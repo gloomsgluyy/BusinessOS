@@ -12,8 +12,10 @@ const prisma = new PrismaClient();
 let isSyncing = false;
 
 async function getSheets() {
-    const creds = process.env.GOOGLE_SHEETS_CREDENTIALS;
+    let creds = process.env.GOOGLE_SHEETS_CREDENTIALS;
     if (!creds) throw new Error("GOOGLE_SHEETS_CREDENTIALS missing");
+    // Strip surrounding single/double quotes (common Linux .env format issue)
+    creds = creds.trim().replace(/^'([\s\S]*)'$/, '$1').replace(/^"([\s\S]*)"$/, '$1');
     const auth = new google.auth.GoogleAuth({
         credentials: JSON.parse(creds),
         scopes: ["https://www.googleapis.com/auth/spreadsheets"],

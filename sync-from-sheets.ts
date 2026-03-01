@@ -7,8 +7,10 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 async function getSheets() {
-    const credentials = process.env.GOOGLE_SHEETS_CREDENTIALS;
+    let credentials = process.env.GOOGLE_SHEETS_CREDENTIALS;
     if (!credentials) throw new Error("GOOGLE_SHEETS_CREDENTIALS not set in .env");
+    // Strip surrounding single quotes if present (e.g. from .env file format on Linux VPS)
+    credentials = credentials.trim().replace(/^'([\s\S]*)'$/, '$1').replace(/^"([\s\S]*)"$/, '$1');
     const auth = new google.auth.GoogleAuth({
         credentials: JSON.parse(credentials),
         scopes: ["https://www.googleapis.com/auth/spreadsheets"],
