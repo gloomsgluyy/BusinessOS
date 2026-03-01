@@ -1,0 +1,10 @@
+node_modules/
+.next/
+out/
+build/
+.env*.local
+.DS_Store
+fix_*.js
+rewrite_*.js
+test_*.js
+/generated/prisma

@@ -1,0 +1,82 @@
+﻿
+> business-os@1.0.0 build
+> next build
+
+  Γû▓ Next.js 14.2.35
+  - Environments: .env.local, .env
+
+   Creating an optimized production build ...
+ Γ£ô Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+node.exe : 
+PrismaClientInitializationError: 
+`PrismaClient` needs to be constructed 
+with a non-empty, valid 
+`PrismaClientOptions`:
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" 
+"C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified 
+   : (PrismaClientIni...ClientOptions`::S  
+  tring) [], RemoteException
+    + FullyQualifiedErrorId : NativeComman 
+   dError
+ 
+
+```
+new PrismaClient({
+  ...
+})
+```
+
+or
+
+```
+constructor() {
+  super({ ... });
+}
+```
+          
+    at new t (C:\Users\Glooms\Downloads\11G
+AWE\node_modules\@prisma\client\runtime\cli
+ent.js:70:960)
+    at 20728 (C:\Users\Glooms\Downloads\11G
+AWE\.next\server\app\api\memory\sources\rou
+te.js:1:6806)
+    at t (C:\Users\Glooms\Downloads\11GAWE\
+.next\server\webpack-runtime.js:1:143)
+    at 58657 (C:\Users\Glooms\Downloads\11G
+AWE\.next\server\app\api\memory\sources\rou
+te.js:1:5712)
+    at t (C:\Users\Glooms\Downloads\11GAWE\
+.next\server\webpack-runtime.js:1:143)
+    at 4764 (C:\Users\Glooms\Downloads\11GA
+WE\.next\server\app\api\memory\sources\rout
+e.js:1:1214)
+    at t (C:\Users\Glooms\Downloads\11GAWE\
+.next\server\webpack-runtime.js:1:143)
+    at t (C:\Users\Glooms\Downloads\11GAWE\
+.next\server\app\api\memory\sources\route.j
+s:1:6891)
+    at C:\Users\Glooms\Downloads\11GAWE\.ne
+xt\server\app\api\memory\sources\route.js:1
+:6929
+    at t.X (C:\Users\Glooms\Downloads\11GAW
+E\.next\server\webpack-runtime.js:1:1285) {
+  clientVersion: '7.4.2',
+  errorCode: undefined,
+  retryable: undefined
+}
+
+> Build error occurred
+Error: Failed to collect page data for 
+/api/memory/sources
+    at C:\Users\Glooms\Downloads\11GAWE\nod
+e_modules\next\dist\build\utils.js:1269:15
+    at process.processTicksAndRejections 
+(node:internal/process/task_queues:103:5) {
+  type: 'Error'
+}

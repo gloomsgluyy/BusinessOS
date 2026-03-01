@@ -1,0 +1,10 @@
+﻿src/app/api/memory/market-prices/route.ts(2,34): error TS2307: Cannot find module 'next/auth' or its corresponding type declarations.
+src/app/api/memory/meetings/route.ts(2,34): error TS2307: Cannot find module 'next/auth' or its corresponding type declarations.
+src/app/api/memory/pl-forecasts/route.ts(2,34): error TS2307: Cannot find module 'next/auth' or its corresponding type declarations.
+src/app/api/memory/purchases/route.ts(2,34): error TS2307: Cannot find module 'next/auth' or its corresponding type declarations.
+src/app/api/memory/quality/route.ts(2,34): error TS2307: Cannot find module 'next/auth' or its corresponding type declarations.
+src/app/api/memory/sales-deals/route.ts(2,34): error TS2307: Cannot find module 'next/auth' or its corresponding type declarations.
+src/app/api/memory/sales-orders/route.ts(2,34): error TS2307: Cannot find module 'next/auth' or its corresponding type declarations.
+src/app/api/memory/shipments/route.ts(2,34): error TS2307: Cannot find module 'next/auth' or its corresponding type declarations.
+src/app/api/memory/sources/route.ts(2,34): error TS2307: Cannot find module 'next/auth' or its corresponding type declarations.
+src/app/api/memory/tasks/route.ts(2,34): error TS2307: Cannot find module 'next/auth' or its corresponding type declarations.
