@@ -27,15 +27,5 @@ export default withAuth(
 )
 
 export const config = {
-    matcher: [
-        "/dashboard/:path*",
-        "/projects/:path*",
-        "/meeting/:path*",
-        "/tasks/:path*",
-        "/shipment-mgmt/:path*",
-        "/shipment-monitor/:path*",
-        "/sales-monitor/:path*",
-        "/sales-plan/:path*",
-        "/market-price/:path*"
-    ]
+    matcher: ["/((?!api/whatsapp|_next/static|_next/image|favicon.ico|login).*)"],
 }
