@@ -245,7 +245,7 @@ export function Header() {
 
 
 
-                {/* Role switcher */}
+                {/* Profile Dropdown */}
                 <div className="relative">
                     <button
                         onClick={() => setRoleOpen(!roleOpen)}
@@ -264,7 +264,18 @@ export function Header() {
                     {roleOpen && (
                         <>
                             <div className="fixed inset-0 z-50" onClick={() => setRoleOpen(false)} />
-                            <div className="absolute right-0 top-full mt-2 w-56 bg-card border border-border shadow-lg rounded-xl z-50 py-1.5 animate-scale-in">
+                            <div className="absolute right-0 top-full mt-2 w-48 bg-card border border-border shadow-lg rounded-xl z-50 py-1.5 animate-scale-in">
+                                <p className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Account</p>
+
+                                <button
+                                    onClick={() => { setRoleOpen(false); /* Add profile route later if needed */ }}
+                                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-accent/80 transition-all duration-200 text-foreground"
+                                >
+                                    <span className="font-semibold text-xs ml-1">My Profile</span>
+                                </button>
+
+                                <div className="h-px bg-border my-1" />
+
                                 <button
                                     onClick={() => { signOut(); setRoleOpen(false); }}
                                     className="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-red-500/10 hover:text-red-500 transition-all duration-200 text-muted-foreground"
