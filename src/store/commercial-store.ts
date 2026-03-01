@@ -601,7 +601,8 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         buyer: s.buyer, supplier: s.supplier, is_blending: s.isBlending, iup_op: s.iupOp, vessel_name: s.vesselName,
                         barge_name: s.bargeName, loading_port: s.loadingPort, discharge_port: s.dischargePort, quantity_loaded: s.quantityLoaded,
                         bl_date: s.blDate, eta: s.eta, sales_price: s.salesPrice, margin_mt: s.marginMt, pic_name: s.picName,
-                        milestones: s.milestones ? JSON.parse(s.milestones) : [],
+                        type: s.type || "export",
+                        milestones: Array.isArray(s.milestones) ? s.milestones : [],
                         created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
                     }));
                     updates._rawShipments = mappedShipments;
@@ -651,8 +652,10 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 if (mtgRes.success && mtgRes.meetings) {
                     const mappedMeetings: MeetingItem[] = mtgRes.meetings.map((m: any) => ({
                         id: m.id, title: m.title, date: m.date, time: m.time,
-                        attendees: m.attendees ? JSON.parse(m.attendees) : [], location: m.location,
-                        status: m.status, action_items: m.actionItems ? JSON.parse(m.actionItems) : [],
+                        attendees: Array.isArray(m.attendees) ? m.attendees : [],
+                        location: m.location,
+                        status: m.status,
+                        action_items: Array.isArray(m.actionItems) ? m.actionItems : [],
                         created_by: m.createdBy, created_by_name: m.createdByName,
                         created_at: m.createdAt, updated_at: m.updatedAt, is_deleted: m.isDeleted
                     }));
