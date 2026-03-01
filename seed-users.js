@@ -21,9 +21,7 @@ async function seed() {
                     name: u.name,
                     email: u.email,
                     role: u.role,
-                    password: hashedPassword,
-                    job_title: u.title,
-                    department: u.dept
+                    password: hashedPassword
                 }
             });
             console.log(`Created: ${u.email}`);
