@@ -5,7 +5,6 @@ const { google } = require('googleapis');
 
 const prisma = new PrismaClient();
 
-// Standalone Auth for CLI script
 function getSheets() {
     const credentials = process.env.GOOGLE_SHEETS_CREDENTIALS;
     if (!credentials) throw new Error("GOOGLE_SHEETS_CREDENTIALS not set in .env");
@@ -20,7 +19,7 @@ function getSheets() {
 
 const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_ID || "";
 
-async function fetchTab(tabName: string) {
+async function fetchTab(tabName) {
     const sheets = getSheets();
     try {
         const res = await sheets.spreadsheets.values.get({
@@ -28,199 +27,184 @@ async function fetchTab(tabName: string) {
             range: `${tabName}!A:Z`,
         });
         return res.data.values || [];
-    } catch (e: any) {
+    } catch (e) {
         console.error(`Error fetching Tab ${tabName}:`, e.message || e);
         return [];
     }
 }
 
-function parseDate(dStr?: string) {
+function parseDate(dStr) {
     if (!dStr) return null;
     const d = new Date(dStr);
     return isNaN(d.getTime()) ? null : d;
 }
 
-function parseFloatSafe(nStr?: string) {
+function parseFloatSafe(nStr) {
     if (!nStr) return 0;
-    const n = parseFloat(nStr);
+    const n = parseFloat(nStr.replace(/[^0-9.-]+/g, ""));
     return isNaN(n) ? 0 : n;
 }
 
 async function syncMeetings() {
-    console.log("Syncing Meetings (DB_Meetings)...");
-    const rows = await fetchTab("DB_Meetings");
+    console.log("Syncing Meetings (Meetings)...");
+    const rows = await fetchTab("Meetings");
     if (rows.length <= 1) return;
     const headers = rows[0];
 
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
-        const obj: any = {};
-        headers.forEach((h: string, idx: number) => { obj[h] = row[idx] || ""; });
+        const obj = {};
+        headers.forEach((h, idx) => { obj[h] = row[idx] || ""; });
 
-        if (!obj.id) continue;
+        if (!obj['ID']) continue;
 
         await prisma.meetingItem.upsert({
-            where: { id: obj.id },
+            where: { id: obj['ID'] },
             update: {
-                title: obj.title,
-                date: parseDate(obj.date),
-                time: obj.time,
-                location: obj.location,
-                status: obj.status || "scheduled",
-                attendees: obj.attendees,
-                createdByName: obj.created_by_name,
-                createdBy: obj.created_by || "system"
+                title: obj['Title'],
+                date: parseDate(obj['Date']),
+                time: obj['Time'],
+                location: obj['Location'],
+                status: obj['Status'] || "scheduled",
+                attendees: obj['Attendees'],
+                createdByName: obj['Created By'],
+                createdBy: "system"
             },
             create: {
-                id: obj.id,
-                title: obj.title || "Untitled",
-                date: parseDate(obj.date),
-                time: obj.time,
-                location: obj.location,
-                status: obj.status || "scheduled",
-                attendees: obj.attendees,
-                createdByName: obj.created_by_name,
-                createdBy: obj.created_by || "system",
-                createdAt: parseDate(obj.created_at) || new Date()
+                id: obj['ID'],
+                title: obj['Title'] || "Untitled",
+                date: parseDate(obj['Date']),
+                time: obj['Time'],
+                location: obj['Location'],
+                status: obj['Status'] || "scheduled",
+                attendees: obj['Attendees'],
+                createdByName: obj['Created By'],
+                createdBy: "system"
             }
         });
     }
 }
 
 async function syncTasks() {
-    console.log("Syncing Tasks (DB_Tasks)...");
-    const rows = await fetchTab("DB_Tasks");
+    console.log("Syncing Tasks (Tasks)...");
+    const rows = await fetchTab("Tasks");
     if (rows.length <= 1) return;
     const headers = rows[0];
 
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
-        const obj: any = {};
-        headers.forEach((h: string, idx: number) => { obj[h] = row[idx] || ""; });
+        const obj = {};
+        headers.forEach((h, idx) => { obj[h] = row[idx] || ""; });
 
-        if (!obj.id) continue;
+        if (!obj['ID']) continue;
 
         await prisma.taskItem.upsert({
-            where: { id: obj.id },
+            where: { id: obj['ID'] },
             update: {
-                title: obj.title,
-                description: obj.description,
-                status: obj.status || "todo",
-                priority: obj.priority || "medium",
-                assigneeId: obj.assignee_id,
-                assigneeName: obj.assignee_name,
-                dueDate: parseDate(obj.due_date),
+                title: obj['Title'],
+                description: obj['Description'],
+                status: obj['Status'] || "todo",
+                priority: obj['Priority'] || "medium",
+                assigneeName: obj['Assignee'],
+                dueDate: parseDate(obj['Due Date']),
             },
             create: {
-                id: obj.id,
-                title: obj.title || "Untitled",
-                description: obj.description,
-                status: obj.status || "todo",
-                priority: obj.priority || "medium",
-                assigneeId: obj.assignee_id,
-                assigneeName: obj.assignee_name,
-                dueDate: parseDate(obj.due_date),
-                createdBy: obj.created_by || "system",
-                createdAt: parseDate(obj.created_at) || new Date()
+                id: obj['ID'],
+                title: obj['Title'] || "Untitled",
+                description: obj['Description'],
+                status: obj['Status'] || "todo",
+                priority: obj['Priority'] || "medium",
+                assigneeName: obj['Assignee'],
+                dueDate: parseDate(obj['Due Date']),
+                createdBy: "system"
             }
         });
     }
 }
 
 async function syncSalesOrders() {
-    console.log("Syncing Sales Orders (DB_Sales)...");
-    const rows = await fetchTab("DB_Sales");
+    console.log("Syncing Sales Orders (Sales)...");
+    const rows = await fetchTab("Sales");
     if (rows.length <= 1) return;
     const headers = rows[0];
 
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
-        const obj: any = {};
-        headers.forEach((h: string, idx: number) => { obj[h] = row[idx] || ""; });
+        const obj = {};
+        headers.forEach((h, idx) => { obj[h] = row[idx] || ""; });
 
-        if (!obj.id) continue;
+        if (!obj['ID']) continue;
 
         await prisma.salesOrder.upsert({
-            where: { orderNumber: obj.order_number || obj.id },
+            where: { orderNumber: obj['Order #'] || obj['ID'] },
             update: {
-                client: obj.client,
-                description: obj.description,
-                amount: parseFloatSafe(obj.amount),
-                priority: obj.priority || "medium",
-                status: obj.status || "pending",
-                imageUrl: obj.image_url,
-                createdByName: obj.created_by_name,
-                approvedBy: obj.approved_by,
-                notes: obj.notes,
+                client: obj['Client'],
+                description: obj['Description'],
+                amount: parseFloatSafe(obj['Amount']),
+                priority: obj['Priority'] || "medium",
+                status: obj['Status'] || "pending",
+                imageUrl: obj['Image Preview'],
+                createdByName: obj['Created By']
             },
             create: {
-                id: obj.id,
-                orderNumber: obj.order_number || obj.id,
-                client: obj.client || "Unknown",
-                description: obj.description,
-                amount: parseFloatSafe(obj.amount),
-                priority: obj.priority || "medium",
-                status: obj.status || "pending",
-                imageUrl: obj.image_url,
-                createdByName: obj.created_by_name,
-                createdBy: obj.created_by || "system",
-                approvedBy: obj.approved_by,
-                notes: obj.notes,
-                createdAt: parseDate(obj.created_at) || new Date()
+                id: obj['ID'],
+                orderNumber: obj['Order #'] || obj['ID'],
+                client: obj['Client'] || "Unknown",
+                description: obj['Description'],
+                amount: parseFloatSafe(obj['Amount']),
+                priority: obj['Priority'] || "medium",
+                status: obj['Status'] || "pending",
+                imageUrl: obj['Image Preview'],
+                createdByName: obj['Created By'],
+                createdBy: "system"
             }
         });
     }
 }
 
 async function syncPurchaseRequests() {
-    console.log("Syncing Purchases (DB_Purchases)...");
-    const rows = await fetchTab("DB_Purchases");
+    console.log("Syncing Purchases (Expenses)...");
+    const rows = await fetchTab("Expenses");
     if (rows.length <= 1) return;
     const headers = rows[0];
 
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
-        const obj: any = {};
-        headers.forEach((h: string, idx: number) => { obj[h] = row[idx] || ""; });
+        const obj = {};
+        headers.forEach((h, idx) => { obj[h] = row[idx] || ""; });
 
-        if (!obj.id) continue;
+        if (!obj['ID']) continue;
 
         await prisma.purchaseRequest.upsert({
-            where: { requestNumber: obj.request_number || obj.id },
+            where: { requestNumber: obj['Request #'] || obj['ID'] },
             update: {
-                category: obj.category,
-                supplier: obj.supplier,
-                description: obj.description,
-                amount: parseFloatSafe(obj.amount),
-                priority: obj.priority || "medium",
-                status: obj.status || "pending",
-                imageUrl: obj.image_url,
-                createdByName: obj.created_by_name,
-                approvedBy: obj.approved_by,
-                notes: obj.notes,
+                category: obj['Category'],
+                supplier: obj['Supplier'],
+                description: obj['Description'],
+                amount: parseFloatSafe(obj['Amount']),
+                priority: obj['Priority'] || "medium",
+                status: obj['Status'] || "pending",
+                imageUrl: obj['Image Preview'],
+                createdByName: obj['Created By']
             },
             create: {
-                id: obj.id,
-                requestNumber: obj.request_number || obj.id,
-                category: obj.category || "General",
-                supplier: obj.supplier,
-                description: obj.description,
-                amount: parseFloatSafe(obj.amount),
-                priority: obj.priority || "medium",
-                status: obj.status || "pending",
-                imageUrl: obj.image_url,
-                createdByName: obj.created_by_name,
-                createdBy: obj.created_by || "system",
-                approvedBy: obj.approved_by,
-                notes: obj.notes,
-                createdAt: parseDate(obj.created_at) || new Date()
+                id: obj['ID'],
+                requestNumber: obj['Request #'] || obj['ID'],
+                category: obj['Category'] || "General",
+                supplier: obj['Supplier'],
+                description: obj['Description'],
+                amount: parseFloatSafe(obj['Amount']),
+                priority: obj['Priority'] || "medium",
+                status: obj['Status'] || "pending",
+                imageUrl: obj['Image Preview'],
+                createdByName: obj['Created By'],
+                createdBy: "system"
             }
         });
     }
 }
 
 async function main() {
-    require("dotenv").config();
     console.log("=========================================");
     console.log("Memory B Base Downloader (Google Sheets)");
     console.log("=========================================");
