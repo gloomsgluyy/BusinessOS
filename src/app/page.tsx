@@ -604,7 +604,7 @@ export default function DashboardPage() {
                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fade-in">
                             <div>
                                 <h1 className="text-xl md:text-2xl font-bold">Dashboard</h1>
-                                <p className="text-sm text-muted-foreground">Commercial Team Overview · {currentUser.job_title || currentUser.role}</p>
+                                <p className="text-sm text-muted-foreground">Commercial Team Overview · {currentUser?.job_title || currentUser?.role || "Guest"}</p>
                             </div>
                             <DashboardFilters
                                 range={range} setRange={setRange}
