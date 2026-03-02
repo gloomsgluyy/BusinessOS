@@ -2,6 +2,26 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { syncAllPLForecastToSheet } from "@/app/actions/sheet-actions";
+
+async function pushToSheets() {
+    try {
+        const forecasts = await prisma.pLForecast.findMany({
+            where: { isDeleted: false },
+            orderBy: { createdAt: "desc" }
+        });
+        const formatted = forecasts.map((f: any) => ({
+            id: f.id, project_name: f.projectName, buyer: f.buyer, quantity: f.quantity,
+            selling_price: f.sellingPrice, buying_price: f.buyingPrice,
+            freight_cost: f.freightCost, other_cost: f.otherCost,
+            gross_profit_mt: f.grossProfitMt, total_gross_profit: f.totalGrossProfit,
+            updated_at: f.updatedAt.toISOString()
+        }));
+        await syncAllPLForecastToSheet(formatted);
+    } catch (err) {
+        console.error("Failed to sync PL Forecast to sheets:", err);
+    }
+}
 
 export async function GET() {
     try {
@@ -66,6 +86,8 @@ export async function POST(req: Request) {
             return newForecast;
         });
 
+        await pushToSheets();
+
         return NextResponse.json({ success: true, forecast });
     } catch (error) {
         console.error("POST /api/memory/pl-forecasts error:", error);
@@ -124,6 +146,8 @@ export async function PUT(req: Request) {
             return updatedForecast;
         });
 
+        await pushToSheets();
+
         return NextResponse.json({ success: true, forecast });
     } catch (error) {
         console.error("PUT /api/memory/pl-forecasts error:", error);
@@ -157,6 +181,8 @@ export async function DELETE(req: Request) {
                 }
             });
         });
+
+        pushToSheets();
 
         return NextResponse.json({ success: true });
     } catch (error) {

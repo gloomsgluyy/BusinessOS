@@ -563,7 +563,11 @@ export default function DashboardPage() {
     });
     const pendingTasks = tasks.filter((t) => t.status === "review").length;
 
-    const formatUSD = (v: number) => `$${safeFmt(v / 1000, 0)}K`;
+    const formatUSD = (v: number) => {
+        if (Math.abs(v) >= 1000000) return `$${(v / 1000000).toFixed(2)}M`;
+        if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(2)}K`;
+        return `$${v.toFixed(2)}`;
+    };
 
     return (
         <AppShell>

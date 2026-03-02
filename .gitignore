@@ -8,3 +8,5 @@ fix_*.js
 rewrite_*.js
 test_*.js
 /generated/prisma
+.env
+*.log

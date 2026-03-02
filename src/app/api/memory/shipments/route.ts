@@ -2,6 +2,29 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { syncAllShipmentsToSheet } from "@/app/actions/sheet-actions";
+
+async function pushToSheets() {
+    try {
+        const shipments = await prisma.shipmentDetail.findMany({
+            where: { isDeleted: false },
+            orderBy: { createdAt: "desc" }
+        });
+        const formatted = shipments.map((s: any) => ({
+            id: s.id, shipment_number: s.shipmentNumber, deal_id: s.dealId, status: s.status,
+            buyer: s.buyer, supplier: s.supplier, is_blending: s.isBlending ? "Yes" : "No",
+            iup_op: s.iupOp, vessel_name: s.vesselName, barge_name: s.bargeName,
+            loading_port: s.loadingPort, discharge_port: s.dischargePort,
+            quantity_loaded: s.quantityLoaded, bl_date: s.blDate ? s.blDate.toISOString().split('T')[0] : "",
+            eta: s.eta ? s.eta.toISOString().split('T')[0] : "", sales_price: s.salesPrice,
+            margin_mt: s.marginMt, pic_name: s.picName, type: s.type,
+            created_at: s.createdAt.toISOString(), updated_at: s.updatedAt.toISOString()
+        }));
+        await syncAllShipmentsToSheet(formatted);
+    } catch (err) {
+        console.error("Failed to sync Shipments to sheets:", err);
+    }
+}
 
 export async function GET() {
     try {
@@ -74,6 +97,8 @@ export async function POST(req: Request) {
             return newShipment;
         });
 
+        await pushToSheets();
+
         return NextResponse.json({ success: true, shipment });
     } catch (error) {
         console.error("POST /api/memory/shipments error:", error);
@@ -127,6 +152,8 @@ export async function PUT(req: Request) {
             return updatedShipment;
         });
 
+        await pushToSheets();
+
         return NextResponse.json({ success: true, shipment });
     } catch (error) {
         console.error("PUT /api/memory/shipments error:", error);
@@ -160,6 +187,8 @@ export async function DELETE(req: Request) {
                 }
             });
         });
+
+        await pushToSheets();
 
         return NextResponse.json({ success: true });
     } catch (error) {

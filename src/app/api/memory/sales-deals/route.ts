@@ -2,6 +2,26 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { syncAllProjectsToSheet } from "@/app/actions/sheet-actions";
+
+async function pushToSheets() {
+    try {
+        const deals = await prisma.salesDeal.findMany({
+            where: { isDeleted: false },
+            orderBy: { createdAt: "desc" }
+        });
+        const formatted = deals.map((d: any) => ({
+            id: d.id, buyer: d.buyer, buyer_country: d.buyerCountry, type: d.type,
+            quantity: d.quantity, price_per_mt: d.pricePerMt, total_value: d.totalValue,
+            status: d.status, vessel_name: d.vesselName, laycan_start: d.laycanStart ? d.laycanStart.toISOString().split('T')[0] : "",
+            laycan_end: d.laycanEnd ? d.laycanEnd.toISOString().split('T')[0] : "", pic_name: d.picName,
+            updated_at: d.updatedAt.toISOString()
+        }));
+        await syncAllProjectsToSheet(formatted);
+    } catch (err) {
+        console.error("Failed to sync Sales Deals to sheets:", err);
+    }
+}
 
 export async function GET() {
     try {
@@ -68,6 +88,8 @@ export async function POST(req: Request) {
             return newDeal;
         });
 
+        await pushToSheets();
+
         return NextResponse.json({ success: true, deal });
     } catch (error) {
         console.error("POST /api/memory/sales-deals error:", error);
@@ -122,6 +144,8 @@ export async function PUT(req: Request) {
             return updatedDeal;
         });
 
+        await pushToSheets();
+
         return NextResponse.json({ success: true, deal });
     } catch (error) {
         console.error("PUT /api/memory/sales-deals error:", error);
@@ -155,6 +179,8 @@ export async function DELETE(req: Request) {
                 }
             });
         });
+
+        pushToSheets();
 
         return NextResponse.json({ success: true });
     } catch (error) {

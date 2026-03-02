@@ -36,7 +36,7 @@ export default function MarketPricePage() {
     const [autoScrape, setAutoScrape] = React.useState(true);
     const [scrapeInterval, setScrapeInterval] = React.useState("6_hours");
     const [calc, setCalc] = React.useState({ index: "ici_4", baseAdjust: 0, freight: 0 });
-    const [form, setForm] = React.useState({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, newcastle: 0, hba: 0 });
+    const [form, setForm] = React.useState({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0 });
     const [isScraping, setIsScraping] = React.useState(false);
     const [scrapeLogs, setScrapeLogs] = React.useState<string[]>([]);
     const [lastScrapeTime, setLastScrapeTime] = React.useState<string | null>(null);
@@ -57,16 +57,24 @@ export default function MarketPricePage() {
                 addLog(`ICI 2 (5800): $${p.ici_2}`);
                 addLog(`ICI 3 (5000): $${p.ici_3}`);
                 addLog(`ICI 4 (4200): $${p.ici_4}`);
+                addLog(`ICI 5 (3400): $${p.ici_5}`);
                 addLog(`Newcastle: $${p.newcastle}`);
                 addLog(`HBA: $${p.hba}`);
-                // Check if this date already exists
-                const exists = marketPrices.some(mp => mp.date === p.date);
-                if (!exists) {
-                    addMarketPrice({ date: p.date, ici_1: p.ici_1, ici_2: p.ici_2, ici_3: p.ici_3, ici_4: p.ici_4, newcastle: p.newcastle, hba: p.hba, source: p.source });
-                    addLog("New price entry saved to store & synced.");
-                } else {
-                    addLog("Price for this date already exists. Skipped.");
-                }
+
+                // addMarketPrice now handles upserts locally and on the server
+                await addMarketPrice({
+                    date: p.date,
+                    ici_1: p.ici_1,
+                    ici_2: p.ici_2,
+                    ici_3: p.ici_3,
+                    ici_4: p.ici_4,
+                    ici_5: p.ici_5,
+                    newcastle: p.newcastle,
+                    hba: p.hba,
+                    source: p.source
+                });
+
+                addLog("Market data updated/saved and synced.");
                 setLastScrapeTime(new Date().toLocaleTimeString());
                 addLog("Scraping complete.");
             } else {
@@ -92,12 +100,20 @@ export default function MarketPricePage() {
         return () => { clearTimeout(timeout); clearInterval(interval); };
     }, [autoScrape, scrapeInterval]);
 
-    const data = [...marketPrices].reverse().map((p) => ({
-        date: new Date(p.date).toLocaleDateString("en", { month: "short", day: "numeric" }),
-        "ICI 1 (6500)": p.ici_1, "ICI 2 (5800)": p.ici_2,
-        "ICI 3 (5000)": p.ici_3, "ICI 4 (4200)": p.ici_4,
-        Newcastle: p.newcastle, HBA: p.hba,
-    }));
+    const data = [...marketPrices].reverse().map((p) => {
+        const d = new Date(p.date);
+        return {
+            date: d.toLocaleDateString("en", { month: "short", day: "numeric" }),
+            fullDate: d.toLocaleDateString("en", { day: "2-digit", month: "short", year: "numeric" }),
+            "ICI 1 (6500)": p.ici_1,
+            "ICI 2 (5800)": p.ici_2,
+            "ICI 3 (5000)": p.ici_3,
+            "ICI 4 (4200)": p.ici_4,
+            "ICI 5 (3400)": p.ici_5 || 0,
+            Newcastle: p.newcastle,
+            HBA: p.hba,
+        };
+    });
 
     const latest = marketPrices[0];
     const prev = marketPrices[1];
@@ -106,6 +122,7 @@ export default function MarketPricePage() {
         { label: "ICI 2 (5800)", val: safeNum(latest.ici_2), diff: safeNum(latest.ici_2) - safeNum(prev.ici_2), color: "#f59e0b" },
         { label: "ICI 3 (5000)", val: safeNum(latest.ici_3), diff: safeNum(latest.ici_3) - safeNum(prev.ici_3), color: "#3b82f6" },
         { label: "ICI 4 (4200)", val: safeNum(latest.ici_4), diff: safeNum(latest.ici_4) - safeNum(prev.ici_4), color: "#8b5cf6" },
+        { label: "ICI 5 (3400)", val: safeNum(latest.ici_5), diff: safeNum(latest.ici_5) - safeNum(prev.ici_5), color: "#6366f1" },
         { label: "Newcastle", val: safeNum(latest.newcastle), diff: safeNum(latest.newcastle) - safeNum(prev.newcastle), color: "#ec4899" },
         { label: "HBA", val: safeNum(latest.hba), diff: safeNum(latest.hba) - safeNum(prev.hba), color: "#10b981" },
     ] : [];
@@ -115,9 +132,19 @@ export default function MarketPricePage() {
             alert("Harap pilih tanggal terlebih dahulu");
             return;
         }
-        addMarketPrice({ date: form.date, ici_1: form.ici_1 || 0, ici_2: form.ici_2 || 0, ici_3: form.ici_3 || 0, ici_4: form.ici_4 || 0, ici_5: 0, newcastle: form.newcastle || 0, hba: form.hba || 0, source: "Manual" });
+        addMarketPrice({
+            date: form.date,
+            ici_1: form.ici_1 || 0,
+            ici_2: form.ici_2 || 0,
+            ici_3: form.ici_3 || 0,
+            ici_4: form.ici_4 || 0,
+            ici_5: form.ici_5 || 0,
+            newcastle: form.newcastle || 0,
+            hba: form.hba || 0,
+            source: "Manual"
+        });
         setShowForm(false);
-        setForm({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, newcastle: 0, hba: 0 });
+        setForm({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0 });
     };
 
     if (!mounted) {
@@ -232,7 +259,7 @@ export default function MarketPricePage() {
                 )}
 
                 {/* Price Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
                     {changes.map((c) => (
                         <div key={c.label} className="card-elevated p-4 animate-slide-up">
                             <p className="text-[10px] font-semibold text-muted-foreground uppercase">{c.label}</p>
@@ -262,6 +289,7 @@ export default function MarketPricePage() {
                                     <option value="ici_2">ICI 2 (5800) - ${safeFmt(latest?.ici_2)}</option>
                                     <option value="ici_3">ICI 3 (5000) - ${safeFmt(latest?.ici_3)}</option>
                                     <option value="ici_4">ICI 4 (4200) - ${safeFmt(latest?.ici_4)}</option>
+                                    <option value="ici_5">ICI 5 (3400) - ${safeFmt(latest?.ici_5)}</option>
                                     <option value="newcastle">Newcastle - ${safeFmt(latest?.newcastle)}</option>
                                     <option value="hba">HBA - ${safeFmt(latest?.hba)}</option>
                                 </select>
@@ -304,6 +332,7 @@ export default function MarketPricePage() {
                                     <Line type="monotone" dataKey="ICI 2 (5800)" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
                                     <Line type="monotone" dataKey="ICI 3 (5000)" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
                                     <Line type="monotone" dataKey="ICI 4 (4200)" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                                    <Line type="monotone" dataKey="ICI 5 (3400)" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} />
                                     <Line type="monotone" dataKey="Newcastle" stroke="#ec4899" strokeWidth={2} dot={{ r: 3 }} />
                                     <Bar dataKey="HBA" fill="#10b98130" stroke="#10b981" strokeWidth={1} barSize={20} radius={[4, 4, 0, 0]} />
                                 </ComposedChart>
@@ -319,7 +348,7 @@ export default function MarketPricePage() {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                             <div><label className="text-[10px] font-semibold text-muted-foreground uppercase">Date</label>
                                 <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-accent/50 border border-border text-sm outline-none focus:border-primary/50" /></div>
-                            {[["ICI 1", "ici_1"], ["ICI 2", "ici_2"], ["ICI 3", "ici_3"], ["ICI 4", "ici_4"], ["Newcastle", "newcastle"], ["HBA", "hba"]].map(([label, key]) => (
+                            {[["ICI 1", "ici_1"], ["ICI 2", "ici_2"], ["ICI 3", "ici_3"], ["ICI 4", "ici_4"], ["ICI 5", "ici_5"], ["Newcastle", "newcastle"], ["HBA", "hba"]].map(([label, key]) => (
                                 <div key={key}><label className="text-[10px] font-semibold text-muted-foreground uppercase">{label} (USD)</label>
                                     <input type="number" step="0.01" value={(form as any)[key] || ""} onChange={(e) => setForm({ ...form, [key]: +e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-accent/50 border border-border text-sm outline-none focus:border-primary/50" /></div>
                             ))}
@@ -335,7 +364,7 @@ export default function MarketPricePage() {
                 <div className="card-elevated overflow-hidden animate-slide-up delay-3">
                     <table className="w-full text-sm">
                         <thead><tr className="border-b border-border bg-accent/30">
-                            {["Date", "ICI 1", "ICI 2", "ICI 3", "ICI 4", "Newcastle", "HBA"].map((h) => (
+                            {["Date", "ICI 1", "ICI 2", "ICI 3", "ICI 4", "ICI 5", "Newcastle", "HBA"].map((h) => (
                                 <th key={h} className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase first:text-left">{h}</th>
                             ))}
                         </tr></thead>
@@ -347,6 +376,7 @@ export default function MarketPricePage() {
                                     <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_2)}</td>
                                     <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_3)}</td>
                                     <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_4)}</td>
+                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_5)}</td>
                                     <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.newcastle)}</td>
                                     <td className="px-4 py-2.5 text-xs text-right font-mono font-bold">${safeFmt(p.hba)}</td>
                                 </tr>

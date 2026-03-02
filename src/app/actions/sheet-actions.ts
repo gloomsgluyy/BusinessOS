@@ -15,6 +15,7 @@ const SHEET_MEETINGS = "Meetings";
 const SHEET_PL_FORECAST = "P&L Forecast";
 const SHEET_PROJECTS = "Projects";
 const SHEET_PARTNERS = "Partners";
+const SHEET_BLENDING = "Blending";
 
 // Headers — EVERY header ends with "Updated At" so sync can track timestamps
 const TASK_HEADERS = ["ID", "Title", "Description", "Status", "Priority", "Assignee", "Due Date", "Image Preview", "Updated At"];
@@ -24,11 +25,12 @@ const EXPENSE_HEADERS = ["ID", "Request #", "Date", "Category", "Supplier", "Des
 const SHIPMENT_HEADERS = ["ID", "Shipment #", "Deal ID", "Status", "Buyer", "Supplier", "Is Blending", "IUP OP", "Vessel Name", "Barge Name", "Loading Port", "Discharge Port", "Qty Loaded (MT)", "BL Date", "ETA", "Sales Price", "Margin/MT", "PIC", "Type", "Milestones", "Created At", "Updated At"];
 const SOURCE_HEADERS = ["ID", "Name", "Region", "Calorie Range", "GAR", "TS", "Ash", "TM", "Jetty Port", "Anchorage", "Stock Available", "Min Stock Alert", "KYC Status", "PSI Status", "FOB Barge Only", "Price Linked Index", "FOB Barge Price (USD)", "Contract Type", "PIC", "IUP Number", "Updated At"];
 const QUALITY_HEADERS = ["ID", "Cargo ID", "Cargo Name", "Surveyor", "Sampling Date", "GAR", "TS", "Ash", "TM", "Status", "Updated At"];
-const MARKET_PRICE_HEADERS = ["ID", "Date", "ICI 1", "ICI 2", "ICI 3", "ICI 4", "Newcastle", "HBA", "Source", "Updated At"];
+const MARKET_PRICE_HEADERS = ["ID", "Date", "ICI 1", "ICI 2", "ICI 3", "ICI 4", "ICI 5", "Newcastle", "HBA", "Source", "Updated At"];
 const MEETING_HEADERS = ["ID", "Title", "Date", "Time", "Location", "Status", "Attendees", "Created By", "Updated At"];
 const PL_FORECAST_HEADERS = ["ID", "Project / Buyer", "Quantity", "Selling Price", "Buying Price", "Freight Cost", "Other Cost", "Gross Profit / MT", "Total Gross Profit", "Updated At"];
 const PROJECT_HEADERS = ["ID", "Buyer", "Country", "Type", "Quantity (MT)", "Price/MT", "Total Value", "Status", "Vessel", "Laycan Start", "Laycan End", "PIC", "Updated At"];
 const PARTNERS_HEADERS = ["ID", "Name", "Type", "Category", "Contact Person", "Phone", "Email", "Address", "City", "Country", "Tax ID", "Status", "Notes", "Updated At"];
+const BLENDING_HEADERS = ["ID", "Inputs", "Total Qty", "Result GAR", "Result TS", "Result Ash", "Result TM", "Created By", "Created At"];
 
 // Helper to get Auth
 function getAuth() {
@@ -389,12 +391,12 @@ export async function syncAllMarketPriceToSheet(prices: any[]) {
         const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
 
         const rows = prices.map(m => [
-            m.id, m.date || "-", m.ici_1 || 0, m.ici_2 || 0, m.ici_3 || 0, m.ici_4 || 0,
+            m.id, m.date || "-", m.ici_1 || 0, m.ici_2 || 0, m.ici_3 || 0, m.ici_4 || 0, m.ici_5 || 0,
             m.newcastle || 0, m.hba || 0, m.source || "-",
             m.updated_at || new Date().toISOString()
         ]);
 
-        await sheets.spreadsheets.values.clear({ spreadsheetId, range: `${SHEET_MARKET_PRICE}!A2:J1000` });
+        await sheets.spreadsheets.values.clear({ spreadsheetId, range: `${SHEET_MARKET_PRICE}!A2:K1000` });
         if (rows.length > 0) {
             await sheets.spreadsheets.values.update({
                 spreadsheetId, range: `${SHEET_MARKET_PRICE}!A2`, valueInputOption: "USER_ENTERED", requestBody: { values: rows }
@@ -510,6 +512,35 @@ export async function syncAllPurchasesToSheet(purchases: any[]) {
         return { success: true };
     } catch (e) {
         console.error("Sync Purchases To Sheet Error:", e);
+        return { success: false };
+    }
+}
+
+/**
+ * Sync All Blending TO Sheet
+ */
+export async function syncAllBlendingToSheet(simulations: any[]) {
+    try {
+        const auth = getAuth();
+        const sheets = google.sheets({ version: "v4", auth });
+        const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
+
+        const rows = simulations.map(s => [
+            s.id, s.inputs || "[]", s.totalQuantity || 0, s.resultGar || 0,
+            s.resultTs || 0, s.resultAsh || 0, s.resultTm || 0,
+            s.createdBy || "-", s.createdAt || new Date().toISOString()
+        ]);
+
+        await sheets.spreadsheets.values.clear({ spreadsheetId, range: `${SHEET_BLENDING}!A2:I1000` });
+        if (rows.length > 0) {
+            await sheets.spreadsheets.values.update({
+                spreadsheetId, range: `${SHEET_BLENDING}!A2`, valueInputOption: "USER_ENTERED", requestBody: { values: rows }
+            });
+        }
+        console.log(`Pushed ${rows.length} blending simulations to sheet.`);
+        return { success: true };
+    } catch (e) {
+        console.error("Sync Blending To Sheet Error:", e);
         return { success: false };
     }
 }

@@ -2,6 +2,25 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { syncTasksToSheet } from "@/app/actions/sheet-actions";
+
+async function pushToSheets() {
+    try {
+        const tasks = await prisma.taskItem.findMany({
+            where: { isDeleted: false },
+            orderBy: { createdAt: "desc" }
+        });
+        const formatted = tasks.map((t: any) => ({
+            id: t.id, title: t.title, description: t.description, status: t.status,
+            priority: t.priority, assignee_id: t.assigneeId,
+            due_date: t.dueDate ? t.dueDate.toISOString().split('T')[0] : "",
+            updated_at: t.updatedAt.toISOString()
+        }));
+        await syncTasksToSheet(formatted as any);
+    } catch (err) {
+        console.error("Failed to sync Tasks to sheets:", err);
+    }
+}
 
 export async function GET() {
     try {
@@ -55,6 +74,8 @@ export async function POST(req: Request) {
             return newTask;
         });
 
+        await pushToSheets();
+
         return NextResponse.json({ success: true, task });
     } catch (error) {
         console.error("POST /api/memory/tasks error:", error);
@@ -98,6 +119,8 @@ export async function PUT(req: Request) {
             return updatedTask;
         });
 
+        await pushToSheets();
+
         return NextResponse.json({ success: true, task });
     } catch (error) {
         console.error("PUT /api/memory/tasks error:", error);
@@ -131,6 +154,8 @@ export async function DELETE(req: Request) {
                 }
             });
         });
+
+        await pushToSheets();
 
         return NextResponse.json({ success: true });
     } catch (error) {

@@ -37,10 +37,10 @@ export const useDirectoryStore = create<DirectoryState>((set, get) => ({
         const now = new Date().toISOString();
         const body = {
             id, type: entry.type, name: entry.name, category: entry.category,
-            region: entry.region, pic: entry.pic, email: entry.email, phone: entry.phone,
-            status: entry.status, fleetSize: entry.fleet_size, taxId: entry.tax_id, notes: entry.notes
+            pic: entry.pic, email: entry.email, phone: entry.phone,
+            region: entry.region, status: entry.status, taxId: entry.tax_id, notes: entry.notes
         };
-        await fetch("/api/memory/sources", {
+        await fetch("/api/memory/partners", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
@@ -53,10 +53,9 @@ export const useDirectoryStore = create<DirectoryState>((set, get) => ({
     },
     updateEntry: async (id, u) => {
         const body: any = { id, ...u };
-        if (u.fleet_size !== undefined) body.fleetSize = u.fleet_size;
         if (u.tax_id !== undefined) body.taxId = u.tax_id;
 
-        await fetch("/api/memory/sources", {
+        await fetch("/api/memory/partners", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
@@ -67,7 +66,7 @@ export const useDirectoryStore = create<DirectoryState>((set, get) => ({
         });
     },
     deleteEntry: async (id) => {
-        await fetch(`/api/memory/sources?id=${id}`, { method: "DELETE" });
+        await fetch(`/api/memory/partners?id=${id}`, { method: "DELETE" });
         set((s) => {
             const newRaw = s._rawEntries.map((e) => e.id === id ? { ...e, is_deleted: true, updated_at: new Date().toISOString() } : e);
             return { _rawEntries: newRaw, entries: newRaw.filter(e => !e.is_deleted) };
@@ -75,15 +74,16 @@ export const useDirectoryStore = create<DirectoryState>((set, get) => ({
     },
     syncFromMemory: async () => {
         try {
-            const res = await fetch("/api/memory/sources");
+            const res = await fetch("/api/memory/partners");
             if (res.ok) {
                 const data = await res.json();
-                if (data.sources) {
-                    const mappedEntries: DirectoryEntry[] = data.sources.map((s: any) => ({
-                        id: s.id, type: s.type, name: s.name, category: s.category || undefined,
-                        region: s.region, pic: s.pic, email: s.email, phone: s.phone,
-                        status: s.status, fleet_size: s.fleetSize, tax_id: s.taxId, notes: s.notes || undefined,
-                        created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
+                if (data.partners) {
+                    const mappedEntries: DirectoryEntry[] = data.partners.map((p: any) => ({
+                        id: p.id, type: p.type, name: p.name, category: p.category || undefined,
+                        pic: p.contactPerson || p.pic, email: p.email, phone: p.phone,
+                        region: p.city ? `${p.city}, ${p.country}` : p.country || "Unknown",
+                        status: p.status, tax_id: p.taxId, notes: p.notes || undefined,
+                        created_at: p.createdAt, updated_at: p.updatedAt, is_deleted: p.isDeleted
                     }));
                     set({
                         _rawEntries: mappedEntries,
@@ -92,7 +92,7 @@ export const useDirectoryStore = create<DirectoryState>((set, get) => ({
                 }
             }
         } catch (error) {
-            console.error("Failed to sync Directory/Sources from Memory B", error);
+            console.error("Failed to sync Directory/Partners from Memory B", error);
         }
     }
 }));

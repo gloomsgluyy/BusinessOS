@@ -162,7 +162,7 @@ interface CommercialState {
     // Blending Simulation
     _rawBlendingHistory: BlendingResult[];
     blendingHistory: BlendingResult[];
-    simulateBlend: (inputs: { source_name: string; quantity: number; spec: CoalSpec }[], userId: string) => BlendingResult;
+    simulateBlend: (inputs: { source_name: string; quantity: number; spec: CoalSpec }[], userId: string) => Promise<BlendingResult>;
 
     // P&L Forecast
     _rawPLForecasts: PLForecastItem[];
@@ -459,13 +459,26 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
         });
         if (res.ok) {
             const data = await res.json();
-            const mp = data.marketPrice;
+            const mp = data.price; // API returns { success: true, price: ... }
             const mapped: MarketPriceEntry = {
-                id: mp.id, date: mp.date, ici_1: mp.ici1, ici_2: mp.ici2, ici_3: mp.ici3,
-                ici_4: mp.ici4, newcastle: mp.newcastle, hba: mp.hba, source: mp.source
+                id: mp.id,
+                date: mp.date,
+                ici_1: mp.ici1 !== undefined ? mp.ici1 : (mp.ici_1 || 0),
+                ici_2: mp.ici2 !== undefined ? mp.ici2 : (mp.ici_2 || 0),
+                ici_3: mp.ici3 !== undefined ? mp.ici3 : (mp.ici_3 || 0),
+                ici_4: mp.ici4 !== undefined ? mp.ici4 : (mp.ici_4 || 0),
+                ici_5: mp.ici5 !== undefined ? mp.ici5 : (mp.ici_5 || 0),
+                newcastle: mp.newcastle || 0,
+                hba: mp.hba || 0,
+                source: mp.source
             };
             set((s) => {
-                const raw = [mapped, ...s._rawMarketPrices];
+                // Remove existing if date matches (upsert behavior)
+                const dateOnly = new Date(mapped.date).toISOString().split('T')[0];
+                const filtered = s._rawMarketPrices.filter(x =>
+                    new Date(x.date).toISOString().split('T')[0] !== dateOnly
+                );
+                const raw = [mapped, ...filtered];
                 return { _rawMarketPrices: raw, marketPrices: raw.filter(x => !x.is_deleted) };
             });
         }
@@ -537,20 +550,53 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     // ── Blending ─────────────────────────────────────────────
     _rawBlendingHistory: [],
     blendingHistory: [],
-    simulateBlend: (inputs, userId) => {
-        const result: BlendingResult = {
-            id: generateId("bl"),
+    simulateBlend: async (inputs, userId) => {
+        const total_quantity = inputs.reduce((s, i) => s + i.quantity, 0);
+        const result_spec = blendSpecs(inputs);
+
+        try {
+            const res = await fetch("/api/memory/blending", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    inputs,
+                    totalQuantity: total_quantity,
+                    resultGar: result_spec.gar,
+                    resultTs: result_spec.ts,
+                    resultAsh: result_spec.ash,
+                    resultTm: result_spec.tm || 0,
+                }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                const newSim: BlendingResult = {
+                    id: data.simulation.id,
+                    inputs,
+                    total_quantity,
+                    result_spec,
+                    created_by: userId,
+                    created_at: data.simulation.createdAt,
+                };
+                set((s) => ({
+                    _rawBlendingHistory: [newSim, ...s._rawBlendingHistory],
+                    blendingHistory: [newSim, ...s.blendingHistory].filter(x => !x.is_deleted)
+                }));
+                return newSim;
+            }
+        } catch (e) {
+            console.error("Failed to save blending simulation:", e);
+        }
+
+        // Fallback for UI if API fails
+        const fallback: BlendingResult = {
+            id: `tmp-${Date.now()}`,
             inputs,
-            total_quantity: inputs.reduce((s, i) => s + i.quantity, 0),
-            result_spec: blendSpecs(inputs),
+            total_quantity,
+            result_spec,
             created_by: userId,
             created_at: new Date().toISOString(),
         };
-        set((s) => {
-            const raw = [result, ...s._rawBlendingHistory];
-            return { _rawBlendingHistory: raw, blendingHistory: raw.filter(x => !x.is_deleted) };
-        });
-        return result;
+        return fallback;
     },
 
     // ── P&L Forecast ─────────────────────────────────────────
@@ -581,14 +627,15 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     // ── Sync Integration ─────────────────────────────────────
     syncFromMemory: async () => {
         try {
-            const [shipRes, srcRes, qRes, mpRes, mtgRes, plRes, dealRes] = await Promise.all([
+            const [shipRes, srcRes, qRes, mpRes, mtgRes, plRes, dealRes, blendRes] = await Promise.all([
                 fetch("/api/memory/shipments").then(res => res.json()),
                 fetch("/api/memory/sources").then(res => res.json()),
                 fetch("/api/memory/quality").then(res => res.json()),
                 fetch("/api/memory/market-prices").then(res => res.json()),
                 fetch("/api/memory/meetings").then(res => res.json()),
                 fetch("/api/memory/pl-forecasts").then(res => res.json()),
-                fetch("/api/memory/sales-deals").then(res => res.json())
+                fetch("/api/memory/sales-deals").then(res => res.json()),
+                fetch("/api/memory/blending").then(res => res.json())
             ]);
 
             set((state) => {
@@ -641,11 +688,36 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 // Market Price merge
                 if (mpRes.success && mpRes.prices) {
                     const mappedPrices: MarketPriceEntry[] = mpRes.prices.map((m: any) => ({
-                        id: m.id, date: m.date, ici_1: m.ici1, ici_2: m.ici2, ici_3: m.ici3,
-                        ici_4: m.ici4, newcastle: m.newcastle, hba: m.hba, source: m.source, is_deleted: m.isDeleted
+                        id: m.id,
+                        date: m.date,
+                        ici_1: m.ici1 !== undefined ? m.ici1 : (m.ici_1 || 0),
+                        ici_2: m.ici2 !== undefined ? m.ici2 : (m.ici_2 || 0),
+                        ici_3: m.ici3 !== undefined ? m.ici3 : (m.ici_3 || 0),
+                        ici_4: m.ici4 !== undefined ? m.ici4 : (m.ici_4 || 0),
+                        ici_5: m.ici5 !== undefined ? m.ici5 : (m.ici_5 || 0),
+                        newcastle: m.newcastle || 0,
+                        hba: m.hba || 0,
+                        source: m.source || "-",
+                        updated_at: m.updatedAt || new Date().toISOString(),
+                        is_deleted: m.isDeleted
                     }));
                     updates._rawMarketPrices = mappedPrices;
                     updates.marketPrices = mappedPrices.filter(x => !x.is_deleted);
+                }
+
+                // Blending merge
+                if (blendRes && blendRes.success && blendRes.blendingHistory) {
+                    const mappedBlending: BlendingResult[] = blendRes.blendingHistory.map((b: any) => ({
+                        id: b.id,
+                        inputs: b.inputs,
+                        total_quantity: b.totalQuantity,
+                        result_spec: { gar: b.resultGar, ts: b.resultTs, ash: b.resultAsh, tm: b.resultTm },
+                        created_by: b.createdBy,
+                        created_at: b.createdAt,
+                        is_deleted: b.isDeleted
+                    }));
+                    updates._rawBlendingHistory = mappedBlending;
+                    updates.blendingHistory = mappedBlending.filter(x => !x.is_deleted);
                 }
 
                 // Meetings merge
@@ -692,6 +764,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 return Object.keys(updates).length > 0 ? updates : state;
             });
         } catch (error) {
+            console.error("syncFromMemory error:", error);
         }
     }
 }));

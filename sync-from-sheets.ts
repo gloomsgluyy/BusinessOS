@@ -144,8 +144,8 @@ async function syncAll() {
             if (!r['ID']) continue;
             await prisma.marketPrice.upsert({
                 where: { id: r['ID'] },
-                update: { date: parseDate(r['Date']) || new Date(), ici1: num(r['ICI 1']) || null, ici2: num(r['ICI 2']) || null, ici3: num(r['ICI 3']) || null, ici4: num(r['ICI 4']) || null, newcastle: num(r['Newcastle']) || null, hba: num(r['HBA']) || null, source: r['Source'] },
-                create: { id: r['ID'], date: parseDate(r['Date']) || new Date(), ici1: num(r['ICI 1']) || null, ici2: num(r['ICI 2']) || null, ici3: num(r['ICI 3']) || null, ici4: num(r['ICI 4']) || null, newcastle: num(r['Newcastle']) || null, hba: num(r['HBA']) || null, source: r['Source'] }
+                update: { date: parseDate(r['Date']) || new Date(), ici1: num(r['ICI 1']) || null, ici2: num(r['ICI 2']) || null, ici3: num(r['ICI 3']) || null, ici4: num(r['ICI 4']) || null, ici5: num(r['ICI 5']) || null, newcastle: num(r['Newcastle']) || null, hba: num(r['HBA']) || null, source: r['Source'] },
+                create: { id: r['ID'], date: parseDate(r['Date']) || new Date(), ici1: num(r['ICI 1']) || null, ici2: num(r['ICI 2']) || null, ici3: num(r['ICI 3']) || null, ici4: num(r['ICI 4']) || null, ici5: num(r['ICI 5']) || null, newcastle: num(r['Newcastle']) || null, hba: num(r['HBA']) || null, source: r['Source'] }
             }).catch(() => { });
         }
     }

@@ -2,6 +2,19 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { syncAllPurchasesToSheet } from "@/app/actions/sheet-actions";
+
+async function pushToSheets() {
+    try {
+        const purchases = await prisma.purchaseRequest.findMany({
+            where: { isDeleted: false },
+            orderBy: { createdAt: "desc" }
+        });
+        await syncAllPurchasesToSheet(purchases);
+    } catch (err) {
+        console.error("Failed to sync Purchases to sheets:", err);
+    }
+}
 
 export async function GET() {
     try {
@@ -70,6 +83,8 @@ export async function POST(req: Request) {
             return newPurchase;
         });
 
+        await pushToSheets();
+
         return NextResponse.json({ success: true, purchase });
     } catch (error) {
         console.error("POST /api/memory/purchases error:", error);
@@ -118,6 +133,8 @@ export async function PUT(req: Request) {
             return updatedPurchase;
         });
 
+        await pushToSheets();
+
         return NextResponse.json({ success: true, purchase });
     } catch (error) {
         console.error("PUT /api/memory/purchases error:", error);
@@ -151,6 +168,8 @@ export async function DELETE(req: Request) {
                 }
             });
         });
+
+        pushToSheets();
 
         return NextResponse.json({ success: true });
     } catch (error) {

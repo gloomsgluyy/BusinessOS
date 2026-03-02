@@ -814,13 +814,6 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                             </div>
                                         </div>
 
-                                        <div className="border border-border/60 rounded-xl p-5 bg-background/50">
-                                            <h4 className="text-sm font-bold text-foreground mb-4">Quick Actions</h4>
-                                            <div className="flex gap-3">
-                                                <button className="bg-accent/40 hover:bg-accent text-foreground text-xs font-semibold px-4 py-2 rounded-lg transition-colors">Download Invoice</button>
-                                                <button className="bg-accent/40 hover:bg-accent text-foreground text-xs font-semibold px-4 py-2 rounded-lg transition-colors">Generate Certificate</button>
-                                            </div>
-                                        </div>
                                     </>
                                 )}
 

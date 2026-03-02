@@ -2,6 +2,25 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { syncAllMeetingsToSheet } from "@/app/actions/sheet-actions";
+
+async function pushToSheets() {
+    try {
+        const meetings = await prisma.meetingItem.findMany({
+            where: { isDeleted: false },
+            orderBy: { createdAt: "desc" }
+        });
+        const formatted = meetings.map((m: any) => ({
+            id: m.id, title: m.title, date: m.date ? m.date.toISOString().split('T')[0] : "",
+            time: m.time, location: m.location, status: m.status,
+            attendees: m.attendees ? JSON.parse(m.attendees) : [],
+            created_by_name: m.createdByName, updatedAt: m.updatedAt.toISOString()
+        }));
+        await syncAllMeetingsToSheet(formatted);
+    } catch (err) {
+        console.error("Failed to sync Meetings to sheets:", err);
+    }
+}
 
 export async function GET() {
     try {
@@ -69,6 +88,8 @@ export async function POST(req: Request) {
             return newMeeting;
         });
 
+        await pushToSheets();
+
         return NextResponse.json({ success: true, meeting });
     } catch (error) {
         console.error("POST /api/memory/meetings error:", error);
@@ -111,6 +132,8 @@ export async function PUT(req: Request) {
             return updatedMeeting;
         });
 
+        await pushToSheets();
+
         return NextResponse.json({ success: true, meeting });
     } catch (error) {
         console.error("PUT /api/memory/meetings error:", error);
@@ -144,6 +167,8 @@ export async function DELETE(req: Request) {
                 }
             });
         });
+
+        pushToSheets();
 
         return NextResponse.json({ success: true });
     } catch (error) {

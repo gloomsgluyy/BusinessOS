@@ -246,6 +246,7 @@ model MarketPrice {
   ici2               Float?
   ici3               Float?
   ici4               Float?
+  ici5               Float?
   newcastle          Float?
   hba                Float?
   source             String?
@@ -330,4 +331,17 @@ model Partner {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   isDeleted       Boolean  @default(false)
+}
+
+model BlendingSimulation {
+  id             String   @id @default(cuid())
+  inputs         String   @default("[]") // JSON array of { name, quantity, gar, ts, ash, tm }
+  totalQuantity  Float    @default(0)
+  resultGar      Float    @default(0)
+  resultTs       Float    @default(0)
+  resultAsh      Float    @default(0)
+  resultTm       Float    @default(0)
+  createdBy      String
+  createdAt      DateTime @default(now())
+  isDeleted      Boolean  @default(false)
 }

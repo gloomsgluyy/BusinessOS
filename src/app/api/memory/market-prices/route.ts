@@ -12,8 +12,9 @@ async function pushToSheets() {
         });
         const formatted = prices.map((m: any) => ({
             id: m.id, date: m.date ? m.date.toISOString().split('T')[0] : "",
-            ici_1: m.ici1, ici_2: m.ici2, ici_3: m.ici3, ici_4: m.ici4,
-            newcastle: m.newcastle, hba: m.hba, source: m.source
+            ici_1: m.ici1 || 0, ici_2: m.ici2 || 0, ici_3: m.ici3 || 0, ici_4: m.ici4 || 0, ici_5: m.ici5 || 0,
+            newcastle: m.newcastle || 0, hba: m.hba || 0, source: m.source || "Manual",
+            updated_at: m.updatedAt.toISOString()
         }));
         await syncAllMarketPriceToSheet(formatted);
     } catch (err) {
@@ -45,41 +46,74 @@ export async function POST(req: Request) {
 
         const data = await req.json();
 
+        // Normalize date to start of day (YYYY-MM-DD) for uniqueness
+        const inputDate = data.date ? new Date(data.date) : new Date();
+        const dateStr = inputDate.toISOString().split("T")[0];
+        const normalizedDate = new Date(dateStr);
+
         const price = await prisma.$transaction(async (tx) => {
-            const newPrice = await tx.marketPrice.create({
-                data: {
-                    date: data.date ? new Date(data.date) : new Date(),
-                    ici1: (data.ici1 !== undefined && data.ici1 !== null) ? parseFloat(data.ici1.toString()) : ((data.ici_1 !== undefined && data.ici_1 !== null) ? parseFloat(data.ici_1.toString()) : null),
-                    ici2: (data.ici2 !== undefined && data.ici2 !== null) ? parseFloat(data.ici2.toString()) : ((data.ici_2 !== undefined && data.ici_2 !== null) ? parseFloat(data.ici_2.toString()) : null),
-                    ici3: (data.ici3 !== undefined && data.ici3 !== null) ? parseFloat(data.ici3.toString()) : ((data.ici_3 !== undefined && data.ici_3 !== null) ? parseFloat(data.ici_3.toString()) : null),
-                    ici4: (data.ici4 !== undefined && data.ici4 !== null) ? parseFloat(data.ici4.toString()) : ((data.ici_4 !== undefined && data.ici_4 !== null) ? parseFloat(data.ici_4.toString()) : null),
-                    newcastle: data.newcastle ? parseFloat(data.newcastle.toString()) : null,
-                    hba: data.hba ? parseFloat(data.hba.toString()) : null,
-                    source: data.source || "Manual Entry"
+            // Find existing entry for this date to support upsert
+            const existing = await tx.marketPrice.findFirst({
+                where: {
+                    date: normalizedDate,
+                    isDeleted: false
                 }
             });
+
+            const priceData = {
+                date: normalizedDate,
+                ici1: (data.ici1 !== undefined && data.ici1 !== null) ? parseFloat(data.ici1.toString()) : ((data.ici_1 !== undefined && data.ici_1 !== null) ? parseFloat(data.ici_1.toString()) : undefined),
+                ici2: (data.ici2 !== undefined && data.ici2 !== null) ? parseFloat(data.ici2.toString()) : ((data.ici_2 !== undefined && data.ici_2 !== null) ? parseFloat(data.ici_2.toString()) : undefined),
+                ici3: (data.ici3 !== undefined && data.ici3 !== null) ? parseFloat(data.ici3.toString()) : ((data.ici_3 !== undefined && data.ici_3 !== null) ? parseFloat(data.ici_3.toString()) : undefined),
+                ici4: (data.ici4 !== undefined && data.ici4 !== null) ? parseFloat(data.ici4.toString()) : ((data.ici_4 !== undefined && data.ici_4 !== null) ? parseFloat(data.ici_4.toString()) : undefined),
+                ici5: (data.ici5 !== undefined && data.ici5 !== null) ? parseFloat(data.ici5.toString()) : ((data.ici_5 !== undefined && data.ici_5 !== null) ? parseFloat(data.ici_5.toString()) : undefined),
+                newcastle: data.newcastle ? parseFloat(data.newcastle.toString()) : undefined,
+                hba: data.hba ? parseFloat(data.hba.toString()) : undefined,
+                source: data.source || "Manual Entry"
+            };
+
+            let result;
+            if (existing) {
+                // Update existing
+                result = await tx.marketPrice.update({
+                    where: { id: existing.id },
+                    data: priceData
+                });
+            } else {
+                // Create new
+                result = await tx.marketPrice.create({
+                    data: {
+                        ...priceData,
+                        ici1: priceData.ici1 || null,
+                        ici2: priceData.ici2 || null,
+                        ici3: priceData.ici3 || null,
+                        ici4: priceData.ici4 || null,
+                        ici5: priceData.ici5 || null,
+                    }
+                });
+            }
 
             await tx.auditLog.create({
                 data: {
                     userId: session.user.id,
                     userName: session.user.name || "Unknown",
-                    action: "CREATE",
+                    action: existing ? "UPDATE" : "CREATE",
                     entity: "MarketPrice",
-                    entityId: newPrice.id,
-                    details: JSON.stringify(newPrice)
+                    entityId: result.id,
+                    details: JSON.stringify(result)
                 }
             });
 
-            return newPrice;
+            return result;
         });
 
         // Trigger Google Sheets Sync in background
-        pushToSheets();
+        await pushToSheets();
 
         return NextResponse.json({ success: true, price });
     } catch (error) {
         console.error("POST /api/memory/market-prices error:", error);
-        return NextResponse.json({ error: "Failed to create market price" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to create/update market price" }, { status: 500 });
     }
 }
 
@@ -100,6 +134,7 @@ export async function PUT(req: Request) {
                     ici2: (data.ici2 !== undefined && data.ici2 !== null) ? parseFloat(data.ici2.toString()) : ((data.ici_2 !== undefined && data.ici_2 !== null) ? parseFloat(data.ici_2.toString()) : undefined),
                     ici3: (data.ici3 !== undefined && data.ici3 !== null) ? parseFloat(data.ici3.toString()) : ((data.ici_3 !== undefined && data.ici_3 !== null) ? parseFloat(data.ici_3.toString()) : undefined),
                     ici4: (data.ici4 !== undefined && data.ici4 !== null) ? parseFloat(data.ici4.toString()) : ((data.ici_4 !== undefined && data.ici_4 !== null) ? parseFloat(data.ici_4.toString()) : undefined),
+                    ici5: (data.ici5 !== undefined && data.ici5 !== null) ? parseFloat(data.ici5.toString()) : ((data.ici_5 !== undefined && data.ici_5 !== null) ? parseFloat(data.ici_5.toString()) : undefined),
                     newcastle: data.newcastle ? parseFloat(data.newcastle.toString()) : undefined,
                     hba: data.hba ? parseFloat(data.hba.toString()) : undefined,
                     source: data.source

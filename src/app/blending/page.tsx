@@ -16,7 +16,7 @@ interface BlendInput {
 }
 
 export default function BlendingPage() {
-    const { simulateBlend, blendingHistory, sources } = useCommercialStore();
+    const { simulateBlend, blendingHistory, sources, syncFromMemory } = useCommercialStore();
     const { currentUser } = useAuthStore();
     const [inputs, setInputs] = React.useState<BlendInput[]>([
         { name: "Cargo A", quantity: 30000, gar: 4200, ts: 0.8, ash: 5.0, tm: 30 },
@@ -24,18 +24,29 @@ export default function BlendingPage() {
     ]);
     const [result, setResult] = React.useState<BlendingResult | null>(null);
     const [showReportModal, setShowReportModal] = React.useState(false);
+    const [isSimulating, setIsSimulating] = React.useState(false);
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
 
     const addRow = () => setInputs([...inputs, { name: `Cargo ${String.fromCharCode(65 + inputs.length)}`, quantity: 0, gar: 4200, ts: 0.8, ash: 5.0, tm: 30 }]);
     const removeRow = (i: number) => setInputs(inputs.filter((_, idx) => idx !== i));
     const updateRow = (i: number, key: string, val: string | number) => setInputs(inputs.map((inp, idx) => idx === i ? { ...inp, [key]: val } : inp));
 
-    const handleSimulate = () => {
-        const blendInputs = inputs.map((inp) => ({
-            source_name: inp.name, quantity: inp.quantity,
-            spec: { gar: inp.gar, ts: inp.ts, ash: inp.ash, tm: inp.tm } as CoalSpec,
-        }));
-        const r = simulateBlend(blendInputs, currentUser.id);
-        setResult(r);
+    const handleSimulate = async () => {
+        if (!currentUser) return;
+        setIsSimulating(true);
+        try {
+            const blendInputs = inputs.map((inp) => ({
+                source_name: inp.name, quantity: inp.quantity,
+                spec: { gar: inp.gar, ts: inp.ts, ash: inp.ash, tm: inp.tm } as CoalSpec,
+            }));
+            const r = await simulateBlend(blendInputs, currentUser.id);
+            setResult(r);
+        } finally {
+            setIsSimulating(false);
+        }
     };
 
     const loadFromSource = (idx: number, srcId: string) => {
