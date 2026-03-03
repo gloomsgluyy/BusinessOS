@@ -424,7 +424,8 @@ export default function DashboardPage() {
     const [status, setStatus] = React.useState("all");
     const [country, setCountry] = React.useState("all");
     const [search, setSearch] = React.useState("");
-    const isCeo = currentUser?.role === "ceo" || currentUser?.role === "CEO";
+    const role = currentUser?.role?.toLowerCase();
+    const isCeo = role === "ceo";
     const sources = useCommercialStore((s) => s.sources);
     const [isLoading, setIsLoading] = React.useState(true);
 
@@ -531,7 +532,7 @@ export default function DashboardPage() {
         return `$${v.toFixed(2)}`;
     };
 
-    if (!isCeo && currentUser?.role !== "director") {
+    if (!isCeo && role !== "director") {
         return (
             <AppShell>
                 <div className="flex flex-col items-center justify-center h-[calc(100vh-80px)] p-6 text-center space-y-4 animate-fade-in">

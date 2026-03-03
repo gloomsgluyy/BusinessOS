@@ -47,7 +47,7 @@ export const authOptions: NextAuthOptions = {
                                 email: credentials.email,
                                 name: "Initial CEO",
                                 password: hashedPassword,
-                                role: "CEO"
+                                role: "ceo"
                             }
                         })
                         return {

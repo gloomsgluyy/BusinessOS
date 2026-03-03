@@ -6,9 +6,10 @@ export default withAuth(
         const token = req.nextauth.token
         const path = req.nextUrl.pathname
 
-        // Protect Dashboard (CEO and ASSISTANT_CEO only)
+        // Protect Dashboard (CEO and director/ASSISTANT_CEO only)
         if (path === "/") {
-            if (token?.role !== "CEO" && token?.role !== "ASSISTANT_CEO") {
+            const role = (token?.role as string)?.toLowerCase();
+            if (role !== "ceo" && role !== "director") {
                 return NextResponse.redirect(new URL("/projects", req.url))
             }
         }
