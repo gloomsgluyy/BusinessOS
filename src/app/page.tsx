@@ -195,7 +195,9 @@ function UpcomingMeetings() {
                     const handleGoogleCalendar = (e: React.MouseEvent) => {
                         e.stopPropagation();
                         e.preventDefault();
-                        const start = new Date(`${m.date}T${m.time}`);
+                        const datePart = m.date.includes("T") ? m.date.split("T")[0] : m.date;
+                        const start = new Date(`${datePart}T${m.time}`);
+                        if (isNaN(start.getTime())) return;
                         const end = new Date(start.getTime() + 60 * 60 * 1000);
                         const fmt = (d: Date) => d.toISOString().replace(/-|:|\.\d\d\d/g, "");
                         const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(m.title)}&dates=${fmt(start)}/${fmt(end)}&details=${encodeURIComponent("Attendees: " + m.attendees.join(", "))}&location=${encodeURIComponent(m.location || "")}`;

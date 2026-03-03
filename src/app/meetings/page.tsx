@@ -403,15 +403,7 @@ Be concise and professional.`;
     // ─── Derived data ──────────────────────────────────────────────
     const todayStr = new Date().toISOString().split("T")[0];
 
-    const userMeetings = meetings.filter((m) => {
-        if (!currentUser) return false;
-        if (currentUser.role === "CEO" || currentUser.role === "ASSISTANT_CEO") return true;
-        const nameStr = currentUser.name?.toLowerCase() || "";
-        const emailStr = currentUser.email?.toLowerCase() || "___noemail___";
-        return m.attendees.some((a) => a.toLowerCase() === nameStr || a.toLowerCase() === emailStr)
-            || m.created_by === currentUser.id
-            || m.created_by_name?.toLowerCase() === nameStr;
-    });
+    const userMeetings = meetings; // Show all meetings to every authenticated user as requested
 
     const upcomingCount = userMeetings.filter((m) => parseDatePart(m.date) >= todayStr && m.status === "scheduled").length;
     const todayCount = userMeetings.filter((m) => parseDatePart(m.date) === todayStr).length;
