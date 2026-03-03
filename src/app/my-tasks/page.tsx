@@ -19,8 +19,13 @@ export default function MyTasksPage() {
     // Mock users list since users was previously pulled from authStore:
     const users = DEMO_USERS || [];
     const tasks = useTaskStore((s) => s.tasks);
+    const syncFromMemory = useTaskStore((s) => s.syncFromMemory);
     const moveTask = useTaskStore((s) => s.moveTask);
     const addTask = useTaskStore((s) => s.addTask);
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
     const [showAdd, setShowAdd] = React.useState(false);
     const [newTitle, setNewTitle] = React.useState("");

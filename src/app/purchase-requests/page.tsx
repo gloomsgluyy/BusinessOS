@@ -12,12 +12,17 @@ import { ImageUpload } from "@/components/ui/image-upload";
 export default function PurchaseRequestsPage() {
     const { currentUser, hasPermission } = useAuthStore();
     const purchases = usePurchaseStore((s) => s.purchases);
+    const syncFromMemory = usePurchaseStore((s) => s.syncFromMemory);
     const categories = usePurchaseStore((s) => s.categories);
     const addPurchase = usePurchaseStore((s) => s.addPurchase);
     const deletePurchase = usePurchaseStore((s) => s.deletePurchase);
     const submitPurchase = usePurchaseStore((s) => s.submitPurchase);
     const approvePurchase = usePurchaseStore((s) => s.approvePurchase);
     const rejectPurchase = usePurchaseStore((s) => s.rejectPurchase);
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
 
     const [filterStatus, setFilterStatus] = React.useState("all");
     const [filterCategory, setFilterCategory] = React.useState("all");

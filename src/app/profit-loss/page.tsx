@@ -18,8 +18,15 @@ const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(
 export default function ProfitLossPage() {
     const { hasPermission } = useAuthStore();
     const orders = useSalesStore((s) => s.orders);
+    const syncSales = useSalesStore((s) => s.syncFromMemory);
     const purchases = usePurchaseStore((s) => s.purchases);
+    const syncPurchases = usePurchaseStore((s) => s.syncFromMemory);
     const [period, setPeriod] = React.useState<"monthly" | "quarterly">("monthly");
+
+    React.useEffect(() => {
+        syncSales();
+        syncPurchases();
+    }, [syncSales, syncPurchases]);
 
     if (!hasPermission("profit_loss")) {
         return (

@@ -19,7 +19,11 @@ const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function SalesMonitorPage() {
-    const { deals, addDeal, confirmDeal, shipments } = useCommercialStore();
+    const { deals, syncFromMemory, addDeal, confirmDeal, shipments } = useCommercialStore();
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
     const { currentUser } = useAuthStore();
     const [activeTab, setActiveTab] = React.useState<SalesDealStatus | "all">("all");
     const [search, setSearch] = React.useState("");

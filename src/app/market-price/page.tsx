@@ -28,7 +28,11 @@ const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function MarketPricePage() {
-    const { marketPrices, addMarketPrice } = useCommercialStore();
+    const { marketPrices, syncFromMemory, addMarketPrice } = useCommercialStore();
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
     const { hasPermission } = useAuthStore();
     const canEdit = hasPermission("market_price_edit");
     const [mounted, setMounted] = React.useState(false);

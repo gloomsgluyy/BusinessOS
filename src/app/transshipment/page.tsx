@@ -14,7 +14,12 @@ const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function TransshipmentPage() {
-    const { shipments } = useCommercialStore();
+    const { shipments, syncFromMemory, updateShipment } = useCommercialStore();
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
+
     const [activeView, setActiveView] = React.useState<"card" | "list">("card");
     const [searchQuery, setSearchQuery] = React.useState("");
     const [detailShipment, setDetailShipment] = React.useState<ShipmentDetail | null>(null);
@@ -26,7 +31,6 @@ export default function TransshipmentPage() {
     // Edit Modal States
     const [editShipment, setEditShipment] = React.useState<ShipmentDetail | null>(null);
     const [editForm, setEditForm] = React.useState<Partial<ShipmentDetail>>({});
-    const { updateShipment } = useCommercialStore();
 
     // Interactive Modal States
     const [showMilestoneForm, setShowMilestoneForm] = React.useState(false);

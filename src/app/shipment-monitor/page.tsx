@@ -20,7 +20,11 @@ const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function ShipmentMonitorPage() {
-    const { shipments, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
+    const { shipments, syncFromMemory, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
     const [mainTab, setMainTab] = React.useState<"Shipments" | "Route Optimizer" | "Import Data" | "Analytics" | "Risk Assessment">("Shipments");
     const [activeTab, setActiveTab] = React.useState<ShipmentStatus | "all">("all");
     const [activeView, setActiveView] = React.useState<"list" | "card" | "map">("list");

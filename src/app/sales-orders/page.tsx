@@ -13,11 +13,16 @@ import { ImageUpload } from "@/components/ui/image-upload";
 export default function SalesOrdersPage() {
     const { currentUser, hasPermission } = useAuthStore();
     const orders = useSalesStore((s) => s.orders);
+    const syncFromMemory = useSalesStore((s) => s.syncFromMemory);
     const addOrder = useSalesStore((s) => s.addOrder);
     const deleteOrder = useSalesStore((s) => s.deleteOrder);
     const submitOrder = useSalesStore((s) => s.submitOrder);
     const approveOrder = useSalesStore((s) => s.approveOrder);
     const rejectOrder = useSalesStore((s) => s.rejectOrder);
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
 
     const [filterStatus, setFilterStatus] = React.useState("all");
     const [search, setSearch] = React.useState("");

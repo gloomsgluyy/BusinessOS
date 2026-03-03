@@ -9,7 +9,11 @@ import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
 
 export default function ProjectsPage() {
-    const { deals, addDeal } = useCommercialStore();
+    const { deals, syncFromMemory, addDeal } = useCommercialStore();
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
     const { currentUser } = useAuthStore();
 
     const [showForm, setShowForm] = React.useState(false);

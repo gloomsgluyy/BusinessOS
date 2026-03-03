@@ -24,10 +24,11 @@ export default function PLForecastClient() {
     const isHighLevel = hasRole(["ceo", "director"]);
 
     React.useEffect(() => {
+        syncFromMemory();
         if (!hasAccess) {
             router.push("/");
         }
-    }, [hasAccess, router]);
+    }, [hasAccess, router, syncFromMemory]);
 
     const [showForm, setShowForm] = React.useState(false);
     const [isSaving, setIsSaving] = React.useState(false);

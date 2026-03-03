@@ -17,7 +17,12 @@ export default function AllTasksPage() {
     const currentUser = session?.user as any;
     const hasPermission = (permission: string) => currentUser?.role === "CEO" || currentUser?.role === "ASSISTANT_CEO";
     const tasks = useTaskStore((s) => s.tasks);
+    const syncFromMemory = useTaskStore((s) => s.syncFromMemory);
     const moveTask = useTaskStore((s) => s.moveTask);
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
     const [isSaving, setIsSaving] = React.useState(false);
     const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);

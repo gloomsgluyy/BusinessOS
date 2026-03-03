@@ -13,13 +13,22 @@ export default function ApprovalInboxPage() {
     const { currentUser, hasPermission } = useAuthStore();
 
     const tasks = useTaskStore((s) => s.tasks);
+    const syncTasks = useTaskStore((s) => s.syncFromMemory);
     const moveTask = useTaskStore((s) => s.moveTask);
     const orders = useSalesStore((s) => s.orders);
+    const syncSales = useSalesStore((s) => s.syncFromMemory);
     const approveOrder = useSalesStore((s) => s.approveOrder);
     const rejectOrder = useSalesStore((s) => s.rejectOrder);
     const purchases = usePurchaseStore((s) => s.purchases);
+    const syncPurchases = usePurchaseStore((s) => s.syncFromMemory);
     const approvePurchase = usePurchaseStore((s) => s.approvePurchase);
     const rejectPurchase = usePurchaseStore((s) => s.rejectPurchase);
+
+    React.useEffect(() => {
+        syncTasks();
+        syncSales();
+        syncPurchases();
+    }, [syncTasks, syncSales, syncPurchases]);
 
     const [activeTab, setActiveTab] = React.useState<"tasks" | "sales" | "purchases">("tasks");
 

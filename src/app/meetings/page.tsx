@@ -48,7 +48,11 @@ function parseDatePart(dateStr: string): string {
 }
 
 export default function MeetingsPage() {
-    const { meetings, addMeeting, updateMeeting } = useCommercialStore();
+    const { meetings, syncFromMemory, addMeeting, updateMeeting } = useCommercialStore();
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
     const { addTask } = useTaskStore();
     const { data: session, status } = useSession();
     const currentUser = session?.user as any;

@@ -16,7 +16,11 @@ const STATUS_CFG = {
 };
 
 export default function QualityPage() {
-    const { qualityResults, addQualityResult, shipments } = useCommercialStore();
+    const { qualityResults, syncFromMemory, addQualityResult, shipments } = useCommercialStore();
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
     const [showForm, setShowForm] = React.useState(false);
     const [isSaving, setIsSaving] = React.useState(false);
     const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);

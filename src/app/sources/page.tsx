@@ -30,7 +30,11 @@ const emptySource: Partial<SourceSupplier> = {
 };
 
 export default function SourcesPage() {
-    const { sources, addSource, updateSource, deleteSource } = useCommercialStore();
+    const { sources, syncFromMemory, addSource, updateSource, deleteSource } = useCommercialStore();
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
     const [activeTab, setActiveTab] = React.useState<"sources" | "alerts" | "performance">("sources");
     const [viewMode, setViewMode] = React.useState<"card" | "table">("table");
     const [search, setSearch] = React.useState("");
