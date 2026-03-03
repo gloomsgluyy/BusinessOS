@@ -14,8 +14,12 @@ export default function DirectoryPageClient() {
     const searchParams = useSearchParams();
     const initialFilter = (searchParams.get("filter") || "all") as "all" | "buyer" | "vendor" | "fleet";
 
-    const { entries, addEntry, updateEntry, deleteEntry } = useDirectoryStore();
+    const { entries, syncFromMemory, addEntry, updateEntry, deleteEntry } = useDirectoryStore();
     const [filter, setFilter] = React.useState<"all" | "buyer" | "vendor" | "fleet">(initialFilter);
+
+    React.useEffect(() => {
+        syncFromMemory();
+    }, [syncFromMemory]);
     const [search, setSearch] = React.useState("");
     const [showModal, setShowModal] = React.useState(false);
     const [isSaving, setIsSaving] = React.useState(false);
@@ -68,7 +72,12 @@ export default function DirectoryPageClient() {
 
     const filtered = entries.filter(d => {
         if (filter !== "all" && d.type !== filter) return false;
-        if (search && !d.name.toLowerCase().includes(search.toLowerCase()) && !d.pic.toLowerCase().includes(search.toLowerCase())) return false;
+        if (search) {
+            const s = search.toLowerCase();
+            const nameMatch = d.name?.toLowerCase().includes(s);
+            const picMatch = d.pic?.toLowerCase().includes(s);
+            if (!nameMatch && !picMatch) return false;
+        }
         return true;
     });
 

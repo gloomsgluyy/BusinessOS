@@ -1,5 +1,4 @@
-export { };
-const { PullService } = require('./sync-from-sheets');
+const { PullService } = require('./sync-from-sheets.cjs');
 require('dotenv').config({ path: '.env.local' });
 require('dotenv').config();
 
