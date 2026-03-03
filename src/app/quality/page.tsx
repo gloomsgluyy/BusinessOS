@@ -172,7 +172,7 @@ export default function QualityPage() {
                 {/* Quality Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {filtered.map((q, i) => {
-                        const cfg = STATUS_CFG[q.status];
+                        const cfg = STATUS_CFG[q.status as keyof typeof STATUS_CFG] || { label: q.status, color: "#6b7280", icon: AlertTriangle };
                         const Icon = cfg.icon;
                         return (
                             <div key={q.id} className={cn("card-elevated p-5 space-y-3 animate-slide-up", `delay-${Math.min(i + 1, 6)}`)}>
