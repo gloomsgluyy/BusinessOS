@@ -8,6 +8,30 @@ import { useSalesStore } from "@/store/sales-store";
 import { usePurchaseStore } from "@/store/purchase-store";
 import { useTaskStore } from "@/store/task-store";
 import { useCommercialStore } from "@/store/commercial-store";
+import { useSession } from "next-auth/react";
+import { useAuthStore } from "@/store/auth-store";
+
+function SessionWatcher() {
+    const { data: session } = useSession();
+    const { setCurrentUser } = useAuthStore();
+
+    React.useEffect(() => {
+        if (session?.user) {
+            // Sync session user to our global AuthStore
+            setCurrentUser({
+                id: (session.user as any).id || "unknown",
+                name: session.user.name || "User",
+                email: session.user.email || "",
+                role: (session.user as any).role || "staff",
+                phone: "",
+                created_at: new Date().toISOString()
+            });
+        }
+    }, [session, setCurrentUser]);
+
+    return null;
+}
+
 function AutoSyncListener() {
     React.useEffect(() => {
         let isPulling = false;
@@ -61,6 +85,7 @@ export function AppShell({ children }: AppShellProps) {
             </div>
             <AIChatbot />
             <AutoSyncListener />
+            <SessionWatcher />
         </div>
     );
 }

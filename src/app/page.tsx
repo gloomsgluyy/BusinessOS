@@ -531,6 +531,30 @@ export default function DashboardPage() {
         return `$${v.toFixed(2)}`;
     };
 
+    if (!isCeo && currentUser?.role !== "director") {
+        return (
+            <AppShell>
+                <div className="flex flex-col items-center justify-center h-[calc(100vh-80px)] p-6 text-center space-y-4 animate-fade-in">
+                    <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center">
+                        <Lock className="w-8 h-8 text-red-500" />
+                    </div>
+                    <h2 className="text-xl font-bold">Access Denied</h2>
+                    <p className="text-sm text-muted-foreground max-w-xs mx-auto">
+                        This dashboard contains sensitive financial data. Only CEO and Assistant CEO roles can access this overview.
+                    </p>
+                    <div className="pt-4 flex gap-3">
+                        <a href="/my-tasks" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+                            Go to My Tasks
+                        </a>
+                        <a href="/sales-monitor" className="px-4 py-2 border border-border rounded-lg text-sm font-medium hover:bg-accent transition-colors">
+                            Sales Monitor
+                        </a>
+                    </div>
+                </div>
+            </AppShell>
+        );
+    }
+
     return (
         <AppShell>
             <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto space-y-6">
