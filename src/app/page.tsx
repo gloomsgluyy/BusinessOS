@@ -180,7 +180,14 @@ function MarketPriceMini() {
 /* ─── Upcoming Meetings ───────────────────────────────────── */
 function UpcomingMeetings() {
     const meetings = useCommercialStore((s) => s.meetings);
-    const upcoming = meetings.filter((m) => m.status === "scheduled").slice(0, 3);
+    const todayStr = new Date().toISOString().split("T")[0];
+    const upcoming = meetings
+        .filter((m: any) => {
+            const datePart = m.date.includes("T") ? m.date.split("T")[0] : m.date;
+            return m.status === "scheduled" && datePart >= todayStr;
+        })
+        .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .slice(0, 3);
 
     return (
         <div className="card-elevated p-5 animate-slide-up delay-6">
