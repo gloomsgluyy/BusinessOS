@@ -132,7 +132,14 @@ class PullService {
             if (tab.model !== 'marketPrice' && tab.model !== 'syncState') { // Skip models that don't use soft delete or are singletons
                 try {
                     const localRecords = await prisma[tab.model].findMany({
-                        where: { isDeleted: false },
+                        where: {
+                            isDeleted: false,
+                            // Safety buffer: Don't delete records created in the last 5 minutes
+                            // This gives the PushService time to sync local data to Sheets
+                            createdAt: {
+                                lt: new Date(Date.now() - 5 * 60 * 1000)
+                            }
+                        },
                         select: { id: true }
                     });
 
