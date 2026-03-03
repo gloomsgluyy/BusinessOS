@@ -89,7 +89,8 @@ export function AIChatbot() {
     const currentUser = (session?.user as any) || { id: "", name: "Guest", role: "guest", email: "" };
     const hasPermission = (permission: string) => {
         const role = currentUser?.role?.toLowerCase();
-        return role === "ceo" || role === "director" || role === "manager" || role === "operation" || role === "marketing";
+        // Allow all roles defined in our system
+        return ["ceo", "director", "marketing", "purchasing", "operation", "manager"].includes(role);
     };
 
     // Commercial store entities
