@@ -87,7 +87,10 @@ const fd = (d: string) => { try { return new Date(d).toLocaleDateString("id-ID",
 export function AIChatbot() {
     const { data: session } = useSession();
     const currentUser = (session?.user as any) || { id: "", name: "Guest", role: "guest", email: "" };
-    const hasPermission = (permission: string) => currentUser?.role === "CEO" || currentUser?.role === "MANAGER" || currentUser?.role === "ASSISTANT_CEO";
+    const hasPermission = (permission: string) => {
+        const role = currentUser?.role?.toLowerCase();
+        return role === "ceo" || role === "director" || role === "manager" || role === "operation" || role === "marketing";
+    };
 
     // Commercial store entities
     const { deals, shipments, sources, marketPrices, meetings, plForecasts, addDeal, addMeeting, addShipment, updateShipment, deleteShipment } = useCommercialStore();
