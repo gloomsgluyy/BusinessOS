@@ -14,6 +14,7 @@ async function getSheets() {
 
 export class PushService {
     static async pushModelToSheets(model: string) {
+        console.log(`[PushService] Triggered push for model: ${model}`);
         const sheets = await getSheets();
         const sid = process.env.GOOGLE_SHEETS_ID;
         if (!sid) throw new Error("GOOGLE_SHEETS_ID not set");
@@ -28,6 +29,7 @@ export class PushService {
                         spreadsheetId: sid, range: "Market Price!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: priceRows }
                     });
+                    console.log(`[PushService] Successfully pushed ${priceRows.length} MarketPrice records.`);
                     break;
 
                 case 'taskitem':
@@ -38,6 +40,7 @@ export class PushService {
                         spreadsheetId: sid, range: "Tasks!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: taskRows }
                     });
+                    console.log(`[PushService] Successfully pushed ${taskRows.length} TaskItem records.`);
                     break;
 
                 case 'shipmentdetail':
@@ -52,6 +55,7 @@ export class PushService {
                         spreadsheetId: sid, range: "Shipments!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: shipmentRows }
                     });
+                    console.log(`[PushService] Successfully pushed ${shipmentRows.length} ShipmentDetail records.`);
                     break;
 
                 case 'salesorder':
@@ -62,6 +66,7 @@ export class PushService {
                         spreadsheetId: sid, range: "Sales!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: salesRows }
                     });
+                    console.log(`[PushService] Successfully pushed ${salesRows.length} SalesOrder records.`);
                     break;
 
                 case 'sourcesupplier':
@@ -76,6 +81,7 @@ export class PushService {
                         spreadsheetId: sid, range: "Sources!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: sourceRows }
                     });
+                    console.log(`[PushService] Successfully pushed ${sourceRows.length} SourceSupplier records.`);
                     break;
 
                 case 'qualityresult':
@@ -86,6 +92,7 @@ export class PushService {
                         spreadsheetId: sid, range: "Quality!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: qualityRows }
                     });
+                    console.log(`[PushService] Successfully pushed ${qualityRows.length} QualityResult records.`);
                     break;
 
                 case 'meetingitem':
@@ -96,6 +103,7 @@ export class PushService {
                         spreadsheetId: sid, range: "Meetings!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: meetingRows }
                     });
+                    console.log(`[PushService] Successfully pushed ${meetingRows.length} MeetingItem records.`);
                     break;
 
                 case 'purchaserequest':
@@ -106,6 +114,7 @@ export class PushService {
                         spreadsheetId: sid, range: "Expenses!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: purchaseRows }
                     });
+                    console.log(`[PushService] Successfully pushed ${purchaseRows.length} PurchaseRequest records.`);
                     break;
 
                 case 'plforecast':
@@ -116,37 +125,24 @@ export class PushService {
                         spreadsheetId: sid, range: "P&L Forecast!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: forecastRows }
                     });
+                    console.log(`[PushService] Successfully pushed ${forecastRows.length} PLForecast records.`);
                     break;
 
                 case 'salesdeal':
                     const deals = await prisma.salesDeal.findMany({ where: { isDeleted: false } });
-                    // Map to 'Sales' sheet columns: ID, Order #, Date, Client, Description, Amount, Priority, Status, Created By
-                    const dealRows = deals.map(d => [
-                        d.id,
-                        d.dealNumber,
-                        d.createdAt.toISOString(),
-                        d.buyer,
-                        d.vesselName || "-",
-                        d.quantity,
-                        "high",
-                        d.status,
-                        d.picName || "System",
-                        "",
-                        d.updatedAt.toISOString()
-                    ]);
+                    const dealRows = deals.map(d => [d.id, d.dealNumber, d.createdAt.toISOString(), d.buyer, d.vesselName || "-", d.quantity, "high", d.status, d.picName || "System", "", d.updatedAt.toISOString()]);
                     await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Sales!A2:K1000" });
                     await sheets.spreadsheets.values.update({
                         spreadsheetId: sid, range: "Sales!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: dealRows }
                     });
-
-                    // Also push to 'Projects' as fallback/legacy if needed, but 'Sales' is primary for monitor
                     const projectRows = deals.map(d => [d.id, d.buyer, d.buyerCountry, d.type, d.quantity, d.pricePerMt, d.totalValue, d.status, d.vesselName, d.laycanStart ? d.laycanStart.toISOString() : "", d.laycanEnd ? d.laycanEnd.toISOString() : "", d.picName, d.updatedAt.toISOString()]);
                     await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Projects!A2:M1000" });
                     await sheets.spreadsheets.values.update({
                         spreadsheetId: sid, range: "Projects!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: projectRows }
                     });
+                    console.log(`[PushService] Successfully pushed ${dealRows.length} SalesDeal records to Sales & Projects.`);
                     break;
 
                 case 'partner':
@@ -157,13 +153,15 @@ export class PushService {
                         spreadsheetId: sid, range: "Partners!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: partnerRows }
                     });
+                    console.log(`[PushService] Successfully pushed ${partnerRows.length} Partner records.`);
                     break;
 
                 default:
-                    console.warn(`No push mapping for model: ${model}`);
+                    console.warn(`[PushService] No push mapping for model: ${model}`);
             }
         } catch (error: any) {
-            console.error(`❌ Memory B PUSH for ${model} failed:`, error.message);
+            console.error(`❌ [PushService] PUSH for ${model} failed:`, error.message);
+            if (error.stack) console.error(error.stack);
             throw error;
         }
     }

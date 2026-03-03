@@ -1,6 +1,9 @@
 // @ts-nocheck
 const { google } = require('googleapis');
-const prisma = require('./src/lib/prisma').default || require('./src/lib/prisma');
+const { PrismaClient } = require('@prisma/client');
+
+// Dedicated Prisma instance for the sync worker
+const prisma = new PrismaClient();
 
 async function getSheets() {
     let credentials = process.env.GOOGLE_SHEETS_CREDENTIALS;
@@ -13,11 +16,16 @@ async function getSheets() {
     return google.sheets({ version: "v4", auth });
 }
 
-
-
+/**
+ * Normalizes headers: Trims and converts to Uppercase to survive "id" vs "ID" vs "ID " issues.
+ */
 function mapRow(headers, row) {
     const obj = {};
-    headers.forEach((h, i) => { obj[h] = row[i] || null; });
+    headers.forEach((h, i) => {
+        if (!h) return;
+        const normalizedKey = String(h).trim().toUpperCase();
+        obj[normalizedKey] = row[i] || null;
+    });
     return obj;
 }
 
@@ -51,7 +59,7 @@ const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 class PullService {
     static async syncAll() {
         console.log("=========================================");
-        console.log("Memory B FULL Sync (Google Sheets -> Local DB)");
+        console.log(`[${new Date().toISOString()}] Memory B PULL: Sheets -> Local DB`);
         console.log("=========================================");
 
         const sheets = await getSheets();
@@ -59,17 +67,17 @@ class PullService {
         if (!sid) throw new Error("GOOGLE_SHEETS_ID not set");
 
         const syncTabs = [
-            { name: "Tasks", model: "taskItem", map: (r) => ({ title: r['Title'] || "Untitled", description: r['Description'], status: r['Status'] || "todo", priority: r['Priority'] || "medium", assigneeName: r['Assignee'], dueDate: parseDate(r['Due Date']) }), create: (r) => ({ createdBy: "system", assigneeId: "usr-001" }) },
-            { name: "Sales", model: "salesDeal", key: "dealNumber", keyValue: (r) => r['Order #'] || r['ID'], map: (r) => ({ dealNumber: r['Order #'], buyer: r['Client'] || "Unknown", quantity: num(r['Amount']), status: r['Status'] || "pre_sale", picName: r['Created By'] }), create: (r) => ({ createdBy: "system" }) },
-            { name: "Shipments", model: "shipmentDetail", key: "shipmentNumber", keyValue: (r) => r['Shipment #'] || r['ID'], map: (r) => ({ shipmentNumber: r['Shipment #'], status: normalizeShipmentStatus(r['Status']), buyer: r['Buyer'] || "Unknown", supplier: r['Supplier'], vesselName: r['Vessel Name'], bargeName: r['Barge Name'], loadingPort: r['Loading Port'], dischargePort: r['Discharge Port'], quantityLoaded: num(r['Qty Loaded (MT)']), blDate: parseDate(r['BL Date']), eta: parseDate(r['ETA']), salesPrice: num(r['Sales Price']), marginMt: num(r['Margin/MT']), picName: r['PIC'], type: r['Type'] || "export" }) },
-            { name: "Sources", model: "sourceSupplier", map: (r) => ({ name: r['Name'] || "Unknown", region: r['Region'] || "Unknown", calorieRange: r['Calorie Range'], gar: num(r['GAR']), ts: num(r['TS']), ash: num(r['Ash']), tm: num(r['TM']), jettyPort: r['Jetty Port'], anchorage: r['Anchorage'], stockAvailable: num(r['Stock Available']), minStockAlert: num(r['Min Stock Alert']), kycStatus: r['KYC Status'] || "pending", psiStatus: r['PSI Status'] || "not_started", fobBargeOnly: r['FOB Barge Only'] === 'TRUE', priceLinkedIndex: r['Price Linked Index'], fobBargePriceUsd: num(r['FOB Barge Price (USD)']), contractType: r['Contract Type'], picName: r['PIC'], iupNumber: r['IUP Number'] }) },
-            { name: "Quality", model: "qualityResult", map: (r) => ({ cargoName: r['Cargo Name'] || "Unknown", surveyor: r['Surveyor'], samplingDate: parseDate(r['Sampling Date']), gar: num(r['GAR']), ts: num(r['TS']), ash: num(r['Ash']), tm: num(r['TM']), status: r['Status'] || "pending" }), create: (r) => ({ cargoId: r['Cargo ID'] || r['ID'] }) },
-            { name: "Market Price", model: "marketPrice", map: (r) => ({ date: parseDate(r['Date']) || new Date(), ici1: num(r['ICI 1']), ici2: num(r['ICI 2']), ici3: num(r['ICI 3']), ici4: num(r['ICI 4']), ici5: num(r['ICI 5']), newcastle: num(r['Newcastle']), hba: num(r['HBA']), source: r['Source'] }) },
-            { name: "Meetings", model: "meetingItem", map: (r) => ({ title: r['Title'] || "Untitled", date: parseDate(r['Date']), time: r['Time'], location: r['Location'], status: r['Status'] || "scheduled", attendees: r['Attendees'] }), create: (r) => ({ createdBy: "system" }) },
-            { name: "Expenses", model: "purchaseRequest", key: "requestNumber", keyValue: (r) => r['Request #'] || r['ID'], map: (r) => ({ requestNumber: r['Request #'], category: r['Category'] || "Other", supplier: r['Supplier'], description: r['Description'], amount: num(r['Amount']), priority: r['Priority'] || "medium", status: r['Status'] || "pending" }), create: (r) => ({ createdBy: "system", createdByName: r['Created By'] }) },
-            { name: "P&L Forecast", model: "pLForecast", map: (r) => ({ dealNumber: r['ID'] ? r['ID'].split('-')[0] : undefined, buyer: r['Project / Buyer'], quantity: num(r['Quantity']), sellingPrice: num(r['Selling Price']), buyingPrice: num(r['Buying Price']), freightCost: num(r['Freight Cost']), otherCost: num(r['Other Cost']), grossProfitMt: num(r['Gross Profit / MT']), totalGrossProfit: num(r['Total Gross Profit']) }) },
-            { name: "Projects", model: "salesDeal", key: "dealNumber", keyValue: (r) => r['ID'], map: (r) => ({ dealNumber: r['ID'] ? (r['ID'].startsWith('DEAL-') ? r['ID'] : `DEAL-${r['ID']}`) : undefined, status: r['Status'] || "confirmed", buyer: r['Buyer'] || "Unknown", buyerCountry: r['Country'], type: r['Type'] || "export", quantity: num(r['Quantity (MT)']), pricePerMt: num(r['Price/MT']), totalValue: num(r['Total Value']), laycanStart: parseDate(r['Laycan Start']), laycanEnd: parseDate(r['Laycan End']), picName: r['PIC'] }), create: (r) => ({ createdBy: "system" }) },
-            { name: "Partners", model: "partner", map: (r) => ({ name: r['Name'] || "Unknown", type: r['Type'] || "buyer", category: r['Category'], contactPerson: r['Contact Person'], phone: r['Phone'], email: r['Email'], address: r['Address'], city: r['City'], country: r['Country'], taxId: r['Tax ID'], status: r['Status'] || "active", notes: r['Notes'] }) },
+            { name: "Tasks", model: "taskItem", map: (r) => ({ title: r['TITLE'] || "Untitled", description: r['DESCRIPTION'], status: r['STATUS'] || "todo", priority: r['PRIORITY'] || "medium", assigneeName: r['ASSIGNEE'], dueDate: parseDate(r['DUE DATE']) }), create: (r) => ({ createdBy: "system", assigneeId: "usr-001" }) },
+            { name: "Sales", model: "salesDeal", key: "dealNumber", keyValue: (r) => r['ORDER #'] || r['ID'], map: (r) => ({ dealNumber: r['ORDER #'], buyer: r['CLIENT'] || "Unknown", quantity: num(r['AMOUNT']), status: r['STATUS'] || "pre_sale", picName: r['CREATED BY'] }), create: (r) => ({ createdBy: "system" }) },
+            { name: "Shipments", model: "shipmentDetail", key: "shipmentNumber", keyValue: (r) => r['SHIPMENT #'] || r['ID'], map: (r) => ({ shipmentNumber: r['SHIPMENT #'], status: normalizeShipmentStatus(r['STATUS']), buyer: r['BUYER'] || "Unknown", supplier: r['SUPPLIER'], vesselName: r['VESSEL NAME'], bargeName: r['BARGE NAME'], loadingPort: r['LOADING PORT'], dischargePort: r['DISCHARGE PORT'], quantityLoaded: num(r['QTY LOADED (MT)']), blDate: parseDate(r['BL DATE']), eta: parseDate(r['ETA']), salesPrice: num(r['SALES PRICE']), marginMt: num(r['MARGIN/MT']), picName: r['PIC'], type: r['TYPE'] || "export" }) },
+            { name: "Sources", model: "sourceSupplier", map: (r) => ({ name: r['NAME'] || "Unknown", region: r['REGION'] || "Unknown", calorieRange: r['CALORIE RANGE'], gar: num(r['GAR']), ts: num(r['TS']), ash: num(r['ASH']), tm: num(r['TM']), jettyPort: r['JETTY PORT'], anchorage: r['ANCHORAGE'], stockAvailable: num(r['STOCK AVAILABLE']), minStockAlert: num(r['MIN STOCK ALERT']), kycStatus: r['KYC STATUS'] || "pending", psiStatus: r['PSI STATUS'] || "not_started", fobBargeOnly: r['FOB BARGE ONLY'] === 'TRUE', priceLinkedIndex: r['PRICE LINKED INDEX'], fobBargePriceUsd: num(r['FOB BARGE PRICE (USD)']), contractType: r['CONTRACT TYPE'], picName: r['PIC'], iupNumber: r['IUP NUMBER'] }) },
+            { name: "Quality", model: "qualityResult", map: (r) => ({ cargoName: r['CARGO NAME'] || "Unknown", surveyor: r['SURVEYOR'], samplingDate: parseDate(r['SAMPLING DATE']), gar: num(r['GAR']), ts: num(r['TS']), ash: num(r['ASH']), tm: num(r['TM']), status: r['STATUS'] || "pending" }), create: (r) => ({ cargoId: r['CARGO ID'] || r['ID'] }) },
+            { name: "Market Price", model: "marketPrice", map: (r) => ({ date: parseDate(r['DATE']) || new Date(), ici1: num(r['ICI 1']), ici2: num(r['ICI 2']), ici3: num(r['ICI 3']), ici4: num(r['ICI 4']), ici5: num(r['ICI 5']), newcastle: num(r['NEWCASTLE']), hba: num(r['HBA']), source: r['SOURCE'] }) },
+            { name: "Meetings", model: "meetingItem", map: (r) => ({ title: r['TITLE'] || "Untitled", date: parseDate(r['DATE']), time: r['TIME'], location: r['LOCATION'], status: r['STATUS'] || "scheduled", attendees: r['ATTENDEES'] }), create: (r) => ({ createdBy: "system" }) },
+            { name: "Expenses", model: "purchaseRequest", key: "requestNumber", keyValue: (r) => r['REQUEST #'] || r['ID'], map: (r) => ({ requestNumber: r['REQUEST #'], category: r['CATEGORY'] || "Other", supplier: r['SUPPLIER'], description: r['DESCRIPTION'], amount: num(r['AMOUNT']), priority: r['PRIORITY'] || "medium", status: r['STATUS'] || "pending" }), create: (r) => ({ createdBy: "system", createdByName: r['CREATED BY'] }) },
+            { name: "P&L Forecast", model: "pLForecast", map: (r) => ({ dealNumber: r['ID'] ? r['ID'].split('-')[0] : undefined, buyer: r['PROJECT / BUYER'], quantity: num(r['QUANTITY']), sellingPrice: num(r['SELLING PRICE']), buyingPrice: num(r['BUYING PRICE']), freightCost: num(r['FREIGHT COST']), otherCost: num(r['OTHER COST']), grossProfitMt: num(r['GROSS PROFIT / MT']), totalGrossProfit: num(r['TOTAL GROSS PROFIT']) }) },
+            { name: "Projects", model: "salesDeal", key: "dealNumber", keyValue: (r) => r['ID'], map: (r) => ({ dealNumber: r['ID'] ? (r['ID'].startsWith('DEAL-') ? r['ID'] : `DEAL-${r['ID']}`) : undefined, status: r['STATUS'] || "confirmed", buyer: r['BUYER'] || "Unknown", buyerCountry: r['COUNTRY'], type: r['TYPE'] || "export", quantity: num(r['QUANTITY (MT)']), pricePerMt: num(r['PRICE/MT']), totalValue: num(r['TOTAL VALUE']), laycanStart: parseDate(r['LAYCAN START']), laycanEnd: parseDate(r['LAYCAN END']), picName: r['PIC'] }), create: (r) => ({ createdBy: "system" }) },
+            { name: "Partners", model: "partner", map: (r) => ({ name: r['NAME'] || "Unknown", type: r['TYPE'] || "buyer", category: r['CATEGORY'], contactPerson: r['CONTACT PERSON'], phone: r['PHONE'], email: r['EMAIL'], address: r['ADDRESS'], city: r['CITY'], country: r['COUNTRY'], taxId: r['TAX ID'], status: r['STATUS'] || "active", notes: r['NOTES'] }) },
         ];
 
         for (const tab of syncTabs) {
@@ -81,7 +89,7 @@ class PullService {
             } catch (e) {
                 if (e.message.includes("Quota exceeded")) {
                     console.warn(`  [!] Quota hit on ${tab.name}. Stopping current sync cycle.`);
-                    return; // Stop the whole sync cycle to wait for next interval
+                    return;
                 }
                 console.error(`  [!] Error pulling ${tab.name}:`, e.message);
                 continue;
@@ -92,22 +100,22 @@ class PullService {
             if (rows.length > 1) {
                 for (let i = 1; i < rows.length; i++) {
                     const r = mapRow(headers, rows[i]);
-                    if (!r['ID']) continue;
+                    const rowId = r['ID'];
+                    if (!rowId) continue;
 
                     const data = tab.map(r);
                     const extra = tab.create ? tab.create(r) : {};
-                    const keyValue = tab.key ? tab.keyValue(r) : r['ID'];
+                    const keyValue = tab.key ? tab.keyValue(r) : rowId;
 
                     // --- ID HEALING LOGIC ---
-                    let targetId = r['ID'];
+                    let targetId = rowId;
                     if (tab.key && keyValue) {
-                        const existingByKey = await prisma[tab.model].findUnique({
-                            where: { [tab.key]: keyValue }
-                        }).catch(() => null);
-
-                        if (existingByKey) {
-                            targetId = existingByKey.id;
-                        }
+                        try {
+                            const existingByKey = await prisma[tab.model].findUnique({
+                                where: { [tab.key]: keyValue }
+                            });
+                            if (existingByKey) targetId = existingByKey.id;
+                        } catch (err) { /* ignore find errors */ }
                     }
 
                     if (tab.key && !data[tab.key]) {
@@ -121,24 +129,20 @@ class PullService {
                         where: { id: targetId },
                         update: data,
                         create: createData
-                    }).catch(e => console.error(`Failed upsert for ${tab.name} ID ${targetId}:`, e.message));
+                    }).catch(e => console.error(`  [!] Failed upsert for ${tab.name} ID ${targetId}:`, e.message));
 
                     remoteIds.add(targetId);
                 }
             }
 
             // --- DELETION RECONCILIATION ---
-            // If a record exists in DB but NOT in the Google Sheet, mark it as isDeleted: true
-            if (tab.model !== 'marketPrice' && tab.model !== 'syncState') { // Skip models that don't use soft delete or are singletons
+            if (tab.model !== 'marketPrice' && tab.model !== 'syncState') {
                 try {
                     const localRecords = await prisma[tab.model].findMany({
                         where: {
                             isDeleted: false,
                             // Safety buffer: Don't delete records created in the last 5 minutes
-                            // This gives the PushService time to sync local data to Sheets
-                            createdAt: {
-                                lt: new Date(Date.now() - 5 * 60 * 1000)
-                            }
+                            createdAt: { lt: new Date(Date.now() - 5 * 60 * 1000) }
                         },
                         select: { id: true }
                     });
@@ -157,8 +161,7 @@ class PullService {
                 }
             }
 
-            // Wait 1 second between tabs to prevent hitting quota too fast
-            await sleep(1000);
+            await sleep(1000); // Prevent quota hit
         }
 
         console.log("✅ Sync All complete.");
