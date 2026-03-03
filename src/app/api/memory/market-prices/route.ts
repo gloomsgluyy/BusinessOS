@@ -4,21 +4,13 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { syncAllMarketPriceToSheet } from "@/app/actions/sheet-actions";
 
-async function pushToSheets() {
+import { PushService } from "@/lib/push-to-sheets";
+
+async function triggerPush() {
     try {
-        const prices = await prisma.marketPrice.findMany({
-            where: { isDeleted: false },
-            orderBy: { date: "desc" }
-        });
-        const formatted = prices.map((m: any) => ({
-            id: m.id, date: m.date ? m.date.toISOString().split('T')[0] : "",
-            ici_1: m.ici1 || 0, ici_2: m.ici2 || 0, ici_3: m.ici3 || 0, ici_4: m.ici4 || 0, ici_5: m.ici5 || 0,
-            newcastle: m.newcastle || 0, hba: m.hba || 0, source: m.source || "Manual",
-            updated_at: m.updatedAt.toISOString()
-        }));
-        await syncAllMarketPriceToSheet(formatted);
+        await PushService.pushAllToSheets();
     } catch (err) {
-        console.error("Failed to sync Market Prices to sheets:", err);
+        console.error("Failed to push Market Prices to sheets:", err);
     }
 }
 
@@ -108,7 +100,7 @@ export async function POST(req: Request) {
         });
 
         // Trigger Google Sheets Sync in background
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, price });
     } catch (error) {
@@ -156,7 +148,7 @@ export async function PUT(req: Request) {
         });
 
         // Trigger Google Sheets Sync in background
-        pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, price });
     } catch (error) {
@@ -193,7 +185,7 @@ export async function DELETE(req: Request) {
         });
 
         // Trigger Google Sheets Sync in background
-        pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true });
     } catch (error) {

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "NODE_OPTIONS=--max-old-space-size=4096 next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "sync": "npx ts-node sync-manager.ts"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",

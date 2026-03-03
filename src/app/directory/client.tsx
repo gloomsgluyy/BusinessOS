@@ -6,8 +6,9 @@ import { cn } from "@/lib/utils";
 import { Users, Building2, Truck, Search, MapPin, Mail, Phone, ExternalLink } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 
-import { Plus, Edit2, X, Trash2 } from "lucide-react";
+import { Plus, Edit2, X, Trash2, Loader2 } from "lucide-react";
 import { useDirectoryStore, DirectoryEntry } from "@/store/directory-store";
+import { Toast } from "@/components/shared/toast";
 
 export default function DirectoryPageClient() {
     const searchParams = useSearchParams();
@@ -17,6 +18,8 @@ export default function DirectoryPageClient() {
     const [filter, setFilter] = React.useState<"all" | "buyer" | "vendor" | "fleet">(initialFilter);
     const [search, setSearch] = React.useState("");
     const [showModal, setShowModal] = React.useState(false);
+    const [isSaving, setIsSaving] = React.useState(false);
+    const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
     const [editItem, setEditItem] = React.useState<DirectoryEntry | null>(null);
     const [form, setForm] = React.useState<Partial<DirectoryEntry>>({ type: "buyer", status: "active" });
 
@@ -31,14 +34,36 @@ export default function DirectoryPageClient() {
         setShowModal(true);
     };
 
-    const handleSave = () => {
-        if (!form.name || !form.pic) return alert("Complete required fields!");
-        if (editItem) {
-            updateEntry(editItem.id, form as DirectoryEntry);
-        } else {
-            addEntry(form as any);
+    const handleSave = async () => {
+        if (!form.name || !form.pic) {
+            setToast({ message: "Complete required fields!", type: "error" });
+            return;
         }
-        setShowModal(false);
+        setIsSaving(true);
+        try {
+            if (editItem) {
+                await updateEntry(editItem.id, form as DirectoryEntry);
+                setToast({ message: "Partner updated successfully!", type: "success" });
+            } else {
+                await addEntry(form as any);
+                setToast({ message: "New partner added successfully!", type: "success" });
+            }
+            setShowModal(false);
+        } catch (error) {
+            setToast({ message: "Failed to save partner", type: "error" });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleDelete = async (id: string) => {
+        if (!confirm("Are you sure you want to delete this partner?")) return;
+        try {
+            await deleteEntry(id);
+            setToast({ message: "Partner removed successfully", type: "success" });
+        } catch (error) {
+            setToast({ message: "Failed to delete partner", type: "error" });
+        }
     };
 
     const filtered = entries.filter(d => {
@@ -120,7 +145,7 @@ export default function DirectoryPageClient() {
                                 <button onClick={() => openModal(d)} className="flex-1 py-2 rounded-xl border border-border/50 hover:bg-accent text-xs font-semibold text-foreground transition-colors flex items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0">
                                     <Edit2 className="w-3.5 h-3.5" /> Edit
                                 </button>
-                                <button onClick={() => deleteEntry(d.id)} className="p-2 rounded-xl border border-red-500/20 text-red-500 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0">
+                                <button onClick={() => handleDelete(d.id)} className="p-2 rounded-xl border border-red-500/20 text-red-500 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0">
                                     <Trash2 className="w-4 h-4" />
                                 </button>
                             </div>
@@ -203,11 +228,23 @@ export default function DirectoryPageClient() {
                             </div>
 
                             <div className="mt-6 flex justify-end gap-2 border-t border-border/30 pt-4">
-                                <button onClick={() => setShowModal(false)} className="px-4 py-2 hover:bg-accent text-sm rounded-lg transition-colors">Cancel</button>
-                                <button onClick={handleSave} className="btn-primary">Save Partner</button>
+                                <button onClick={() => setShowModal(false)} className="px-4 py-2 hover:bg-accent text-sm rounded-lg transition-colors" disabled={isSaving}>Cancel</button>
+                                <button onClick={handleSave} className="btn-primary" disabled={isSaving}>
+                                    {isSaving ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            Saving...
+                                        </>
+                                    ) : (
+                                        "Save Partner"
+                                    )}
+                                </button>
                             </div>
                         </div>
                     </div>
+                )}
+                {toast && (
+                    <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
                 )}
             </div>
         </AppShell >

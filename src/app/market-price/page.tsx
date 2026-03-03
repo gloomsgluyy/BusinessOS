@@ -5,8 +5,9 @@ import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
-import { Plus, TrendingUp, TrendingDown, Settings2, X, Calculator } from "lucide-react";
+import { Plus, TrendingUp, TrendingDown, Settings2, X, Calculator, Loader2 } from "lucide-react";
 import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
+import { Toast } from "@/components/shared/toast";
 
 interface Formula {
     name: string;
@@ -32,6 +33,8 @@ export default function MarketPricePage() {
     const canEdit = hasPermission("market_price_edit");
     const [mounted, setMounted] = React.useState(false);
     const [showForm, setShowForm] = React.useState(false);
+    const [isSaving, setIsSaving] = React.useState(false);
+    const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
     const [showScrapeSettings, setShowScrapeSettings] = React.useState(false);
     const [autoScrape, setAutoScrape] = React.useState(true);
     const [scrapeInterval, setScrapeInterval] = React.useState("6_hours");
@@ -127,24 +130,32 @@ export default function MarketPricePage() {
         { label: "HBA", val: safeNum(latest.hba), diff: safeNum(latest.hba) - safeNum(prev.hba), color: "#10b981" },
     ] : [];
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!form.date) {
-            alert("Harap pilih tanggal terlebih dahulu");
+            setToast({ message: "Please select a date first", type: "error" });
             return;
         }
-        addMarketPrice({
-            date: form.date,
-            ici_1: form.ici_1 || 0,
-            ici_2: form.ici_2 || 0,
-            ici_3: form.ici_3 || 0,
-            ici_4: form.ici_4 || 0,
-            ici_5: form.ici_5 || 0,
-            newcastle: form.newcastle || 0,
-            hba: form.hba || 0,
-            source: "Manual"
-        });
-        setShowForm(false);
-        setForm({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0 });
+        setIsSaving(true);
+        try {
+            await addMarketPrice({
+                date: form.date,
+                ici_1: form.ici_1 || 0,
+                ici_2: form.ici_2 || 0,
+                ici_3: form.ici_3 || 0,
+                ici_4: form.ici_4 || 0,
+                ici_5: form.ici_5 || 0,
+                newcastle: form.newcastle || 0,
+                hba: form.hba || 0,
+                source: "Manual"
+            });
+            setToast({ message: "Market prices saved successfully!", type: "success" });
+            setShowForm(false);
+            setForm({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0 });
+        } catch (error) {
+            setToast({ message: "Failed to save market prices", type: "error" });
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     if (!mounted) {
@@ -354,8 +365,19 @@ export default function MarketPricePage() {
                             ))}
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={handleSubmit} className="btn-primary"><Plus className="w-4 h-4" /> Save</button>
-                            <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors">Cancel</button>
+                            <button onClick={handleSubmit} className="btn-primary" disabled={isSaving}>
+                                {isSaving ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        Saving...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Plus className="w-4 h-4 mr-1" /> Save
+                                    </     >
+                                )}
+                            </button>
+                            <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors" disabled={isSaving}>Cancel</button>
                         </div>
                     </div>
                 )}
@@ -384,6 +406,9 @@ export default function MarketPricePage() {
                         </tbody>
                     </table>
                 </div>
+                {toast && (
+                    <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+                )}
             </div>
         </AppShell>
     );

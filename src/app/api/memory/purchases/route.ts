@@ -4,16 +4,13 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { syncAllPurchasesToSheet } from "@/app/actions/sheet-actions";
 
-async function pushToSheets() {
-    try {
-        const purchases = await prisma.purchaseRequest.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
-        });
-        await syncAllPurchasesToSheet(purchases);
-    } catch (err) {
-        console.error("Failed to sync Purchases to sheets:", err);
-    }
+import { PushService } from "@/lib/push-to-sheets";
+
+async function triggerPush(model: string = "purchaseRequest") {
+    // Non-blocking trigger
+    PushService.pushModelToSheets(model).catch(err => {
+        console.error(`Failed to push ${model} to sheets:`, err);
+    });
 }
 
 export async function GET() {
@@ -83,7 +80,7 @@ export async function POST(req: Request) {
             return newPurchase;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, purchase });
     } catch (error) {
@@ -133,7 +130,7 @@ export async function PUT(req: Request) {
             return updatedPurchase;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, purchase });
     } catch (error) {
@@ -169,7 +166,7 @@ export async function DELETE(req: Request) {
             });
         });
 
-        pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true });
     } catch (error) {

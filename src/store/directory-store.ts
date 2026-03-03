@@ -23,9 +23,9 @@ export interface DirectoryEntry {
 interface DirectoryState {
     _rawEntries: DirectoryEntry[];
     entries: DirectoryEntry[];
-    addEntry: (entry: Omit<DirectoryEntry, "id">) => void;
-    updateEntry: (id: string, entry: Partial<DirectoryEntry>) => void;
-    deleteEntry: (id: string) => void;
+    addEntry: (entry: Omit<DirectoryEntry, "id">) => Promise<void>;
+    updateEntry: (id: string, entry: Partial<DirectoryEntry>) => Promise<void>;
+    deleteEntry: (id: string) => Promise<void>;
     syncFromMemory: () => Promise<void>;
 }
 

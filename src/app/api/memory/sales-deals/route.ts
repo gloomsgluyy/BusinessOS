@@ -4,23 +4,13 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { syncAllProjectsToSheet } from "@/app/actions/sheet-actions";
 
-async function pushToSheets() {
-    try {
-        const deals = await prisma.salesDeal.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
-        });
-        const formatted = deals.map((d: any) => ({
-            id: d.id, buyer: d.buyer, buyer_country: d.buyerCountry, type: d.type,
-            quantity: d.quantity, price_per_mt: d.pricePerMt, total_value: d.totalValue,
-            status: d.status, vessel_name: d.vesselName, laycan_start: d.laycanStart ? d.laycanStart.toISOString().split('T')[0] : "",
-            laycan_end: d.laycanEnd ? d.laycanEnd.toISOString().split('T')[0] : "", pic_name: d.picName,
-            updated_at: d.updatedAt.toISOString()
-        }));
-        await syncAllProjectsToSheet(formatted);
-    } catch (err) {
-        console.error("Failed to sync Sales Deals to sheets:", err);
-    }
+import { PushService } from "@/lib/push-to-sheets";
+
+async function triggerPush(model: string = "salesDeal") {
+    // Non-blocking trigger
+    PushService.pushModelToSheets(model).catch(err => {
+        console.error(`Failed to push ${model} to sheets:`, err);
+    });
 }
 
 export async function GET() {
@@ -50,25 +40,25 @@ export async function POST(req: Request) {
         const deal = await prisma.$transaction(async (tx) => {
             const newDeal = await tx.salesDeal.create({
                 data: {
-                    dealNumber: data.dealNumber || `SD-${Date.now()}`,
+                    dealNumber: data.deal_number || data.dealNumber || `SD-${Date.now()}`,
                     status: data.status || "pre_sale",
                     buyer: data.buyer,
-                    buyerCountry: data.buyerCountry,
+                    buyerCountry: data.buyer_country || data.buyerCountry,
                     type: data.type || "export",
-                    shippingTerms: data.shippingTerms || "FOB",
-                    quantity: data.quantity ? parseFloat(data.quantity.toString()) : 0,
-                    pricePerMt: data.pricePerMt ? parseFloat(data.pricePerMt.toString()) : null,
-                    totalValue: data.totalValue ? parseFloat(data.totalValue.toString()) : null,
-                    laycanStart: data.laycanStart ? new Date(data.laycanStart) : null,
-                    laycanEnd: data.laycanEnd ? new Date(data.laycanEnd) : null,
-                    vesselName: data.vesselName,
+                    shippingTerms: data.shipping_terms || data.shippingTerms || "FOB",
+                    quantity: (data.quantity !== undefined) ? parseFloat(data.quantity.toString()) : 0,
+                    pricePerMt: (data.price_per_mt !== undefined) ? parseFloat(data.price_per_mt.toString()) : (data.pricePerMt ? parseFloat(data.pricePerMt.toString()) : null),
+                    totalValue: (data.total_value !== undefined) ? parseFloat(data.total_value.toString()) : (data.totalValue ? parseFloat(data.totalValue.toString()) : null),
+                    laycanStart: (data.laycan_start || data.laycanStart) ? new Date(data.laycan_start || data.laycanStart) : null,
+                    laycanEnd: (data.laycan_end || data.laycanEnd) ? new Date(data.laycan_end || data.laycanEnd) : null,
+                    vesselName: data.vessel_name || data.vesselName,
                     gar: data.spec?.gar ? parseFloat(data.spec.gar.toString()) : null,
                     ts: data.spec?.ts ? parseFloat(data.spec.ts.toString()) : null,
                     ash: data.spec?.ash ? parseFloat(data.spec.ash.toString()) : null,
                     tm: data.spec?.tm ? parseFloat(data.spec.tm.toString()) : null,
-                    projectId: data.projectId,
-                    picId: data.picId,
-                    picName: data.picName || session.user.name,
+                    projectId: data.project_id || data.projectId,
+                    picId: data.pic_id || data.picId,
+                    picName: data.pic_name || data.picName || session.user.name,
                     createdByName: session.user.name,
                     createdBy: session.user.id
                 }
@@ -88,7 +78,7 @@ export async function POST(req: Request) {
             return newDeal;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, deal });
     } catch (error) {
@@ -111,22 +101,22 @@ export async function PUT(req: Request) {
                 data: {
                     status: data.status,
                     buyer: data.buyer,
-                    buyerCountry: data.buyerCountry,
+                    buyerCountry: data.buyer_country || data.buyerCountry,
                     type: data.type,
-                    shippingTerms: data.shippingTerms,
-                    quantity: data.quantity ? parseFloat(data.quantity.toString()) : undefined,
-                    pricePerMt: data.pricePerMt ? parseFloat(data.pricePerMt.toString()) : undefined,
-                    totalValue: data.totalValue ? parseFloat(data.totalValue.toString()) : undefined,
-                    laycanStart: data.laycanStart ? new Date(data.laycanStart) : undefined,
-                    laycanEnd: data.laycanEnd ? new Date(data.laycanEnd) : undefined,
-                    vesselName: data.vesselName,
+                    shippingTerms: data.shipping_terms || data.shippingTerms,
+                    quantity: (data.quantity !== undefined) ? parseFloat(data.quantity.toString()) : undefined,
+                    pricePerMt: (data.price_per_mt !== undefined) ? parseFloat(data.price_per_mt.toString()) : (data.pricePerMt !== undefined ? parseFloat(data.pricePerMt.toString()) : undefined),
+                    totalValue: (data.total_value !== undefined) ? parseFloat(data.total_value.toString()) : (data.totalValue !== undefined ? parseFloat(data.totalValue.toString()) : undefined),
+                    laycanStart: (data.laycan_start || data.laycanStart) ? new Date(data.laycan_start || data.laycanStart) : undefined,
+                    laycanEnd: (data.laycan_end || data.laycanEnd) ? new Date(data.laycan_end || data.laycanEnd) : undefined,
+                    vesselName: data.vessel_name || data.vesselName,
                     gar: data.spec?.gar ? parseFloat(data.spec.gar.toString()) : undefined,
                     ts: data.spec?.ts ? parseFloat(data.spec.ts.toString()) : undefined,
                     ash: data.spec?.ash ? parseFloat(data.spec.ash.toString()) : undefined,
                     tm: data.spec?.tm ? parseFloat(data.spec.tm.toString()) : undefined,
-                    projectId: data.projectId,
-                    picId: data.picId,
-                    picName: data.picName
+                    projectId: data.project_id || data.projectId,
+                    picId: data.pic_id || data.picId,
+                    picName: data.pic_name || data.picName
                 }
             });
 
@@ -144,7 +134,7 @@ export async function PUT(req: Request) {
             return updatedDeal;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, deal });
     } catch (error) {
@@ -180,7 +170,7 @@ export async function DELETE(req: Request) {
             });
         });
 
-        pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true });
     } catch (error) {

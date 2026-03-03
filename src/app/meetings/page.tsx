@@ -6,256 +6,423 @@ import { useCommercialStore } from "@/store/commercial-store";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { MeetingItem } from "@/types";
-import { Calendar, Plus, Users, MapPin, FileText, Download, X, Play, Mic, Upload, Wand2, Search, Filter, Loader2, FileAudio, CheckCircle2, Video } from "lucide-react";
+import {
+    Calendar, Plus, Users, MapPin, FileText, Download, X, Play,
+    Mic, Upload, Wand2, Search, Filter, Loader2, FileAudio,
+    CheckCircle2, ListTodo, Sparkles, ChevronRight,
+} from "lucide-react";
 import { useTaskStore } from "@/store/task-store";
 import { AIAgent } from "@/lib/ai-agent";
 import { jsPDF } from "jspdf";
+import { Toast } from "@/components/shared/toast";
+
+// ─── Type for extracted task ──────────────────────────────────────
+interface ExtractedTask {
+    title: string;
+    assignee_hint?: string;
+    due_date_hint?: string;
+    priority?: "low" | "medium" | "high";
+    confirmed?: boolean;
+    due_date?: string;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────
+function stripMarkdown(md: string): string {
+    return md
+        .replace(/#{1,6}\s+/g, "")
+        .replace(/\*\*(.+?)\*\*/g, "$1")
+        .replace(/\*(.+?)\*/g, "$1")
+        .replace(/`(.+?)`/g, "$1")
+        .replace(/\[(.+?)\]\(.+?\)/g, "$1")
+        .replace(/^[-*+]\s/gm, "")
+        .replace(/^>\s/gm, "")
+        .replace(/^\d+\.\s/gm, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+}
+
+function parseDatePart(dateStr: string): string {
+    if (!dateStr) return "";
+    if (typeof dateStr === "string" && dateStr.includes("T")) return dateStr.split("T")[0];
+    return dateStr;
+}
 
 export default function MeetingsPage() {
     const { meetings, addMeeting, updateMeeting } = useCommercialStore();
     const { addTask } = useTaskStore();
     const { data: session, status } = useSession();
     const currentUser = session?.user as any;
+
+    // ── UI state ──────────────────────────────────────────────────
     const [showForm, setShowForm] = React.useState(false);
+    const [isSaving, setIsSaving] = React.useState(false);
+    const [isTranscribing, setIsTranscribing] = React.useState(false);
+    const [isGeneratingAI, setIsGeneratingAI] = React.useState(false);
+    const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
     const [activeView, setActiveView] = React.useState<"card" | "list">("card");
     const [selectedMeeting, setSelectedMeeting] = React.useState<MeetingItem | null>(null);
-    const [momEdit, setMomEdit] = React.useState("");
     const [activeTab, setActiveTab] = React.useState<"all" | "upcoming" | "past">("all");
     const [search, setSearch] = React.useState("");
+    const [modalTab, setModalTab] = React.useState<"mom" | "ai">("mom");
 
+    // ── Form ──────────────────────────────────────────────────────
     const [form, setForm] = React.useState({ title: "", date: "", time: "10:00", location: "", attendees: "" });
-    const [isRecording, setIsRecording] = React.useState(false);
-    const [isGenerating, setIsGenerating] = React.useState(false);
 
-    // AI Pipeline states
+    // ── MOM & AI content ─────────────────────────────────────────
+    const [momText, setMomText] = React.useState("");        // plain text transcript
+    const [aiSummary, setAiSummary] = React.useState("");   // markdown AI summary
+
+    // ── Recording ─────────────────────────────────────────────────
+    const [isRecording, setIsRecording] = React.useState(false);
+    const [recordingSeconds, setRecordingSeconds] = React.useState(0);
+    const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+    const audioChunksRef = React.useRef<Blob[]>([]);
+    const recordingTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // ── File upload ───────────────────────────────────────────────
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const [uploadedFile, setUploadedFile] = React.useState<File | null>(null);
-    const [transcript, setTranscript] = React.useState<string>("");
-    const [showExportMenu, setShowExportMenu] = React.useState(false);
 
-    const handleCreate = () => {
-        addMeeting({
-            title: form.title, date: form.date, time: form.time, location: form.location,
-            attendees: form.attendees.split(",").map((a) => a.trim()).filter(Boolean),
-            status: "scheduled", action_items: [],
-            created_by: currentUser?.id || "system", created_by_name: currentUser?.name || "System",
-        });
-        setShowForm(false);
-        setForm({ title: "", date: "", time: "10:00", location: "", attendees: "" });
+    // ── Task extraction ───────────────────────────────────────────
+    const [extractedTasks, setExtractedTasks] = React.useState<ExtractedTask[]>([]);
+
+    // ─── Open meeting modal ───────────────────────────────────────
+    const openMeeting = (m: MeetingItem) => {
+        setSelectedMeeting(m);
+        setMomText(m.mom_content || "");
+        setAiSummary(m.ai_summary || "");
+        setUploadedFile(null);
+        setExtractedTasks([]);
+        setModalTab("mom");
     };
 
-    const handleSaveMOM = () => {
-        if (selectedMeeting) {
-            updateMeeting(selectedMeeting.id, { mom_content: momEdit, status: "completed" });
-            setSelectedMeeting({ ...selectedMeeting, mom_content: momEdit, status: "completed" });
+    const closeModal = () => {
+        setSelectedMeeting(null);
+        setMomText("");
+        setAiSummary("");
+        setUploadedFile(null);
+        setExtractedTasks([]);
+    };
+
+    // ─── Create meeting ───────────────────────────────────────────
+    const handleCreate = async () => {
+        setIsSaving(true);
+        try {
+            await addMeeting({
+                title: form.title, date: form.date, time: form.time, location: form.location,
+                attendees: form.attendees.split(",").map((a) => a.trim()).filter(Boolean),
+                status: "scheduled", action_items: [],
+                created_by: currentUser?.id || "system", created_by_name: currentUser?.name || "System",
+            });
+            setToast({ message: "Meeting scheduled successfully!", type: "success" });
+            setShowForm(false);
+            setForm({ title: "", date: "", time: "10:00", location: "", attendees: "" });
+        } catch {
+            setToast({ message: "Failed to schedule meeting", type: "error" });
+        } finally {
+            setIsSaving(false);
         }
     };
 
+    // ─── Save MOM + AI ────────────────────────────────────────────
+    const handleSave = async () => {
+        if (!selectedMeeting) return;
+        setIsSaving(true);
+        try {
+            await updateMeeting(selectedMeeting.id, {
+                mom_content: momText,
+                ai_summary: aiSummary,
+                status: "completed",
+            });
+            setSelectedMeeting({ ...selectedMeeting, mom_content: momText, ai_summary: aiSummary, status: "completed" });
+            setToast({ message: "Meeting notes saved!", type: "success" });
+        } catch {
+            setToast({ message: "Failed to save meeting notes", type: "error" });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // ─── File Upload ──────────────────────────────────────────────
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !selectedMeeting) return;
         setUploadedFile(file);
-
         try {
             const formData = new FormData();
             formData.append("file", file);
-
-            const res = await fetch("/api/upload", {
-                method: "POST",
-                body: formData,
-            });
-
+            const res = await fetch("/api/upload", { method: "POST", body: formData });
             if (!res.ok) throw new Error("Upload failed");
             const data = await res.json();
-
-            // Save URL to meeting
             updateMeeting(selectedMeeting.id, { voice_note_url: data.url });
             setSelectedMeeting({ ...selectedMeeting, voice_note_url: data.url });
-            alert(`File uploaded successfully: ${data.filename}`);
-
-        } catch (error) {
-            console.error("Upload error:", error);
-            alert("Failed to upload file.");
+            setToast({ message: "File uploaded! Click Transcribe to extract text.", type: "success" });
+        } catch {
+            setToast({ message: "Failed to upload file.", type: "error" });
             setUploadedFile(null);
         }
     };
 
-    const handleGenerateAI = async (type: string) => {
-        setIsGenerating(true);
+    // ─── Live Recording ────────────────────────────────────────────
+    const startRecording = async () => {
         try {
-            if (type === "ML Smart Transcription") {
-                if (!selectedMeeting?.voice_note_url) {
-                    alert("Please upload an audio/video recording first.");
-                    setIsGenerating(false);
-                    return;
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = mediaRecorder;
+            audioChunksRef.current = [];
+            setRecordingSeconds(0);
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) audioChunksRef.current.push(event.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+                const audioFile = new File([audioBlob], `recording_${Date.now()}.webm`, { type: "audio/webm" });
+                setUploadedFile(audioFile);
+                stream.getTracks().forEach((t) => t.stop());
+
+                // Auto-upload
+                if (selectedMeeting) {
+                    const formData = new FormData();
+                    formData.append("file", audioFile);
+                    try {
+                        const res = await fetch("/api/upload", { method: "POST", body: formData });
+                        if (res.ok) {
+                            const data = await res.json();
+                            updateMeeting(selectedMeeting.id, { voice_note_url: data.url });
+                            setSelectedMeeting((prev) => prev ? { ...prev, voice_note_url: data.url } : prev);
+                            setToast({ message: "Recording saved! Click Transcribe to extract text.", type: "success" });
+                        }
+                    } catch { /* silent */ }
                 }
-                const res = await fetch("/api/transcribe", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ fileUrl: selectedMeeting.voice_note_url })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || "Transcription failed");
+            };
 
-                setTranscript(data.transcription);
-                setMomEdit(data.mom_markdown);
-
-                // Extract Tasks
-                if (data.extracted_tasks && data.extracted_tasks.length > 0) {
-                    const confirmTasks = window.confirm(`AI extracted ${data.extracted_tasks.length} tasks. Do you want to add them to the Task Tracker?`);
-                    if (confirmTasks) {
-                        data.extracted_tasks.forEach((t: any) => {
-                            addTask({
-                                title: t.title,
-                                description: `Extracted from Meeting: ${selectedMeeting.title}`,
-                                priority: t.priority || "medium",
-                                status: "todo",
-                                assignee_id: currentUser?.id || "system", // Assign to creator by default
-                                assignee_name: t.assignee_hint || currentUser?.name || "Unassigned",
-                                due_date: new Date().toISOString().split('T')[0],
-                                created_by: currentUser?.id || "system",
-                            });
-                        });
-                        alert("Tasks inserted into tracker successfully.");
-                    }
-                }
-            } else {
-                const ai = new AIAgent({ apiKey: "" }); // Uses server proxy
-                let prompt = "";
-                let contextStr = `Meeting Title: ${selectedMeeting?.title}\nAttendees: ${selectedMeeting?.attendees.join(", ")}\nDate: ${selectedMeeting?.date}\n\n`;
-
-                if (transcript) {
-                    contextStr += `TRANSCRIPT RECORDING:\n${transcript}\n\n`;
-                } else {
-                    contextStr += `(No audio recording uploaded, base on title and standard practices)\n\n`;
-                }
-
-                if (type === "Notes from Agenda") {
-                    prompt = `Generate a concise summary of discussion points based on the following meeting context. Respond in professional professional business language:\n${contextStr}`;
-                } else if (type === "AI Summary") {
-                    prompt = `Summarize the following meeting into 3-4 key takeaways and executive summary. Make it structured using markdown bullet points:\n${contextStr}`;
-                } else {
-                    prompt = `Generate a comprehensive formal Minutes of Meeting (MOM) document based on the following context. Include sections for: Executive Summary, Key Decisions, and Action Items (with assignees if mentioned):\n${contextStr}`;
-                }
-
-                const result = await ai.chat([{ role: "user", content: prompt }]);
-                setMomEdit(result);
-            }
-        } catch (error) {
-            console.error("AI Generation failed", error);
-            alert("Failed to generate AI response. Please check your API configuration or Network.");
-        } finally {
-            setIsGenerating(false);
+            mediaRecorder.start();
+            setIsRecording(true);
+            recordingTimerRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+        } catch {
+            setToast({ message: "Could not access microphone. Please check permissions.", type: "error" });
         }
     };
 
-    const handleExport = (format: "txt" | "word" | "pdf") => {
+    const stopRecording = () => {
+        if (mediaRecorderRef.current && isRecording) {
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+            if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+        }
+    };
+
+    const formatSeconds = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+    // ─── Transcribe audio → plain text MOM ────────────────────────
+    const handleTranscribe = async () => {
+        if (!selectedMeeting?.voice_note_url) {
+            setToast({ message: "Please upload an audio/video file first.", type: "error" });
+            return;
+        }
+        setIsTranscribing(true);
+        try {
+            const res = await fetch("/api/transcribe", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ fileUrl: selectedMeeting.voice_note_url }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Transcription failed");
+
+            // MOM transcript = plain text (strip any markdown from transcription)
+            const plainTranscript = data.transcription || "";
+            setMomText((prev) => prev ? prev + "\n\n" + plainTranscript : plainTranscript);
+            setModalTab("mom");
+
+            // Extract tasks
+            if (data.extracted_tasks && data.extracted_tasks.length > 0) {
+                setExtractedTasks(
+                    data.extracted_tasks.map((t: any) => ({
+                        ...t,
+                        due_date: new Date().toISOString().split("T")[0],
+                        confirmed: false,
+                    }))
+                );
+            }
+
+            setToast({ message: "Transcription complete! Review the MOM below.", type: "success" });
+        } catch (err: any) {
+            setToast({ message: err.message || "Transcription failed.", type: "error" });
+        } finally {
+            setIsTranscribing(false);
+        }
+    };
+
+    // ─── AI Summary (markdown) ─────────────────────────────────────
+    const handleGenerateAISummary = async () => {
         if (!selectedMeeting) return;
-        setShowExportMenu(false);
-        const content = `MINUTES OF MEETING\n==================\nTitle: ${selectedMeeting.title}\nDate: ${selectedMeeting.date} ${selectedMeeting.time}\nLocation: ${selectedMeeting.location || "-"}\nAttendees: ${selectedMeeting.attendees.join(", ")}\n\n${momEdit || selectedMeeting.mom_content || "No MOM recorded"}`;
+        setIsGeneratingAI(true);
+        try {
+            const ai = new AIAgent({ apiKey: "" });
+            const contextParts: string[] = [
+                `Meeting: ${selectedMeeting.title}`,
+                `Date: ${parseDatePart(selectedMeeting.date)} at ${selectedMeeting.time}`,
+                `Attendees: ${selectedMeeting.attendees.join(", ")}`,
+            ];
+            if (momText) contextParts.push(`\nMOM Transcript:\n${momText}`);
+            if (selectedMeeting.voice_note_url) contextParts.push(`\n(Based on audio/video recording attached to this meeting.)`);
 
-        let blob: Blob;
-        let filename: string;
+            const prompt = `You are a professional business meeting assistant. Based on the following meeting information, generate a structured, professional executive summary.
 
-        if (format === "word") {
-            // Simplified Word export using application/msword MIME type which modern Word can read as text/RTF or simple HTML
-            const docContent = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>MOM</title></head><body><h1>MINUTES OF MEETING</h1><p><b>Title:</b> ${selectedMeeting.title}</p><p><b>Date:</b> ${selectedMeeting.date}</p><p><b>Attendees:</b> ${selectedMeeting.attendees.join(", ")}</p><hr/><pre style="white-space: pre-wrap; font-family: sans-serif;">${momEdit || selectedMeeting.mom_content}</pre></body></html>`;
-            blob = new Blob(['\ufeff', docContent], { type: "application/msword" });
-            filename = `MOM-${selectedMeeting.title.replace(/\s+/g, "_")}.doc`;
-        } else if (format === "pdf") {
-            try {
-                const doc = new jsPDF();
+${contextParts.join("\n")}
 
-                // Title
-                doc.setFontSize(18);
-                doc.setFont("helvetica", "bold");
-                doc.text("MINUTES OF MEETING", 105, 20, { align: "center" });
+Output MUST be in Markdown format with the following sections:
+## Executive Summary
+## Key Discussion Points
+## Decisions Made
+## Action Items (with assignee and due date if mentioned)
 
-                // Details
-                doc.setFontSize(12);
-                doc.setFont("helvetica", "normal");
-                doc.text(`Title: ${selectedMeeting.title}`, 20, 40);
-                doc.text(`Date & Time: ${selectedMeeting.date} ${selectedMeeting.time}`, 20, 50);
-                doc.text(`Location: ${selectedMeeting.location || "-"}`, 20, 60);
+Be concise and professional.`;
 
-                // Attendees (handling long lists)
-                const attendeesText = `Attendees: ${selectedMeeting.attendees.join(", ")}`;
-                const splitAttendees = doc.splitTextToSize(attendeesText, 170);
-                doc.text(splitAttendees, 20, 70);
+            const result = await ai.chat([{ role: "user", content: prompt }]);
+            setAiSummary(result);
+            setModalTab("ai");
+            setToast({ message: "AI Summary generated!", type: "success" });
+        } catch {
+            setToast({ message: "Failed to generate AI summary. Check your API configuration.", type: "error" });
+        } finally {
+            setIsGeneratingAI(false);
+        }
+    };
 
-                let yOffset = 70 + (splitAttendees.length * 7);
-                doc.line(20, yOffset, 190, yOffset);
-                yOffset += 10;
+    // ─── Push tasks to task tracker ───────────────────────────────
+    const handlePushTasks = () => {
+        const toAdd = extractedTasks.filter((t) => t.confirmed);
+        if (toAdd.length === 0) {
+            setToast({ message: "No tasks selected to add.", type: "error" });
+            return;
+        }
+        toAdd.forEach((t) => {
+            addTask({
+                title: t.title,
+                description: `From meeting: ${selectedMeeting?.title}`,
+                priority: t.priority || "medium",
+                status: "todo",
+                assignee_id: currentUser?.id || "system",
+                assignee_name: t.assignee_hint || currentUser?.name || "Unassigned",
+                due_date: t.due_date || new Date().toISOString().split("T")[0],
+                created_by: currentUser?.id || "system",
+            });
+        });
+        setToast({ message: `${toAdd.length} task(s) added to Task Tracker!`, type: "success" });
+        setExtractedTasks((prev) => prev.filter((t) => !t.confirmed));
+    };
 
-                // Content
-                doc.setFont("helvetica", "bold");
-                doc.text("Meeting Notes / Transcript:", 20, yOffset);
-                yOffset += 10;
+    // ─── Google Calendar ───────────────────────────────────────────
+    const handleGoogleCalendar = () => {
+        if (!selectedMeeting?.date || !selectedMeeting?.time) {
+            setToast({ message: "Meeting date or time is missing", type: "error" });
+            return;
+        }
+        try {
+            const datePart = parseDatePart(selectedMeeting.date);
+            const start = new Date(`${datePart}T${selectedMeeting.time}`);
+            if (isNaN(start.getTime())) { setToast({ message: "Invalid meeting date or time format", type: "error" }); return; }
+            const end = new Date(start.getTime() + 60 * 60 * 1000);
+            const fmt = (d: Date) => d.toISOString().replace(/-|:|\.\d\d\d/g, "");
+            window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(selectedMeeting.title)}&dates=${fmt(start)}/${fmt(end)}&details=${encodeURIComponent("Attendees: " + selectedMeeting.attendees.join(", "))}&location=${encodeURIComponent(selectedMeeting.location || "")}`, "_blank");
+        } catch { setToast({ message: "Failed to create calendar event", type: "error" }); }
+    };
 
-                doc.setFont("helvetica", "normal");
-                const mainContent = momEdit || selectedMeeting.mom_content || "No MOM recorded";
-                const splitContent = doc.splitTextToSize(mainContent, 170);
+    // ─── Export PDF ────────────────────────────────────────────────
+    const exportPDF = (type: "mom" | "ai") => {
+        if (!selectedMeeting) return;
+        const doc = new jsPDF();
+        const title = type === "mom" ? "MINUTES OF MEETING — TRANSCRIPT" : "AI EXECUTIVE SUMMARY";
+        const content = type === "mom" ? momText : (aiSummary ? stripMarkdown(aiSummary) : "No AI summary generated yet.");
 
-                // Add pagination if content is too long
-                for (let i = 0; i < splitContent.length; i++) {
-                    if (yOffset > 280) {
-                        doc.addPage();
-                        yOffset = 20;
-                    }
-                    doc.text(splitContent[i], 20, yOffset);
-                    yOffset += 7;
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+        doc.text(title, 105, 18, { align: "center" });
+
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Meeting: ${selectedMeeting.title}`, 20, 30);
+        doc.text(`Date: ${parseDatePart(selectedMeeting.date)} at ${selectedMeeting.time}`, 20, 37);
+        doc.text(`Location: ${selectedMeeting.location || "-"}`, 20, 44);
+        const attendeesText = doc.splitTextToSize(`Attendees: ${selectedMeeting.attendees.join(", ")}`, 170);
+        doc.text(attendeesText, 20, 51);
+
+        let y = 51 + attendeesText.length * 6 + 4;
+        doc.line(20, y, 190, y);
+        y += 8;
+
+        if (type === "ai" && aiSummary) {
+            // For AI summary, render with markdown section headers
+            const lines = aiSummary.split("\n");
+            for (const line of lines) {
+                if (y > 280) { doc.addPage(); y = 20; }
+                if (line.startsWith("## ")) {
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(11);
+                    doc.text(line.replace("## ", ""), 20, y);
+                    y += 7;
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(10);
+                } else if (line.startsWith("# ")) {
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(13);
+                    doc.text(line.replace("# ", ""), 20, y);
+                    y += 8;
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(10);
+                } else if (line.trim()) {
+                    const wrapped = doc.splitTextToSize(line.replace(/^[-*]\s/, "• "), 170);
+                    doc.text(wrapped, 22, y);
+                    y += wrapped.length * 6;
+                } else {
+                    y += 3;
                 }
-
-                doc.save(`MOM-${selectedMeeting.title.replace(/\s+/g, "_")}.pdf`);
-                return; // Early return for PDF as we use doc.save
-            } catch (err) {
-                console.error("PDF generation failed", err);
-                alert("Failed to generate PDF. Check if jsPDF library is properly loaded.");
-                return;
             }
         } else {
-            blob = new Blob([content], { type: "text/plain" });
-            filename = `MOM-${selectedMeeting.title.replace(/\s+/g, "_")}.txt`;
+            const wrapped = doc.splitTextToSize(content || "No content recorded.", 170);
+            for (let i = 0; i < wrapped.length; i++) {
+                if (y > 280) { doc.addPage(); y = 20; }
+                doc.text(wrapped[i], 20, y);
+                y += 6;
+            }
         }
 
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url; a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
+        const datePart = parseDatePart(selectedMeeting.date);
+        const cleanTitle = selectedMeeting.title.replace(/[^a-z0-9]/gi, "_").replace(/_+/g, "_").substring(0, 30);
+        doc.save(`${type === "mom" ? "MOM" : "AI_Summary"}_${cleanTitle}_${datePart}.pdf`);
     };
 
-    const handleGoogleCalendar = () => {
-        if (!selectedMeeting) return;
-        const start = new Date(`${selectedMeeting.date}T${selectedMeeting.time}`);
-        const end = new Date(start.getTime() + 60 * 60 * 1000); // default 1 hour
-        const fmt = (d: Date) => d.toISOString().replace(/-|:|\.\d\d\d/g, "");
-        const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(selectedMeeting.title)}&dates=${fmt(start)}/${fmt(end)}&details=${encodeURIComponent("Attendees: " + selectedMeeting.attendees.join(", "))}&location=${encodeURIComponent(selectedMeeting.location || "")}`;
-        window.open(url, '_blank');
-    };
+    // ─── Derived data ──────────────────────────────────────────────
+    const todayStr = new Date().toISOString().split("T")[0];
 
-    const todayStr = new Date().toISOString().split('T')[0];
-
-    const userMeetings = meetings.filter(m => {
+    const userMeetings = meetings.filter((m) => {
         if (!currentUser) return false;
         if (currentUser.role === "CEO" || currentUser.role === "ASSISTANT_CEO") return true;
         const nameStr = currentUser.name?.toLowerCase() || "";
         const emailStr = currentUser.email?.toLowerCase() || "___noemail___";
-        return m.attendees.some(a => a.toLowerCase() === nameStr || a.toLowerCase() === emailStr)
+        return m.attendees.some((a) => a.toLowerCase() === nameStr || a.toLowerCase() === emailStr)
             || m.created_by === currentUser.id
             || m.created_by_name?.toLowerCase() === nameStr;
     });
 
-    const upcomingCount = userMeetings.filter(m => m.date >= todayStr && m.status === 'scheduled').length;
-    const todayCount = userMeetings.filter(m => m.date === todayStr).length;
-    const buyerCount = userMeetings.filter(m => m.title.toLowerCase().includes('buyer') || m.title.toLowerCase().includes('client')).length;
-    const aiMOMCount = userMeetings.filter(m => m.mom_content && m.mom_content.includes('AI')).length;
+    const upcomingCount = userMeetings.filter((m) => parseDatePart(m.date) >= todayStr && m.status === "scheduled").length;
+    const todayCount = userMeetings.filter((m) => parseDatePart(m.date) === todayStr).length;
+    const buyerCount = userMeetings.filter((m) => m.title.toLowerCase().includes("buyer") || m.title.toLowerCase().includes("client")).length;
+    const aiMOMCount = userMeetings.filter((m) => m.ai_summary).length;
 
-    const filtered = userMeetings.filter(m => {
-        if (activeTab === "upcoming") return m.date >= todayStr && m.status === 'scheduled';
-        if (activeTab === "past") return m.date < todayStr || m.status === 'completed';
+    const filtered = userMeetings.filter((m) => {
+        const dp = parseDatePart(m.date);
+        if (activeTab === "upcoming") return dp >= todayStr && m.status === "scheduled";
+        if (activeTab === "past") return dp < todayStr || m.status === "completed";
         return true;
-    }).filter(m => search ? m.title.toLowerCase().includes(search.toLowerCase()) || m.attendees.join(" ").toLowerCase().includes(search.toLowerCase()) : true);
+    }).filter((m) => search
+        ? m.title.toLowerCase().includes(search.toLowerCase()) || m.attendees.join(" ").toLowerCase().includes(search.toLowerCase())
+        : true
+    );
 
     if (status === "loading") {
         return <AppShell><div className="flex h-[50vh] items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div></AppShell>;
@@ -264,54 +431,40 @@ export default function MeetingsPage() {
     return (
         <AppShell>
             <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto space-y-6">
+                {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fade-in relative z-20">
-                    <div><h1 className="text-xl md:text-2xl font-bold tracking-tight text-blue-500">Meeting</h1>
-                        <p className="text-sm text-muted-foreground mt-1">Schedule meetings, record sessions, and generate automated MOM</p></div>
+                    <div>
+                        <h1 className="text-xl md:text-2xl font-bold tracking-tight text-blue-500">Meeting</h1>
+                        <p className="text-sm text-muted-foreground mt-1">Schedule meetings, record sessions, and generate automated MOM</p>
+                    </div>
                     <button onClick={() => setShowForm(!showForm)} className="btn-primary shadow-lg shadow-blue-500/20 bg-blue-600 hover:bg-blue-700">
                         <Plus className="w-4 h-4 mr-1.5" /> New Meeting
                     </button>
                 </div>
 
-                {/* Top Metrics */}
+                {/* Metrics */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-slide-up relative z-10">
-                    <div className="card-elevated p-5 relative overflow-hidden group">
-                        <div className="absolute -right-4 -top-4 w-16 h-16 bg-blue-500/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
-                        <div className="flex items-center gap-2 text-muted-foreground mb-3">
-                            <Calendar className="w-4 h-4 text-blue-500" />
-                            <span className="text-xs font-semibold uppercase">Upcoming</span>
+                    {[
+                        { label: "Upcoming", value: upcomingCount, icon: Calendar, color: "text-blue-600", bg: "bg-blue-500/10" },
+                        { label: "Today's", value: todayCount, icon: Play, color: "text-sky-500", bg: "bg-sky-500/10" },
+                        { label: "Buyer Meetings", value: buyerCount, icon: Users, color: "text-indigo-500", bg: "bg-indigo-500/10" },
+                        { label: "AI Summaries", value: aiMOMCount, icon: Sparkles, color: "text-cyan-500", bg: "bg-cyan-500/10" },
+                    ].map(({ label, value, icon: Icon, color, bg }) => (
+                        <div key={label} className="card-elevated p-5 relative overflow-hidden group">
+                            <div className="absolute -right-4 -top-4 w-16 h-16 bg-blue-500/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
+                            <div className="flex items-center gap-2 text-muted-foreground mb-3">
+                                <Icon className={cn("w-4 h-4", color)} />
+                                <span className="text-xs font-semibold uppercase">{label}</span>
+                            </div>
+                            <p className={cn("text-2xl font-bold font-mono", color)}>{value}</p>
                         </div>
-                        <p className="text-2xl font-bold font-mono text-blue-600">{upcomingCount}</p>
-                    </div>
-                    <div className="card-elevated p-5 relative overflow-hidden group">
-                        <div className="absolute -right-4 -top-4 w-16 h-16 bg-blue-500/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
-                        <div className="flex items-center gap-2 text-muted-foreground mb-3">
-                            <Play className="w-4 h-4 text-sky-500" />
-                            <span className="text-xs font-semibold uppercase">Today&apos;s</span>
-                        </div>
-                        <p className="text-2xl font-bold font-mono text-sky-500">{todayCount}</p>
-                    </div>
-                    <div className="card-elevated p-5 relative overflow-hidden group">
-                        <div className="absolute -right-4 -top-4 w-16 h-16 bg-blue-500/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
-                        <div className="flex items-center gap-2 text-muted-foreground mb-3">
-                            <Users className="w-4 h-4 text-indigo-500" />
-                            <span className="text-xs font-semibold uppercase">Buyer Meetings</span>
-                        </div>
-                        <p className="text-2xl font-bold font-mono text-indigo-500">{buyerCount}</p>
-                    </div>
-                    <div className="card-elevated p-5 relative overflow-hidden group">
-                        <div className="absolute -right-4 -top-4 w-16 h-16 bg-blue-500/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
-                        <div className="flex items-center gap-2 text-muted-foreground mb-3">
-                            <Wand2 className="w-4 h-4 text-cyan-500" />
-                            <span className="text-xs font-semibold uppercase">AI Summaries</span>
-                        </div>
-                        <p className="text-2xl font-bold font-mono text-cyan-500">{aiMOMCount}</p>
-                    </div>
+                    ))}
                 </div>
 
-                {/* Filters & Search */}
+                {/* Filters */}
                 <div className="flex items-center gap-3 flex-wrap animate-fade-in delay-1">
                     <div className="flex bg-blue-500/5 p-1 rounded-xl shrink-0 border border-blue-500/10">
-                        {["all", "upcoming", "past"].map(t => (
+                        {["all", "upcoming", "past"].map((t) => (
                             <button key={t} onClick={() => setActiveTab(t as any)} className={cn("px-4 py-1.5 rounded-lg text-xs font-semibold transition-all capitalize", activeTab === t ? "bg-blue-600 shadow-sm text-white" : "text-muted-foreground hover:text-foreground hover:bg-blue-500/10")}>
                                 {t}
                             </button>
@@ -350,19 +503,22 @@ export default function MeetingsPage() {
                                 <input value={form.attendees} onChange={(e) => setForm({ ...form, attendees: e.target.value })} placeholder="John, Mark, Buyer X" className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" /></div>
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={handleCreate} className="btn-primary bg-blue-600 hover:bg-blue-700 disabled:opacity-50" disabled={!form.title || !form.date}><Plus className="w-4 h-4 mr-1.5" /> Create Meeting</button>
-                            <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors">Cancel</button>
+                            <button onClick={handleCreate} className="btn-primary bg-blue-600 hover:bg-blue-700 disabled:opacity-50" disabled={!form.title || !form.date || isSaving}>
+                                {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : <><Plus className="w-4 h-4 mr-1.5" />Create Meeting</>}
+                            </button>
+                            <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors" disabled={isSaving}>Cancel</button>
                         </div>
                     </div>
                 )}
 
-                {/* Meeting Cards/Table */}
+                {/* Meeting Cards */}
                 {activeView === "card" ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {filtered.map((m, i) => {
-                            const isCompleted = m.status === "completed" || m.date < todayStr;
+                            const dp = parseDatePart(m.date);
+                            const isCompleted = m.status === "completed" || dp < todayStr;
                             return (
-                                <div key={m.id} className={cn("card-interactive p-5 space-y-3 animate-slide-up border border-transparent hover:border-blue-500/30", `delay-${Math.min(i + 1, 6)}`)} onClick={() => { setSelectedMeeting(m); setMomEdit(m.mom_content || ""); }}>
+                                <div key={m.id} className={cn("card-interactive p-5 space-y-3 animate-slide-up border border-transparent hover:border-blue-500/30", `delay-${Math.min(i + 1, 6)}`)} onClick={() => openMeeting(m)}>
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", isCompleted ? "bg-accent" : "bg-blue-500/10 text-blue-600")}>
@@ -383,14 +539,12 @@ export default function MeetingsPage() {
                                         <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />{m.attendees.length}</span>
                                         {m.location && <span className="flex items-center gap-1.5 truncate max-w-[100px]"><MapPin className="w-3.5 h-3.5 shrink-0" />{m.location}</span>}
                                         {m.mom_content && <span className="flex items-center gap-1.5 text-blue-500"><FileText className="w-3.5 h-3.5" />MOM</span>}
+                                        {m.ai_summary && <span className="flex items-center gap-1.5 text-cyan-500"><Sparkles className="w-3.5 h-3.5" />AI</span>}
                                     </div>
                                 </div>
                             );
                         })}
-                        {filtered.length === 0 && <div className="col-span-full p-12 text-center text-muted-foreground text-sm flex flex-col items-center">
-                            <Calendar className="w-8 h-8 opacity-20 mb-3" />
-                            No meetings found in this view.
-                        </div>}
+                        {filtered.length === 0 && <div className="col-span-full p-12 text-center text-muted-foreground text-sm flex flex-col items-center"><Calendar className="w-8 h-8 opacity-20 mb-3" />No meetings found.</div>}
                     </div>
                 ) : (
                     <div className="card-elevated overflow-hidden animate-slide-up">
@@ -398,22 +552,23 @@ export default function MeetingsPage() {
                             <table className="w-full text-sm">
                                 <thead>
                                     <tr className="border-b border-border bg-accent/30">
-                                        <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Title</th>
-                                        <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Date & Time</th>
-                                        <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Location</th>
-                                        <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Attendees</th>
-                                        <th className="text-center px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Status</th>
-                                        <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Actions</th>
+                                        {["Title", "Date & Time", "Location", "Attendees", "Status", "Actions"].map((h, i) => (
+                                            <th key={h} className={cn("px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase", i === 5 ? "text-right" : "text-left")}>{h}</th>
+                                        ))}
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {filtered.map((m) => {
-                                        const isCompleted = m.status === "completed" || m.date < todayStr;
+                                        const dp = parseDatePart(m.date);
+                                        const isCompleted = m.status === "completed" || dp < todayStr;
                                         return (
-                                            <tr key={m.id} className="border-b border-border/50 hover:bg-accent/20 transition-colors group cursor-pointer" onClick={() => { setSelectedMeeting(m); setMomEdit(m.mom_content || ""); }}>
+                                            <tr key={m.id} className="border-b border-border/50 hover:bg-accent/20 transition-colors cursor-pointer" onClick={() => openMeeting(m)}>
                                                 <td className="px-4 py-3">
                                                     <p className="font-bold text-xs">{m.title}</p>
-                                                    {m.mom_content && <span className="inline-flex items-center gap-1 mt-1 text-[9px] text-blue-500 uppercase tracking-widest font-bold bg-blue-500/10 px-1.5 py-0.5 rounded"><FileText className="w-3 h-3" /> Recorded</span>}
+                                                    <div className="flex gap-1 mt-1">
+                                                        {m.mom_content && <span className="text-[9px] text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded font-bold">MOM</span>}
+                                                        {m.ai_summary && <span className="text-[9px] text-cyan-500 bg-cyan-500/10 px-1.5 py-0.5 rounded font-bold">AI</span>}
+                                                    </div>
                                                 </td>
                                                 <td className="px-4 py-3">
                                                     <p className="text-xs font-semibold">{new Date(m.date).toLocaleDateString("en-US", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}</p>
@@ -427,7 +582,7 @@ export default function MeetingsPage() {
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-3 text-right">
-                                                    <button className="px-2.5 py-1 rounded-md bg-background border border-border text-[10px] font-bold hover:bg-accent transition-colors">Details</button>
+                                                    <button className="px-2.5 py-1 rounded-md bg-background border border-border text-[10px] font-bold hover:bg-accent transition-colors">Open</button>
                                                 </td>
                                             </tr>
                                         );
@@ -439,123 +594,221 @@ export default function MeetingsPage() {
                     </div>
                 )}
 
-                {/* Meeting Detail / MOM Modal */}
+                {/* ══════════════ MEETING DETAIL MODAL ══════════════ */}
                 {selectedMeeting && (
                     <div className="modal-overlay z-50 fixed inset-0 flex items-center justify-center p-4">
-                        <div className="modal-backdrop absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => { setSelectedMeeting(null); setUploadedFile(null); setTranscript(""); }} />
-                        <div className="modal-content relative bg-card border border-border w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl animate-scale-in flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-border">
+                        <div className="modal-backdrop absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={closeModal} />
+                        <div className="modal-content relative bg-card border border-border w-full max-w-5xl max-h-[92vh] overflow-hidden rounded-2xl shadow-2xl animate-scale-in flex flex-col">
 
-                            {/* Left Panel: Info & Recording */}
-                            <div className="p-6 md:w-1/3 flex flex-col gap-6 bg-accent/10">
+                            {/* Modal Top Bar */}
+                            <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0 bg-accent/5">
                                 <div>
-                                    <h2 className="text-xl font-bold leading-tight">{selectedMeeting.title}</h2>
-                                    <span className={cn("inline-block mt-2 status-badge text-[10px]", selectedMeeting.date < todayStr ? "text-slate-500 bg-slate-500/10" : "text-blue-600 bg-blue-500/10")}>
-                                        {selectedMeeting.date < todayStr ? "Past Meeting" : "Scheduled"}
-                                    </span>
+                                    <h2 className="text-base font-bold leading-tight">{selectedMeeting.title}</h2>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        {new Date(selectedMeeting.date).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })} at {selectedMeeting.time}
+                                        {selectedMeeting.location ? ` · ${selectedMeeting.location}` : ""}
+                                        {selectedMeeting.attendees.length > 0 ? ` · ${selectedMeeting.attendees.join(", ")}` : ""}
+                                    </p>
                                 </div>
-                                <div className="space-y-3 text-xs">
-                                    <div className="flex items-start gap-3 text-muted-foreground"><Calendar className="w-4 h-4 shrink-0 text-foreground" /><div><p className="font-semibold text-foreground">Date & Time</p><p>{selectedMeeting.date} at {selectedMeeting.time}</p></div></div>
-                                    <div className="flex items-start gap-3 text-muted-foreground"><MapPin className="w-4 h-4 shrink-0 text-foreground" /><div><p className="font-semibold text-foreground">Location</p><p>{selectedMeeting.location || "No location provided"}</p></div></div>
-                                    <div className="flex items-start gap-3 text-muted-foreground"><Users className="w-4 h-4 shrink-0 text-foreground" /><div><p className="font-semibold text-foreground">Attendees</p><p>{selectedMeeting.attendees.join(", ")}</p></div></div>
-                                    <button onClick={handleGoogleCalendar} className="mt-4 w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-blue-600 text-white font-semibold shadow-md shadow-blue-500/20 hover:bg-blue-700 hover:-translate-y-0.5 transition-all">
-                                        <Calendar className="w-4 h-4" /> Add to Google Calendar
-                                    </button>
-                                </div>
-
-                                {/* Recording Section */}
-                                <div className="pt-4 border-t border-border space-y-3">
-                                    <h4 className="text-xs font-semibold uppercase text-muted-foreground flex justify-between items-center">
-                                        Meeting Recording
-                                        {uploadedFile && <span className="text-[9px] bg-emerald-500/10 text-emerald-600 px-1.5 py-0.5 rounded flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Uploaded</span>}
-                                    </h4>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <button onClick={() => setIsRecording(!isRecording)} className={cn("flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-medium transition-colors", isRecording ? "bg-red-500/10 border-red-500/30 text-red-500" : "bg-card border-border hover:border-blue-500/50 hover:bg-blue-500/5 text-muted-foreground hover:text-foreground")}>
-                                            <Mic className={cn("w-5 h-5 mb-1.5", isRecording ? "animate-pulse delay-75" : "")} />
-                                            {isRecording ? "Stop Recording" : "Start Live Record"}
-                                        </button>
-                                        <input type="file" ref={fileInputRef} className="hidden" accept="audio/*,video/*" onChange={handleFileUpload} />
-                                        <button onClick={() => fileInputRef.current?.click()} className={cn("flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-medium transition-colors text-muted-foreground hover:text-foreground hover:border-blue-500/50 hover:bg-blue-500/5", selectedMeeting.voice_note_url || uploadedFile ? "bg-emerald-500/5 border-emerald-500/30 text-emerald-600" : "bg-card border-border")}>
-                                            {selectedMeeting.voice_note_url || uploadedFile ? <FileAudio className="w-5 h-5 mb-1.5" /> : <Upload className="w-5 h-5 mb-1.5" />}
-                                            {selectedMeeting.voice_note_url || uploadedFile ? "Change File" : "Upload Audio/Vid"}
-                                        </button>
-                                    </div>
-                                    {isRecording && <p className="text-[10px] text-red-500 text-center animate-pulse">Recording continuously...</p>}
-                                    {uploadedFile && <p className="text-[10px] text-muted-foreground text-center truncate">{uploadedFile.name}</p>}
-                                    {selectedMeeting.voice_note_url && !uploadedFile && (
-                                        <div className="mt-3 rounded-xl overflow-hidden border border-border bg-black/5 flex flex-col items-center p-2">
-                                            {selectedMeeting.voice_note_url.toLowerCase().match(/\.(mp4|webm|ogg)$/i) ? (
-                                                <video controls className="w-full h-auto max-h-[150px] rounded-lg">
-                                                    <source src={selectedMeeting.voice_note_url} type="video/mp4" />
-                                                    Your browser does not support HTML video.
-                                                </video>
-                                            ) : (
-                                                <audio controls className="w-full h-10 outline-none">
-                                                    <source src={selectedMeeting.voice_note_url} type="audio/mpeg" />
-                                                    Your browser does not support HTML audio.
-                                                </audio>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
+                                <button onClick={closeModal} className="p-2 hover:bg-accent rounded-lg transition-colors"><X className="w-4 h-4" /></button>
                             </div>
 
-                            {/* Right Panel: MOM Generator & Editor */}
-                            <div className="p-6 md:w-2/3 flex flex-col h-[500px] md:h-auto overflow-hidden">
-                                <div className="flex items-center justify-between mb-4 shrink-0">
-                                    <h4 className="text-sm font-bold flex items-center gap-2"><FileText className="w-4 h-4 text-blue-500" /> Minutes of Meeting</h4>
-                                    <button onClick={() => setSelectedMeeting(null)} className="p-2 hover:bg-accent rounded-lg transition-colors md:hidden"><X className="w-4 h-4" /></button>
-                                </div>
+                            {/* Modal Body (left + right panels) */}
+                            <div className="flex flex-1 overflow-hidden divide-x divide-border">
 
-                                {/* AI Generators */}
-                                <div className="flex gap-2 mb-4 shrink-0 overflow-x-auto pb-1 custom-scrollbar">
-                                    <button onClick={() => handleGenerateAI("Notes from Agenda")} disabled={isGenerating} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 text-blue-600 border border-blue-500/20 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-blue-500/20 transition-colors disabled:opacity-50">
-                                        <Wand2 className="w-3.5 h-3.5" /> Notes from Agenda
+                                {/* ── LEFT PANEL: Info + Recording ── */}
+                                <div className="w-64 shrink-0 flex flex-col gap-4 p-5 overflow-y-auto bg-accent/5">
+                                    {/* Calendar Button */}
+                                    <button onClick={handleGoogleCalendar} className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold shadow-md shadow-blue-500/20 hover:bg-blue-700 hover:-translate-y-0.5 transition-all">
+                                        <Calendar className="w-4 h-4" /> Add to Google Calendar
                                     </button>
-                                    <button onClick={() => handleGenerateAI("ML Smart Transcription")} disabled={isGenerating || (!selectedMeeting.voice_note_url && !uploadedFile)} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-violet-500/10 text-violet-600 border border-violet-500/20 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-violet-500/20 transition-colors disabled:opacity-50">
-                                        <FileAudio className="w-3.5 h-3.5" /> ML Transcribe & Extract Tasks
-                                    </button>
-                                    <button onClick={() => handleGenerateAI("Full Report & MOM")} disabled={isGenerating} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/10 text-cyan-600 border border-cyan-500/20 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-cyan-500/20 transition-colors disabled:opacity-50">
-                                        <FileText className="w-3.5 h-3.5" /> Full Report & MOM
-                                    </button>
-                                </div>
 
-                                <div className="flex-1 relative mb-4 min-h-[200px]">
-                                    {isGenerating && (
-                                        <div className="absolute inset-0 bg-background/50 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-xl border border-border">
-                                            <Wand2 className="w-8 h-8 text-blue-500 animate-bounce mb-3" />
-                                            <p className="text-sm font-medium animate-pulse">AI is summarizing the meeting...</p>
+                                    {/* Recording Section */}
+                                    <div className="space-y-3">
+                                        <h4 className="text-xs font-semibold uppercase text-muted-foreground">Recording Input</h4>
+                                        <div className="grid grid-cols-1 gap-2">
+                                            <button onClick={() => isRecording ? stopRecording() : startRecording()}
+                                                className={cn("w-full flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-medium transition-colors",
+                                                    isRecording ? "bg-red-500/10 border-red-500/30 text-red-500" : "bg-card border-border hover:border-blue-500/50 hover:bg-blue-500/5 text-muted-foreground hover:text-foreground")}>
+                                                <Mic className={cn("w-4 h-4", isRecording ? "animate-pulse" : "")} />
+                                                {isRecording ? `Stop · ${formatSeconds(recordingSeconds)}` : "Start Live Record"}
+                                            </button>
+                                            <input type="file" ref={fileInputRef} className="hidden" accept="audio/*,video/*" onChange={handleFileUpload} />
+                                            <button onClick={() => fileInputRef.current?.click()}
+                                                className={cn("w-full flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-medium transition-colors",
+                                                    selectedMeeting.voice_note_url || uploadedFile ? "bg-emerald-500/5 border-emerald-500/30 text-emerald-600" : "bg-card border-border hover:border-blue-500/50 hover:bg-blue-500/5 text-muted-foreground hover:text-foreground")}>
+                                                <Upload className="w-4 h-4" />
+                                                {selectedMeeting.voice_note_url || uploadedFile ? "Change File" : "Upload Audio/Video"}
+                                            </button>
                                         </div>
-                                    )}
-                                    <textarea
-                                        value={momEdit}
-                                        onChange={(e) => setMomEdit(e.target.value)}
-                                        placeholder="Meeting notes will appear here..."
-                                        className="w-full h-full px-4 py-3 rounded-xl bg-background border border-border text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none custom-scrollbar"
-                                    />
-                                </div>
+                                        {uploadedFile && <p className="text-[10px] text-muted-foreground truncate text-center">{uploadedFile.name}</p>}
 
-                                <div className="flex items-center justify-between pt-4 border-t border-border shrink-0">
-                                    <div className="relative">
-                                        <button onClick={() => setShowExportMenu(!showExportMenu)} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent text-xs font-semibold hover:bg-accent/80 transition-colors">
-                                            <Download className="w-4 h-4" /> Export
-                                        </button>
-                                        {showExportMenu && (
-                                            <div className="absolute bottom-full left-0 mb-1 w-32 bg-card border border-border shadow-xl rounded-xl overflow-hidden py-1 z-50 animate-scale-in">
-                                                <button onClick={() => handleExport("txt")} className="w-full text-left px-3 py-2 text-xs hover:bg-accent transition-colors">Export as TXT</button>
-                                                <button onClick={() => handleExport("word")} className="w-full text-left px-3 py-2 text-xs hover:bg-accent transition-colors">Export as Word (.doc)</button>
-                                                <button onClick={() => handleExport("pdf")} className="w-full text-left px-3 py-2 text-xs hover:bg-accent transition-colors">Export as PDF</button>
+                                        {/* Transcribe Button */}
+                                        {(selectedMeeting.voice_note_url || uploadedFile) && (
+                                            <button onClick={handleTranscribe} disabled={isTranscribing}
+                                                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 transition-all disabled:opacity-50">
+                                                {isTranscribing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Transcribing...</>
+                                                    : <><FileAudio className="w-3.5 h-3.5" />Transcribe → MOM</>}
+                                            </button>
+                                        )}
+
+                                        {/* Audio/Video Player */}
+                                        {selectedMeeting.voice_note_url && !uploadedFile && (
+                                            <div className="rounded-xl overflow-hidden border border-border bg-black/5 p-2">
+                                                {selectedMeeting.voice_note_url.match(/\.(mp4|webm|ogg)$/i) ? (
+                                                    <video controls className="w-full h-auto max-h-[120px] rounded-lg">
+                                                        <source src={selectedMeeting.voice_note_url} />
+                                                    </video>
+                                                ) : (
+                                                    <audio controls className="w-full h-9 outline-none">
+                                                        <source src={selectedMeeting.voice_note_url} />
+                                                    </audio>
+                                                )}
                                             </div>
                                         )}
                                     </div>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => { setSelectedMeeting(null); setUploadedFile(null); setTranscript(""); }} className="px-5 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors font-medium">Close</button>
-                                        <button onClick={handleSaveMOM} className="btn-primary shadow-lg shadow-blue-500/20 bg-blue-600 hover:bg-blue-700">Save Updates</button>
+
+                                    {/* AI Summary Button */}
+                                    <div className="space-y-2 pt-3 border-t border-border">
+                                        <h4 className="text-xs font-semibold uppercase text-muted-foreground">AI Actions</h4>
+                                        <button onClick={handleGenerateAISummary} disabled={isGeneratingAI}
+                                            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-cyan-600 text-white text-xs font-semibold hover:bg-cyan-700 transition-all disabled:opacity-50">
+                                            {isGeneratingAI ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Summarizing...</>
+                                                : <><Sparkles className="w-3.5 h-3.5" />Generate AI Summary</>}
+                                        </button>
+                                    </div>
+
+                                    {/* Export Buttons */}
+                                    <div className="space-y-2 pt-3 border-t border-border">
+                                        <h4 className="text-xs font-semibold uppercase text-muted-foreground">Export</h4>
+                                        <button onClick={() => exportPDF("mom")}
+                                            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-background border border-border text-xs font-semibold hover:bg-accent transition-colors">
+                                            <Download className="w-3.5 h-3.5" />Export MOM PDF
+                                        </button>
+                                        <button onClick={() => exportPDF("ai")} disabled={!aiSummary}
+                                            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-background border border-border text-xs font-semibold hover:bg-accent transition-colors disabled:opacity-40">
+                                            <FileText className="w-3.5 h-3.5" />Export AI Summary PDF
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* ── RIGHT PANEL: MOM + AI Tabs ── */}
+                                <div className="flex-1 flex flex-col overflow-hidden">
+                                    {/* Tab Bar */}
+                                    <div className="flex items-center gap-1 px-6 pt-4 pb-0 shrink-0">
+                                        <button onClick={() => setModalTab("mom")}
+                                            className={cn("px-4 py-2 rounded-t-xl text-xs font-bold transition-all border-b-2", modalTab === "mom"
+                                                ? "bg-background border-blue-500 text-blue-600 shadow-sm"
+                                                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50")}>
+                                            <span className="flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" />MOM Transcript</span>
+                                        </button>
+                                        <button onClick={() => setModalTab("ai")}
+                                            className={cn("px-4 py-2 rounded-t-xl text-xs font-bold transition-all border-b-2 flex items-center gap-1.5", modalTab === "ai"
+                                                ? "bg-background border-cyan-500 text-cyan-600 shadow-sm"
+                                                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50")}>
+                                            <Sparkles className="w-3.5 h-3.5" />AI Summary
+                                            {aiSummary && <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 inline-block ml-0.5" />}
+                                        </button>
+                                    </div>
+
+                                    {/* Tab Content */}
+                                    <div className="flex-1 overflow-hidden px-6 pb-0 pt-3 flex flex-col gap-3">
+                                        {modalTab === "mom" ? (
+                                            <>
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    Plain text transcript — type manually or use Transcribe to auto-fill from audio/video. This exports as raw MOM PDF.
+                                                </p>
+                                                <div className="relative flex-1">
+                                                    {isTranscribing && (
+                                                        <div className="absolute inset-0 bg-background/60 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-xl">
+                                                            <FileAudio className="w-8 h-8 text-violet-500 animate-bounce mb-2" />
+                                                            <p className="text-sm font-medium animate-pulse">Transcribing audio...</p>
+                                                        </div>
+                                                    )}
+                                                    <textarea
+                                                        value={momText}
+                                                        onChange={(e) => setMomText(e.target.value)}
+                                                        placeholder="Start typing the meeting notes here, or use Live Record / Upload Audio to auto-transcribe..."
+                                                        className="w-full h-full min-h-[280px] px-4 py-3 rounded-xl bg-background border border-border text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none custom-scrollbar font-mono leading-relaxed"
+                                                    />
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    AI-generated markdown summary based on MOM transcript and audio sources. Exports with formatted sections.
+                                                </p>
+                                                <div className="relative flex-1">
+                                                    {isGeneratingAI && (
+                                                        <div className="absolute inset-0 bg-background/60 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-xl">
+                                                            <Sparkles className="w-8 h-8 text-cyan-500 animate-bounce mb-2" />
+                                                            <p className="text-sm font-medium animate-pulse">AI is summarizing...</p>
+                                                        </div>
+                                                    )}
+                                                    <textarea
+                                                        value={aiSummary}
+                                                        onChange={(e) => setAiSummary(e.target.value)}
+                                                        placeholder="Click 'Generate AI Summary' in the left panel to auto-generate from your MOM transcript and recording..."
+                                                        className="w-full h-full min-h-[280px] px-4 py-3 rounded-xl bg-background border border-cyan-500/20 text-sm outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 resize-none custom-scrollbar font-mono leading-relaxed"
+                                                    />
+                                                </div>
+                                            </>
+                                        )}
+
+                                        {/* Extracted Tasks Panel */}
+                                        {extractedTasks.length > 0 && (
+                                            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3 shrink-0">
+                                                <div className="flex items-center justify-between">
+                                                    <p className="text-xs font-bold text-amber-600 flex items-center gap-1.5">
+                                                        <ListTodo className="w-4 h-4" /> {extractedTasks.length} Tasks Extracted from Transcript
+                                                    </p>
+                                                    <button onClick={handlePushTasks}
+                                                        className="flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-500 text-white text-[10px] font-bold hover:bg-amber-600 transition-colors">
+                                                        <ChevronRight className="w-3 h-3" />Push Selected to Tasks
+                                                    </button>
+                                                </div>
+                                                <div className="space-y-2 max-h-44 overflow-y-auto custom-scrollbar">
+                                                    {extractedTasks.map((t, i) => (
+                                                        <div key={i} className="flex items-center gap-3 bg-background rounded-lg p-2.5 border border-border">
+                                                            <input type="checkbox" checked={t.confirmed || false}
+                                                                onChange={(e) => setExtractedTasks((prev) => prev.map((x, idx) => idx === i ? { ...x, confirmed: e.target.checked } : x))}
+                                                                className="w-3.5 h-3.5 rounded accent-amber-500 shrink-0" />
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="text-xs font-semibold truncate">{t.title}</p>
+                                                                <p className="text-[10px] text-muted-foreground">{t.assignee_hint ? `→ ${t.assignee_hint}` : ""} {t.due_date_hint ? `· ${t.due_date_hint}` : ""}</p>
+                                                            </div>
+                                                            <input type="date" value={t.due_date || ""} onChange={(e) => setExtractedTasks((prev) => prev.map((x, idx) => idx === i ? { ...x, due_date: e.target.value } : x))}
+                                                                className="text-[10px] border border-border rounded px-1.5 py-1 bg-background outline-none focus:border-amber-500 w-28 shrink-0" />
+                                                            <span className={cn("text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0",
+                                                                t.priority === "high" ? "bg-red-500/10 text-red-500" : t.priority === "medium" ? "bg-amber-500/10 text-amber-600" : "bg-slate-500/10 text-slate-500")}>
+                                                                {t.priority || "medium"}
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Modal Footer */}
+                                    <div className="flex items-center justify-between px-6 py-4 border-t border-border shrink-0 bg-accent/5">
+                                        <p className="text-[10px] text-muted-foreground">
+                                            {momText ? `${momText.length} chars` : "No MOM yet"}{aiSummary ? " · AI Summary ready" : ""}
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <button onClick={closeModal} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors font-medium" disabled={isSaving}>Close</button>
+                                            <button onClick={handleSave} className="btn-primary shadow-lg shadow-blue-500/20 bg-blue-600 hover:bg-blue-700" disabled={isSaving}>
+                                                {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</> : "Save Notes"}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 )}
+
+                {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
             </div>
         </AppShell>
     );

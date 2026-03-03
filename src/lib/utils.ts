@@ -27,7 +27,8 @@ export function generateId(prefix: string = "id"): string {
 }
 
 /** Get initials from name */
-export function getInitials(name: string): string {
+export function getInitials(name: string | null | undefined): string {
+    if (!name) return "??";
     return name
         .split(" ")
         .map((w) => w[0])

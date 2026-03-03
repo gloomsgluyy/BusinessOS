@@ -263,6 +263,9 @@ model MeetingItem {
   location           String?
   status             String   @default("scheduled")
   attendees          String?  // JSON array
+  momContent         String?  // Plain text MOM transcript
+  voiceNoteUrl       String?  // URL to uploaded audio/video
+  aiSummary          String?  // AI-generated summary (markdown)
   createdByName      String?
   createdBy          String
   createdAt          DateTime @default(now())
@@ -272,8 +275,12 @@ model MeetingItem {
 
 model PLForecast {
   id                 String   @id @default(cuid())
+  dealId             String?
+  dealNumber         String?
   projectName        String?
   buyer              String?
+  type               String   @default("export")
+  status             String   @default("forecast")
   quantity           Float    @default(0)
   sellingPrice       Float    @default(0)
   buyingPrice        Float    @default(0)
@@ -281,6 +288,7 @@ model PLForecast {
   otherCost          Float    @default(0)
   grossProfitMt      Float    @default(0)
   totalGrossProfit   Float    @default(0)
+  createdBy          String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   isDeleted          Boolean  @default(false)

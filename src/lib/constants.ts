@@ -103,6 +103,7 @@ export const SALES_DEAL_STATUSES: { value: SalesDealStatus; label: string; color
 // ── Shipment Statuses ─────────────────────────────────────────
 export const SHIPMENT_STATUSES: { value: ShipmentStatus; label: string; color: string }[] = [
     { value: "draft", label: "Draft", color: "#6b7280" },
+    { value: "confirmed", label: "Confirmed", color: "#10b981" },
     { value: "waiting_loading", label: "Waiting for Loading", color: "#f59e0b" },
     { value: "loading", label: "Loading", color: "#3b82f6" },
     { value: "in_transit", label: "In Transit", color: "#6366f1" },
@@ -195,7 +196,6 @@ export const NAV_SECTIONS: NavSection[] = [
         title: "MANAGEMENT & ADMIN",
         items: [
             { href: "/sales-monitor", label: "Sales Monitor", icon: "TrendingUp", permission: "sales_monitor" },
-            { href: "/sales-plan", label: "Sales Plan", icon: "Map", permission: "sales_monitor" },
             { href: "/market-price", label: "Market Price", icon: "LineChart", permission: "market_price" },
             { href: "/meetings", label: "Meeting", icon: "Calendar", permission: "meetings" },
             { href: "/my-tasks", label: "Tasks", icon: "ClipboardList", permission: "my_tasks" },

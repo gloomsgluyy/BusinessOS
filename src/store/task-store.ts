@@ -22,11 +22,11 @@ const DEMO_TASKS: Task[] = [
 interface TaskState {
     _rawTasks: Task[];
     tasks: Task[];
-    addTask: (task: Omit<Task, "id" | "created_at" | "updated_at" | "comments" | "activities">) => void;
-    updateTask: (id: string, updates: Partial<Task>) => void;
-    deleteTask: (id: string) => void;
-    moveTask: (id: string, status: TaskStatus, movedBy: string) => void;
-    addComment: (taskId: string, userId: string, userName: string, userRole: string, content: string) => void;
+    addTask: (task: Omit<Task, "id" | "created_at" | "updated_at" | "comments" | "activities">) => Promise<void>;
+    updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
+    deleteTask: (id: string) => Promise<void>;
+    moveTask: (id: string, status: TaskStatus, movedBy: string) => Promise<void>;
+    addComment: (taskId: string, userId: string, userName: string, userRole: string, content: string) => Promise<void>;
     getTasksByAssignee: (userId: string) => Task[];
     getTasksByStatus: (status: TaskStatus) => Task[];
     getTasksInReview: () => Task[];
@@ -68,6 +68,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
                 activities: t.activities ? JSON.parse(t.activities) : []
             };
             set((state) => {
+                if (state._rawTasks.some(t => t.id === newTask.id)) return state;
                 const raw = [...state._rawTasks, newTask];
                 return { _rawTasks: raw, tasks: raw.filter(x => !x.is_deleted) };
             });
@@ -119,17 +120,19 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         if (st) {
             body.activities = JSON.stringify([...st.activities, activity]);
         }
-        await fetch("/api/memory/tasks", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-        });
+
         set((state) => {
             const raw = state._rawTasks.map((t) => {
                 if (t.id !== id) return t;
                 return { ...t, status, updated_at: new Date().toISOString(), activities: [...t.activities, activity] };
             });
             return { _rawTasks: raw, tasks: raw.filter(t => !t.is_deleted) };
+        });
+
+        await fetch("/api/memory/tasks", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
         });
     },
 

@@ -4,22 +4,13 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { syncAllPLForecastToSheet } from "@/app/actions/sheet-actions";
 
-async function pushToSheets() {
+import { PushService } from "@/lib/push-to-sheets";
+
+async function triggerPush() {
     try {
-        const forecasts = await prisma.pLForecast.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
-        });
-        const formatted = forecasts.map((f: any) => ({
-            id: f.id, project_name: f.projectName, buyer: f.buyer, quantity: f.quantity,
-            selling_price: f.sellingPrice, buying_price: f.buyingPrice,
-            freight_cost: f.freightCost, other_cost: f.otherCost,
-            gross_profit_mt: f.grossProfitMt, total_gross_profit: f.totalGrossProfit,
-            updated_at: f.updatedAt.toISOString()
-        }));
-        await syncAllPLForecastToSheet(formatted);
+        await PushService.pushAllToSheets();
     } catch (err) {
-        console.error("Failed to sync PL Forecast to sheets:", err);
+        console.error("Failed to push PL Forecast to sheets:", err);
     }
 }
 
@@ -49,10 +40,10 @@ export async function POST(req: Request) {
 
         // Auto calculate GP
         const quantity = data.quantity ? parseFloat(data.quantity.toString()) : 0;
-        const sellingPrice = data.sellingPrice ? parseFloat(data.sellingPrice.toString()) : 0;
-        const buyingPrice = data.buyingPrice ? parseFloat(data.buyingPrice.toString()) : 0;
-        const freightCost = data.freightCost ? parseFloat(data.freightCost.toString()) : 0;
-        const otherCost = data.otherCost ? parseFloat(data.otherCost.toString()) : 0;
+        const sellingPrice = data.selling_price ? parseFloat(data.selling_price.toString()) : 0;
+        const buyingPrice = data.buying_price ? parseFloat(data.buying_price.toString()) : 0;
+        const freightCost = data.freight_cost ? parseFloat(data.freight_cost.toString()) : 0;
+        const otherCost = data.other_cost ? parseFloat(data.other_cost.toString()) : 0;
 
         const grossProfitMt = sellingPrice - buyingPrice - freightCost - otherCost;
         const totalGrossProfit = grossProfitMt * quantity;
@@ -60,15 +51,20 @@ export async function POST(req: Request) {
         const forecast = await prisma.$transaction(async (tx) => {
             const newForecast = await tx.pLForecast.create({
                 data: {
-                    projectName: data.project_name,
+                    dealId: data.deal_id,
+                    dealNumber: data.deal_number,
+                    projectName: data.project_name || data.deal_number,
                     buyer: data.buyer,
+                    type: data.type || "export",
+                    status: data.status || "forecast",
                     quantity,
                     sellingPrice,
                     buyingPrice,
                     freightCost,
                     otherCost,
                     grossProfitMt,
-                    totalGrossProfit
+                    totalGrossProfit,
+                    createdBy: data.created_by || session.user.id
                 }
             });
 
@@ -86,7 +82,7 @@ export async function POST(req: Request) {
             return newForecast;
         });
 
-        await pushToSheets();
+        triggerPush();
 
         return NextResponse.json({ success: true, forecast });
     } catch (error) {
@@ -108,10 +104,10 @@ export async function PUT(req: Request) {
 
         // Auto calculate GP
         const quantity = data.quantity !== undefined ? parseFloat(data.quantity.toString()) : existing.quantity;
-        const sellingPrice = data.sellingPrice !== undefined ? parseFloat(data.sellingPrice.toString()) : existing.sellingPrice;
-        const buyingPrice = data.buyingPrice !== undefined ? parseFloat(data.buyingPrice.toString()) : existing.buyingPrice;
-        const freightCost = data.freightCost !== undefined ? parseFloat(data.freightCost.toString()) : existing.freightCost;
-        const otherCost = data.otherCost !== undefined ? parseFloat(data.otherCost.toString()) : existing.otherCost;
+        const sellingPrice = data.selling_price !== undefined ? parseFloat(data.selling_price.toString()) : existing.sellingPrice;
+        const buyingPrice = data.buying_price !== undefined ? parseFloat(data.buying_price.toString()) : existing.buyingPrice;
+        const freightCost = data.freight_cost !== undefined ? parseFloat(data.freight_cost.toString()) : existing.freightCost;
+        const otherCost = data.other_cost !== undefined ? parseFloat(data.other_cost.toString()) : existing.otherCost;
 
         const grossProfitMt = sellingPrice - buyingPrice - freightCost - otherCost;
         const totalGrossProfit = grossProfitMt * quantity;
@@ -120,8 +116,12 @@ export async function PUT(req: Request) {
             const updatedForecast = await tx.pLForecast.update({
                 where: { id: data.id },
                 data: {
+                    dealId: data.deal_id,
+                    dealNumber: data.deal_number,
                     projectName: data.project_name,
                     buyer: data.buyer,
+                    type: data.type,
+                    status: data.status,
                     quantity,
                     sellingPrice,
                     buyingPrice,
@@ -146,7 +146,7 @@ export async function PUT(req: Request) {
             return updatedForecast;
         });
 
-        await pushToSheets();
+        triggerPush();
 
         return NextResponse.json({ success: true, forecast });
     } catch (error) {
@@ -182,7 +182,7 @@ export async function DELETE(req: Request) {
             });
         });
 
-        pushToSheets();
+        triggerPush();
 
         return NextResponse.json({ success: true });
     } catch (error) {

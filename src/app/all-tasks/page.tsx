@@ -2,8 +2,9 @@
 
 import React from "react";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
-import { Calendar, Shield } from "lucide-react";
+import { Calendar, Shield, Loader2 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
+import { Toast } from "@/components/shared/toast";
 import { TaskDetail } from "@/components/tasks/task-detail";
 import { useSession } from "next-auth/react";
 import { useTaskStore } from "@/store/task-store";
@@ -14,10 +15,12 @@ import { Task, TaskStatus } from "@/types";
 export default function AllTasksPage() {
     const { data: session } = useSession();
     const currentUser = session?.user as any;
-    const hasPermission = (permission: string) => currentUser?.role === "CEO" || currentUser?.role === "MANAGER" || currentUser?.role === "ASSISTANT_CEO";
+    const hasPermission = (permission: string) => currentUser?.role === "CEO" || currentUser?.role === "ASSISTANT_CEO";
     const tasks = useTaskStore((s) => s.tasks);
     const moveTask = useTaskStore((s) => s.moveTask);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
+    const [isSaving, setIsSaving] = React.useState(false);
+    const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
 
     if (!hasPermission("all_tasks")) {
         return (
@@ -26,17 +29,27 @@ export default function AllTasksPage() {
                     <div className="text-center space-y-2">
                         <Shield className="w-10 h-10 text-muted-foreground/30 mx-auto" />
                         <p className="text-sm font-medium text-muted-foreground">Access Restricted</p>
-                        <p className="text-xs text-muted-foreground">Only Admin and Manager can view all tasks.</p>
+                        <p className="text-xs text-muted-foreground">Only CEO and Assistant CEO can view all tasks.</p>
                     </div>
                 </div>
             </AppShell>
         );
     }
 
-    const handleDragEnd = (result: DropResult) => {
+    const handleDragEnd = async (result: DropResult) => {
         if (!result.destination) return;
         const newStatus = result.destination.droppableId as TaskStatus;
-        moveTask(result.draggableId, newStatus, currentUser?.name || "System");
+        if (newStatus === result.source.droppableId) return;
+
+        setIsSaving(true);
+        try {
+            await moveTask(result.draggableId, newStatus, currentUser?.name || "System");
+            setToast({ message: "Task moved successfully!", type: "success" });
+        } catch (error) {
+            setToast({ message: "Failed to move task", type: "error" });
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const currentSelected = selectedTask ? tasks.find((t) => t.id === selectedTask.id) || null : null;
@@ -138,6 +151,19 @@ export default function AllTasksPage() {
 
                 {currentSelected && (
                     <TaskDetail task={currentSelected} onClose={() => setSelectedTask(null)} />
+                )}
+
+                {toast && (
+                    <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+                )}
+
+                {isSaving && (
+                    <div className="fixed inset-0 bg-background/20 backdrop-blur-[1px] z-[100] flex items-center justify-center pointer-events-none">
+                        <div className="bg-card border border-border/50 p-3 rounded-xl shadow-xl flex items-center gap-3">
+                            <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                            <span className="text-sm font-bold">Updating...</span>
+                        </div>
+                    </div>
                 )}
             </div>
         </AppShell>

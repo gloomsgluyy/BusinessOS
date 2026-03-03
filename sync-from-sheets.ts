@@ -1,10 +1,6 @@
 // @ts-nocheck
-require('dotenv').config({ path: '.env.local' });
-require('dotenv').config();
-
 const { google } = require('googleapis');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('./src/lib/prisma').default || require('./src/lib/prisma');
 
 async function getSheets() {
     let credentials = process.env.GOOGLE_SHEETS_CREDENTIALS;
@@ -17,15 +13,7 @@ async function getSheets() {
     return google.sheets({ version: "v4", auth });
 }
 
-async function fetchTab(sheets, spreadsheetId, tabName) {
-    try {
-        const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${tabName}!A1:Z500` });
-        return res.data.values || [];
-    } catch (e) {
-        console.error(`  [!] Error pulling ${tabName}:`, e.message);
-        return [];
-    }
-}
+
 
 function mapRow(headers, row) {
     const obj = {};
@@ -46,193 +34,128 @@ const num = (s) => {
     return isNaN(c) ? 0 : c;
 };
 
-async function syncAll() {
-    console.log("=========================================");
-    console.log("Memory B FULL Sync (Google Sheets)");
-    console.log("=========================================");
-
-    const sheets = await getSheets();
-    const sid = process.env.GOOGLE_SHEETS_ID;
-
-    // ─── 1. TASKS ────────────────────────────────────────
-    console.log("Syncing Tasks...");
-    const tRows = await fetchTab(sheets, sid, "Tasks");
-    if (tRows.length > 1) {
-        const h = tRows[0];
-        for (let i = 1; i < tRows.length; i++) {
-            const r = mapRow(h, tRows[i]);
-            if (!r['ID']) continue;
-            await prisma.taskItem.upsert({
-                where: { id: r['ID'] },
-                update: { title: r['Title'] || "Untitled", description: r['Description'], status: r['Status'] || "todo", priority: r['Priority'] || "medium", assigneeName: r['Assignee'], dueDate: parseDate(r['Due Date']) },
-                create: { id: r['ID'], title: r['Title'] || "Untitled", description: r['Description'], status: r['Status'] || "todo", priority: r['Priority'] || "medium", assigneeId: "usr-001", assigneeName: r['Assignee'], dueDate: parseDate(r['Due Date']), createdBy: "system" }
-            }).catch(() => { });
-        }
-    }
-
-    // ─── 2. SALES ORDERS ─────────────────────────────────
-    console.log("Syncing Sales Orders (Sales)...");
-    const soRows = await fetchTab(sheets, sid, "Sales");
-    if (soRows.length > 1) {
-        const h = soRows[0];
-        for (let i = 1; i < soRows.length; i++) {
-            const r = mapRow(h, soRows[i]);
-            if (!r['ID']) continue;
-            await prisma.salesOrder.upsert({
-                where: { orderNumber: r['Order #'] || `SO-${r['ID']}` },
-                update: { client: r['Client'] || "Unknown", description: r['Description'], amount: num(r['Amount']), priority: r['Priority'] || "medium", status: r['Status'] || "pending" },
-                create: { id: r['ID'], orderNumber: r['Order #'] || `SO-${r['ID']}`, client: r['Client'] || "Unknown", description: r['Description'], amount: num(r['Amount']), priority: r['Priority'] || "medium", status: r['Status'] || "pending", createdBy: "system", createdByName: r['Created By'] }
-            }).catch(() => { });
-        }
-    }
-
-    // ─── 3. SHIPMENTS ────────────────────────────────────
-    console.log("Syncing Shipments...");
-    const shRows = await fetchTab(sheets, sid, "Shipments");
-    if (shRows.length > 1) {
-        const h = shRows[0];
-        for (let i = 1; i < shRows.length; i++) {
-            const r = mapRow(h, shRows[i]);
-            if (!r['ID']) continue;
-            await prisma.shipmentDetail.upsert({
-                where: { shipmentNumber: r['Shipment #'] || `SHP-${r['ID']}` },
-                update: { status: r['Status'] || "draft", buyer: r['Buyer'] || "Unknown", supplier: r['Supplier'], vesselName: r['Vessel Name'], bargeName: r['Barge Name'], loadingPort: r['Loading Port'], dischargePort: r['Discharge Port'], quantityLoaded: num(r['Qty Loaded (MT)']), blDate: parseDate(r['BL Date']), eta: parseDate(r['ETA']), salesPrice: num(r['Sales Price']), marginMt: num(r['Margin/MT']), picName: r['PIC'], type: r['Type'] || "export" },
-                create: { id: r['ID'], shipmentNumber: r['Shipment #'] || `SHP-${r['ID']}`, status: r['Status'] || "draft", buyer: r['Buyer'] || "Unknown", supplier: r['Supplier'], vesselName: r['Vessel Name'], bargeName: r['Barge Name'], loadingPort: r['Loading Port'], dischargePort: r['Discharge Port'], quantityLoaded: num(r['Qty Loaded (MT)']), blDate: parseDate(r['BL Date']), eta: parseDate(r['ETA']), salesPrice: num(r['Sales Price']), marginMt: num(r['Margin/MT']), picName: r['PIC'], type: r['Type'] || "export" }
-            }).catch(() => { });
-        }
-    }
-
-    // ─── 4. SOURCES ──────────────────────────────────────
-    console.log("Syncing Sources...");
-    const srcRows = await fetchTab(sheets, sid, "Sources");
-    if (srcRows.length > 1) {
-        const h = srcRows[0];
-        for (let i = 1; i < srcRows.length; i++) {
-            const r = mapRow(h, srcRows[i]);
-            if (!r['ID']) continue;
-            await prisma.sourceSupplier.upsert({
-                where: { id: r['ID'] },
-                update: { name: r['Name'] || "Unknown", region: r['Region'] || "Unknown", calorieRange: r['Calorie Range'], gar: num(r['GAR']), ts: num(r['TS']), ash: num(r['Ash']), tm: num(r['TM']), jettyPort: r['Jetty Port'], anchorage: r['Anchorage'], stockAvailable: num(r['Stock Available']), minStockAlert: num(r['Min Stock Alert']), kycStatus: r['KYC Status'] || "pending", psiStatus: r['PSI Status'] || "not_started", fobBargeOnly: r['FOB Barge Only'] === 'TRUE', priceLinkedIndex: r['Price Linked Index'], fobBargePriceUsd: num(r['FOB Barge Price (USD)']), contractType: r['Contract Type'], picName: r['PIC'], iupNumber: r['IUP Number'] },
-                create: { id: r['ID'], name: r['Name'] || "Unknown", region: r['Region'] || "Unknown", calorieRange: r['Calorie Range'], gar: num(r['GAR']), ts: num(r['TS']), ash: num(r['Ash']), tm: num(r['TM']), jettyPort: r['Jetty Port'], anchorage: r['Anchorage'], stockAvailable: num(r['Stock Available']), minStockAlert: num(r['Min Stock Alert']), kycStatus: r['KYC Status'] || "pending", psiStatus: r['PSI Status'] || "not_started", fobBargeOnly: r['FOB Barge Only'] === 'TRUE', priceLinkedIndex: r['Price Linked Index'], fobBargePriceUsd: num(r['FOB Barge Price (USD)']), contractType: r['Contract Type'], picName: r['PIC'], iupNumber: r['IUP Number'] }
-            }).catch(() => { });
-        }
-    }
-
-    // ─── 5. QUALITY ──────────────────────────────────────
-    console.log("Syncing Quality...");
-    const qRows = await fetchTab(sheets, sid, "Quality");
-    if (qRows.length > 1) {
-        const h = qRows[0];
-        for (let i = 1; i < qRows.length; i++) {
-            const r = mapRow(h, qRows[i]);
-            if (!r['ID']) continue;
-            await prisma.qualityResult.upsert({
-                where: { id: r['ID'] },
-                update: { cargoName: r['Cargo Name'] || "Unknown", surveyor: r['Surveyor'], samplingDate: parseDate(r['Sampling Date']), gar: num(r['GAR']), ts: num(r['TS']), ash: num(r['Ash']), tm: num(r['TM']), status: r['Status'] || "pending" },
-                create: { id: r['ID'], cargoId: r['Cargo ID'] || r['ID'], cargoName: r['Cargo Name'] || "Unknown", surveyor: r['Surveyor'], samplingDate: parseDate(r['Sampling Date']), gar: num(r['GAR']), ts: num(r['TS']), ash: num(r['Ash']), tm: num(r['TM']), status: r['Status'] || "pending" }
-            }).catch(() => { });
-        }
-    }
-
-    // ─── 6. MARKET PRICE ─────────────────────────────────
-    console.log("Syncing Market Price...");
-    const mpRows = await fetchTab(sheets, sid, "Market Price");
-    if (mpRows.length > 1) {
-        const h = mpRows[0];
-        for (let i = 1; i < mpRows.length; i++) {
-            const r = mapRow(h, mpRows[i]);
-            if (!r['ID']) continue;
-            await prisma.marketPrice.upsert({
-                where: { id: r['ID'] },
-                update: { date: parseDate(r['Date']) || new Date(), ici1: num(r['ICI 1']) || null, ici2: num(r['ICI 2']) || null, ici3: num(r['ICI 3']) || null, ici4: num(r['ICI 4']) || null, ici5: num(r['ICI 5']) || null, newcastle: num(r['Newcastle']) || null, hba: num(r['HBA']) || null, source: r['Source'] },
-                create: { id: r['ID'], date: parseDate(r['Date']) || new Date(), ici1: num(r['ICI 1']) || null, ici2: num(r['ICI 2']) || null, ici3: num(r['ICI 3']) || null, ici4: num(r['ICI 4']) || null, ici5: num(r['ICI 5']) || null, newcastle: num(r['Newcastle']) || null, hba: num(r['HBA']) || null, source: r['Source'] }
-            }).catch(() => { });
-        }
-    }
-
-    // ─── 7. MEETINGS ─────────────────────────────────────
-    console.log("Syncing Meetings...");
-    const mtgRows = await fetchTab(sheets, sid, "Meetings");
-    if (mtgRows.length > 1) {
-        const h = mtgRows[0];
-        for (let i = 1; i < mtgRows.length; i++) {
-            const r = mapRow(h, mtgRows[i]);
-            if (!r['ID']) continue;
-            await prisma.meetingItem.upsert({
-                where: { id: r['ID'] },
-                update: { title: r['Title'] || "Untitled", date: parseDate(r['Date']), time: r['Time'], location: r['Location'], status: r['Status'] || "scheduled", attendees: r['Attendees'] ? JSON.stringify(r['Attendees'].split(',').map((a) => a.trim())) : null },
-                create: { id: r['ID'], title: r['Title'] || "Untitled", date: parseDate(r['Date']), time: r['Time'], location: r['Location'], status: r['Status'] || "scheduled", attendees: r['Attendees'] ? JSON.stringify(r['Attendees'].split(',').map((a) => a.trim())) : null, createdBy: "system" }
-            }).catch(() => { });
-        }
-    }
-
-    // ─── 8. EXPENSES (PURCHASES) ─────────────────────────
-    console.log("Syncing Expenses (Purchases)...");
-    const expRows = await fetchTab(sheets, sid, "Expenses");
-    if (expRows.length > 1) {
-        const h = expRows[0];
-        for (let i = 1; i < expRows.length; i++) {
-            const r = mapRow(h, expRows[i]);
-            if (!r['ID']) continue;
-            await prisma.purchaseRequest.upsert({
-                where: { requestNumber: r['Request #'] || `PR-${r['ID']}` },
-                update: { category: r['Category'] || "Other", supplier: r['Supplier'], description: r['Description'], amount: num(r['Amount']), priority: r['Priority'] || "medium", status: r['Status'] || "pending" },
-                create: { id: r['ID'], requestNumber: r['Request #'] || `PR-${r['ID']}`, category: r['Category'] || "Other", supplier: r['Supplier'], description: r['Description'], amount: num(r['Amount']), priority: r['Priority'] || "medium", status: r['Status'] || "pending", createdBy: "system", createdByName: r['Created By'] }
-            }).catch(() => { });
-        }
-    }
-
-    // ─── 9. P&L FORECASTS ────────────────────────────────
-    console.log("Syncing P&L Forecast...");
-    const plRows = await fetchTab(sheets, sid, "P&L Forecast");
-    if (plRows.length > 1) {
-        const h = plRows[0];
-        for (let i = 1; i < plRows.length; i++) {
-            const r = mapRow(h, plRows[i]);
-            if (!r['ID']) continue;
-            await prisma.pLForecast.upsert({
-                where: { id: r['ID'] },
-                update: { buyer: r['Project / Buyer'], quantity: num(r['Quantity']), sellingPrice: num(r['Selling Price']), buyingPrice: num(r['Buying Price']), freightCost: num(r['Freight Cost']), otherCost: num(r['Other Cost']), grossProfitMt: num(r['Gross Profit / MT']), totalGrossProfit: num(r['Total Gross Profit']) },
-                create: { id: r['ID'], buyer: r['Project / Buyer'], quantity: num(r['Quantity']), sellingPrice: num(r['Selling Price']), buyingPrice: num(r['Buying Price']), freightCost: num(r['Freight Cost']), otherCost: num(r['Other Cost']), grossProfitMt: num(r['Gross Profit / MT']), totalGrossProfit: num(r['Total Gross Profit']) }
-            }).catch(() => { });
-        }
-    }
-
-    // ─── 10. PROJECTS / DEALS ────────────────────────────
-    console.log("Syncing Projects (Deals)...");
-    const sdRows = await fetchTab(sheets, sid, "Projects");
-    if (sdRows.length > 1) {
-        const h = sdRows[0];
-        for (let i = 1; i < sdRows.length; i++) {
-            const r = mapRow(h, sdRows[i]);
-            if (!r['ID']) continue;
-            await prisma.salesDeal.upsert({
-                where: { dealNumber: `DEAL-${r['ID']}` },
-                update: { status: r['Status'] || "pre_sale", buyer: r['Buyer'] || "Unknown", buyerCountry: r['Country'], type: r['Type'] || "export", quantity: num(r['Quantity (MT)']), pricePerMt: num(r['Price/MT']), totalValue: num(r['Total Value']), laycanStart: parseDate(r['Laycan Start']), laycanEnd: parseDate(r['Laycan End']), picName: r['PIC'] },
-                create: { id: r['ID'], dealNumber: `DEAL-${r['ID']}`, status: r['Status'] || "pre_sale", buyer: r['Buyer'] || "Unknown", buyerCountry: r['Country'], type: r['Type'] || "export", quantity: num(r['Quantity (MT)']), pricePerMt: num(r['Price/MT']), totalValue: num(r['Total Value']), laycanStart: parseDate(r['Laycan Start']), laycanEnd: parseDate(r['Laycan End']), picName: r['PIC'], createdBy: "system" }
-            }).catch(() => { });
-        }
-    }
-
-    // ─── 11. PARTNERS ────────────────────────────────────
-    console.log("Syncing Partners...");
-    const ptnRows = await fetchTab(sheets, sid, "Partners");
-    if (ptnRows.length > 1) {
-        const h = ptnRows[0];
-        for (let i = 1; i < ptnRows.length; i++) {
-            const r = mapRow(h, ptnRows[i]);
-            if (!r['ID']) continue;
-            await prisma.partner.upsert({
-                where: { id: r['ID'] },
-                update: { name: r['Name'] || "Unknown", type: r['Type'] || "buyer", category: r['Category'], contactPerson: r['Contact Person'], phone: r['Phone'], email: r['Email'], address: r['Address'], city: r['City'], country: r['Country'], taxId: r['Tax ID'], status: r['Status'] || "active", notes: r['Notes'] },
-                create: { id: r['ID'], name: r['Name'] || "Unknown", type: r['Type'] || "buyer", category: r['Category'], contactPerson: r['Contact Person'], phone: r['Phone'], email: r['Email'], address: r['Address'], city: r['City'], country: r['Country'], taxId: r['Tax ID'], status: r['Status'] || "active", notes: r['Notes'] }
-            }).catch(() => { });
-        }
-    }
-
-    console.log("-----------------------------------------");
-    console.log("DONE: All 11 tabs synced to Memory B!");
-    console.log("-----------------------------------------");
+const VALID_SHIPMENT_STATUSES = ["draft", "confirmed", "waiting_loading", "loading", "in_transit", "anchorage", "discharging", "completed", "cancelled"];
+function normalizeShipmentStatus(val) {
+    const s = String(val || "draft").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (s === "waiting_for_loading" || s === "waiting") return "waiting_loading";
+    if (s === "intransit" || s === "transit") return "in_transit";
+    if (s === "discharged" || s === "discharge") return "discharging";
+    if (s === "complete" || s === "done") return "completed";
+    if (s === "cancel" || s === "canceled") return "cancelled";
+    if (VALID_SHIPMENT_STATUSES.includes(s)) return s;
+    return "draft";
 }
 
-syncAll().catch(e => { console.error("Sync failed:", e); }).finally(() => { prisma.$disconnect(); });
+const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+
+class PullService {
+    static async syncAll() {
+        console.log("=========================================");
+        console.log("Memory B FULL Sync (Google Sheets -> Local DB)");
+        console.log("=========================================");
+
+        const sheets = await getSheets();
+        const sid = process.env.GOOGLE_SHEETS_ID;
+        if (!sid) throw new Error("GOOGLE_SHEETS_ID not set");
+
+        const syncTabs = [
+            { name: "Tasks", model: "taskItem", map: (r) => ({ title: r['Title'] || "Untitled", description: r['Description'], status: r['Status'] || "todo", priority: r['Priority'] || "medium", assigneeName: r['Assignee'], dueDate: parseDate(r['Due Date']) }), create: (r) => ({ createdBy: "system", assigneeId: "usr-001" }) },
+            { name: "Sales", model: "salesDeal", key: "dealNumber", keyValue: (r) => r['Order #'] || r['ID'], map: (r) => ({ dealNumber: r['Order #'], buyer: r['Client'] || "Unknown", quantity: num(r['Amount']), status: r['Status'] || "pre_sale", picName: r['Created By'] }), create: (r) => ({ createdBy: "system" }) },
+            { name: "Shipments", model: "shipmentDetail", key: "shipmentNumber", keyValue: (r) => r['Shipment #'] || r['ID'], map: (r) => ({ shipmentNumber: r['Shipment #'], status: normalizeShipmentStatus(r['Status']), buyer: r['Buyer'] || "Unknown", supplier: r['Supplier'], vesselName: r['Vessel Name'], bargeName: r['Barge Name'], loadingPort: r['Loading Port'], dischargePort: r['Discharge Port'], quantityLoaded: num(r['Qty Loaded (MT)']), blDate: parseDate(r['BL Date']), eta: parseDate(r['ETA']), salesPrice: num(r['Sales Price']), marginMt: num(r['Margin/MT']), picName: r['PIC'], type: r['Type'] || "export" }) },
+            { name: "Sources", model: "sourceSupplier", map: (r) => ({ name: r['Name'] || "Unknown", region: r['Region'] || "Unknown", calorieRange: r['Calorie Range'], gar: num(r['GAR']), ts: num(r['TS']), ash: num(r['Ash']), tm: num(r['TM']), jettyPort: r['Jetty Port'], anchorage: r['Anchorage'], stockAvailable: num(r['Stock Available']), minStockAlert: num(r['Min Stock Alert']), kycStatus: r['KYC Status'] || "pending", psiStatus: r['PSI Status'] || "not_started", fobBargeOnly: r['FOB Barge Only'] === 'TRUE', priceLinkedIndex: r['Price Linked Index'], fobBargePriceUsd: num(r['FOB Barge Price (USD)']), contractType: r['Contract Type'], picName: r['PIC'], iupNumber: r['IUP Number'] }) },
+            { name: "Quality", model: "qualityResult", map: (r) => ({ cargoName: r['Cargo Name'] || "Unknown", surveyor: r['Surveyor'], samplingDate: parseDate(r['Sampling Date']), gar: num(r['GAR']), ts: num(r['TS']), ash: num(r['Ash']), tm: num(r['TM']), status: r['Status'] || "pending" }), create: (r) => ({ cargoId: r['Cargo ID'] || r['ID'] }) },
+            { name: "Market Price", model: "marketPrice", map: (r) => ({ date: parseDate(r['Date']) || new Date(), ici1: num(r['ICI 1']), ici2: num(r['ICI 2']), ici3: num(r['ICI 3']), ici4: num(r['ICI 4']), ici5: num(r['ICI 5']), newcastle: num(r['Newcastle']), hba: num(r['HBA']), source: r['Source'] }) },
+            { name: "Meetings", model: "meetingItem", map: (r) => ({ title: r['Title'] || "Untitled", date: parseDate(r['Date']), time: r['Time'], location: r['Location'], status: r['Status'] || "scheduled", attendees: r['Attendees'] }), create: (r) => ({ createdBy: "system" }) },
+            { name: "Expenses", model: "purchaseRequest", key: "requestNumber", keyValue: (r) => r['Request #'] || r['ID'], map: (r) => ({ requestNumber: r['Request #'], category: r['Category'] || "Other", supplier: r['Supplier'], description: r['Description'], amount: num(r['Amount']), priority: r['Priority'] || "medium", status: r['Status'] || "pending" }), create: (r) => ({ createdBy: "system", createdByName: r['Created By'] }) },
+            { name: "P&L Forecast", model: "pLForecast", map: (r) => ({ dealNumber: r['ID'] ? r['ID'].split('-')[0] : undefined, buyer: r['Project / Buyer'], quantity: num(r['Quantity']), sellingPrice: num(r['Selling Price']), buyingPrice: num(r['Buying Price']), freightCost: num(r['Freight Cost']), otherCost: num(r['Other Cost']), grossProfitMt: num(r['Gross Profit / MT']), totalGrossProfit: num(r['Total Gross Profit']) }) },
+            { name: "Projects", model: "salesDeal", key: "dealNumber", keyValue: (r) => r['ID'], map: (r) => ({ dealNumber: r['ID'] ? (r['ID'].startsWith('DEAL-') ? r['ID'] : `DEAL-${r['ID']}`) : undefined, status: r['Status'] || "confirmed", buyer: r['Buyer'] || "Unknown", buyerCountry: r['Country'], type: r['Type'] || "export", quantity: num(r['Quantity (MT)']), pricePerMt: num(r['Price/MT']), totalValue: num(r['Total Value']), laycanStart: parseDate(r['Laycan Start']), laycanEnd: parseDate(r['Laycan End']), picName: r['PIC'] }), create: (r) => ({ createdBy: "system" }) },
+            { name: "Partners", model: "partner", map: (r) => ({ name: r['Name'] || "Unknown", type: r['Type'] || "buyer", category: r['Category'], contactPerson: r['Contact Person'], phone: r['Phone'], email: r['Email'], address: r['Address'], city: r['City'], country: r['Country'], taxId: r['Tax ID'], status: r['Status'] || "active", notes: r['Notes'] }) },
+        ];
+
+        for (const tab of syncTabs) {
+            console.log(`Syncing ${tab.name}...`);
+            let rows = [];
+            try {
+                const res = await sheets.spreadsheets.values.get({ spreadsheetId: sid, range: `${tab.name}!A1:Z1000` });
+                rows = res.data.values || [];
+            } catch (e) {
+                if (e.message.includes("Quota exceeded")) {
+                    console.warn(`  [!] Quota hit on ${tab.name}. Stopping current sync cycle.`);
+                    return; // Stop the whole sync cycle to wait for next interval
+                }
+                console.error(`  [!] Error pulling ${tab.name}:`, e.message);
+                continue;
+            }
+
+            const headers = rows[0] || [];
+            const remoteIds = new Set();
+            if (rows.length > 1) {
+                for (let i = 1; i < rows.length; i++) {
+                    const r = mapRow(headers, rows[i]);
+                    if (!r['ID']) continue;
+
+                    const data = tab.map(r);
+                    const extra = tab.create ? tab.create(r) : {};
+                    const keyValue = tab.key ? tab.keyValue(r) : r['ID'];
+
+                    // --- ID HEALING LOGIC ---
+                    let targetId = r['ID'];
+                    if (tab.key && keyValue) {
+                        const existingByKey = await prisma[tab.model].findUnique({
+                            where: { [tab.key]: keyValue }
+                        }).catch(() => null);
+
+                        if (existingByKey) {
+                            targetId = existingByKey.id;
+                        }
+                    }
+
+                    if (tab.key && !data[tab.key]) {
+                        data[tab.key] = keyValue;
+                    }
+
+                    const createData = { id: targetId, ...data, ...extra };
+                    if (tab.key) createData[tab.key] = keyValue;
+
+                    await prisma[tab.model].upsert({
+                        where: { id: targetId },
+                        update: data,
+                        create: createData
+                    }).catch(e => console.error(`Failed upsert for ${tab.name} ID ${targetId}:`, e.message));
+
+                    remoteIds.add(targetId);
+                }
+            }
+
+            // --- DELETION RECONCILIATION ---
+            // If a record exists in DB but NOT in the Google Sheet, mark it as isDeleted: true
+            if (tab.model !== 'marketPrice' && tab.model !== 'syncState') { // Skip models that don't use soft delete or are singletons
+                try {
+                    const localRecords = await prisma[tab.model].findMany({
+                        where: { isDeleted: false },
+                        select: { id: true }
+                    });
+
+                    for (const local of localRecords) {
+                        if (!remoteIds.has(local.id)) {
+                            console.log(`  [-] Removing ${tab.name} ID ${local.id} (not found in Sheets)`);
+                            await prisma[tab.model].update({
+                                where: { id: local.id },
+                                data: { isDeleted: true }
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.error(`  [!] Deletion sync failed for ${tab.name}:`, e.message);
+                }
+            }
+
+            // Wait 1 second between tabs to prevent hitting quota too fast
+            await sleep(1000);
+        }
+
+        console.log("✅ Sync All complete.");
+    }
+}
+
+module.exports = { PullService };

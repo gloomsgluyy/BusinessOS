@@ -72,7 +72,6 @@ export function Header() {
             "/directory": "Partners & Directory",
             "/projects": "Sales Projects",
             "/compliance": "Compliance & Legal",
-            "/sales-plan": "Annual Sales Plan",
             "/ai-optimization": "AI Optimization",
             "/pl-forecast": "P&L Forecast",
         };

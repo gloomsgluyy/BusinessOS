@@ -316,44 +316,6 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
     );
 }
 
-/* ─── Sales Plan (Quantity Chart) ─────────────────────────── */
-function SalesPlanChart({ shipments }: { shipments: any[] }) {
-    const [mounted, setMounted] = React.useState(false);
-    React.useEffect(() => setMounted(true), []);
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
-    const data = months.map((m, i) => {
-        const monthItems = shipments.filter((sh) => {
-            const d = new Date(sh.created_at || sh.bl_date || sh.updated_at);
-            return d.getMonth() === i;
-        });
-        return {
-            month: m,
-            local: monthItems.filter((sh) => sh.type === "local").reduce((s, sh) => s + (sh.quantity_loaded || 0), 0),
-            export: monthItems.filter((sh) => sh.type !== "local").reduce((s, sh) => s + (sh.quantity_loaded || 0), 0),
-        };
-    });
-
-    return (
-        <div className="card-elevated p-5 animate-slide-up delay-3">
-            <h3 className="text-sm font-semibold mb-4">Sales Plan (Quantity/MT)</h3>
-            <div className="h-[220px]">
-                {mounted && (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(128,128,128,0.1)" />
-                            <XAxis dataKey="month" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${safeFmt(v / 1000, 0)}K`} />
-                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }} />
-                            <Legend wrapperStyle={{ fontSize: '11px' }} />
-                            <Bar dataKey="local" name="Local" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                            <Bar dataKey="export" name="Export" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                )}
-            </div>
-        </div>
-    );
-}
 
 /* ─── Priority Tasks ──────────────────────────────────────── */
 function PriorityTasks() {
@@ -651,9 +613,8 @@ export default function DashboardPage() {
                             <UpcomingMeetings />
                         </div>
 
-                        {/* Row 3: Sales Plan + Quantity per Month */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            <SalesPlanChart shipments={filteredShipments} />
+                        {/* Row 3: Quantity per Month */}
+                        <div className="grid grid-cols-1 gap-4">
                             <QuantityPerMonth shipments={filteredShipments} />
                         </div>
 

@@ -3,7 +3,8 @@
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { cn } from "@/lib/utils";
-import { FolderKanban, Calendar, TrendingUp, Plus, X, Ship, MapPin, Search } from "lucide-react";
+import { FolderKanban, Calendar, TrendingUp, Plus, X, Ship, MapPin, Search, Loader2 } from "lucide-react";
+import { Toast } from "@/components/shared/toast";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
 
@@ -12,6 +13,8 @@ export default function ProjectsPage() {
     const { currentUser } = useAuthStore();
 
     const [showForm, setShowForm] = React.useState(false);
+    const [isSaving, setIsSaving] = React.useState(false);
+    const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
     const [selectedProject, setSelectedProject] = React.useState<any | null>(null);
     const [search, setSearch] = React.useState("");
 
@@ -28,28 +31,35 @@ export default function ProjectsPage() {
     const projects = deals.filter(d => d.status === "confirmed");
     const filteredProjects = projects.filter(p => search ? p.buyer.toLowerCase().includes(search.toLowerCase()) || p.id.toLowerCase().includes(search.toLowerCase()) : true);
 
-    const handleCreateProject = () => {
-        addDeal({
-            buyer: form.buyer,
-            buyer_country: form.buyer_country,
-            type: form.buyer_country === "Indonesia" ? "local" : "export",
-            shipping_terms: form.shipping_terms,
-            quantity: form.quantity,
-            price_per_mt: 50, // mock default
-            laycan_start: form.laycan_start,
-            laycan_end: form.laycan_end,
-            spec: { gar: form.gar, ts: 0.8, ash: 5.0, tm: 30 },
-            status: "confirmed", // auto confirm as active project
-            created_by: currentUser.id,
-            created_by_name: currentUser.name,
-            pic_id: currentUser.id,
-            pic_name: currentUser.name,
-            deal_number: `PRJ-${new Date().getFullYear()}${new Date().getMonth() + 1}-${Math.floor(100 + Math.random() * 900)}`,
-            total_value: form.quantity * 50
-        } as any);
-
-        setShowForm(false);
-        setForm({ buyer: "", quantity: 50000, laycan_start: "", laycan_end: "", shipping_terms: "FOB", buyer_country: "Indonesia", gar: 4200 });
+    const handleCreateProject = async () => {
+        setIsSaving(true);
+        try {
+            await addDeal({
+                buyer: form.buyer,
+                buyer_country: form.buyer_country,
+                type: form.buyer_country === "Indonesia" ? "local" : "export",
+                shipping_terms: form.shipping_terms,
+                quantity: form.quantity,
+                price_per_mt: 50, // mock default
+                laycan_start: form.laycan_start,
+                laycan_end: form.laycan_end,
+                spec: { gar: form.gar, ts: 0.8, ash: 5.0, tm: 30 },
+                status: "confirmed", // auto confirm as active project
+                created_by: currentUser.id,
+                created_by_name: currentUser.name,
+                pic_id: currentUser.id,
+                pic_name: currentUser.name,
+                deal_number: `PRJ-${new Date().getFullYear()}${new Date().getMonth() + 1}-${Math.floor(100 + Math.random() * 900)}`,
+                total_value: form.quantity * 50
+            } as any);
+            setToast({ message: "Project created successfully!", type: "success" });
+            setShowForm(false);
+            setForm({ buyer: "", quantity: 50000, laycan_start: "", laycan_end: "", shipping_terms: "FOB", buyer_country: "Indonesia", gar: 4200 });
+        } catch (error) {
+            setToast({ message: "Failed to create project", type: "error" });
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -102,15 +112,23 @@ export default function ProjectsPage() {
                                 <input type="date" value={form.laycan_end} onChange={(e) => setForm({ ...form, laycan_end: e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500" /></div>
                         </div>
                         <div className="flex gap-2 pt-2">
-                            <button onClick={handleCreateProject} className="btn-primary bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50" disabled={!form.buyer || !form.laycan_start}>Save Project</button>
-                            <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg text-sm text-emerald-700/70 hover:bg-emerald-500/10 transition-colors font-medium">Cancel</button>
+                            <button onClick={handleCreateProject} className="btn-primary bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50" disabled={!form.buyer || !form.laycan_start || isSaving}>
+                                {isSaving ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        Saving...
+                                    </>
+                                ) : (
+                                    "Save Project"
+                                )}
+                            </button>
+                            <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg text-sm text-emerald-700/70 hover:bg-emerald-500/10 transition-colors font-medium" disabled={isSaving}>Cancel</button>
                         </div>
                     </div>
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                     {filteredProjects.map((p, i) => {
-                        const progress = p.status === "confirmed" ? 50 : 10;
                         return (
                             <div key={p.id} onClick={() => setSelectedProject(p)} className={cn("card-interactive cursor-pointer p-0 overflow-hidden animate-slide-up hover:border-emerald-500/30 group", `delay-${Math.min((i % 5) + 1, 5)}`)}>
                                 <div className="p-5 space-y-4">
@@ -132,16 +150,6 @@ export default function ProjectsPage() {
                                         <div>
                                             <p className="text-[10px] text-muted-foreground uppercase font-semibold">Shipping</p>
                                             <p className="text-sm font-bold">{p.shipping_terms}</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-1.5">
-                                        <div className="flex justify-between text-xs">
-                                            <span className="text-muted-foreground font-medium">Execution Progress</span>
-                                            <span className="font-bold text-emerald-600">{progress}%</span>
-                                        </div>
-                                        <div className="h-2 w-full bg-accent rounded-full overflow-hidden">
-                                            <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all" style={{ width: `${progress}%` }} />
                                         </div>
                                     </div>
                                 </div>
@@ -244,10 +252,12 @@ export default function ProjectsPage() {
 
                             <div className="p-6 border-t border-border bg-accent/5 flex justify-end gap-3 rounded-b-2xl">
                                 <button className="px-6 py-2 rounded-lg bg-background border border-border text-sm font-bold shadow-sm hover:bg-accent transition-colors" onClick={() => setSelectedProject(null)}>Close</button>
-                                <button className="px-6 py-2 rounded-lg bg-emerald-600 text-white text-sm font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-700 transition-colors">Start Execution</button>
                             </div>
                         </div>
                     </div>
+                )}
+                {toast && (
+                    <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
                 )}
             </div>
         </AppShell>

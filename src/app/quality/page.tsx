@@ -4,8 +4,9 @@ import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { cn } from "@/lib/utils";
-import { FlaskConical, CheckCircle, XCircle, Clock, AlertTriangle, Plus, X, Search, Download } from "lucide-react";
+import { FlaskConical, CheckCircle, XCircle, Clock, AlertTriangle, Plus, X, Search, Download, Loader2 } from "lucide-react";
 import { ReportModal } from "@/components/shared/report-modal";
+import { Toast } from "@/components/shared/toast";
 
 const STATUS_CFG = {
     pending: { label: "Pending", color: "#f59e0b", icon: Clock },
@@ -17,6 +18,8 @@ const STATUS_CFG = {
 export default function QualityPage() {
     const { qualityResults, addQualityResult, shipments } = useCommercialStore();
     const [showForm, setShowForm] = React.useState(false);
+    const [isSaving, setIsSaving] = React.useState(false);
+    const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
     const [search, setSearch] = React.useState("");
     const [showReportModal, setShowReportModal] = React.useState(false);
     const [filterStatus, setFilterStatus] = React.useState<string>("all");
@@ -35,17 +38,25 @@ export default function QualityPage() {
         return true;
     });
 
-    const handleSubmit = () => {
-        addQualityResult({
-            cargo_id: form.cargo_id || "manual",
-            cargo_name: form.cargo_name,
-            surveyor: form.surveyor,
-            sampling_date: form.sampling_date || new Date().toISOString(),
-            spec_result: { gar: form.gar, ts: form.ts, ash: form.ash, tm: form.tm },
-            status: form.status,
-        });
-        setShowForm(false);
-        setForm({ cargo_id: "", cargo_name: "", surveyor: "", sampling_date: "", gar: 4200, ts: 0.8, ash: 5.0, tm: 30, status: "pending" });
+    const handleSubmit = async () => {
+        setIsSaving(true);
+        try {
+            await addQualityResult({
+                cargo_id: form.cargo_id || "manual",
+                cargo_name: form.cargo_name,
+                surveyor: form.surveyor,
+                sampling_date: form.sampling_date || new Date().toISOString(),
+                spec_result: { gar: form.gar, ts: form.ts, ash: form.ash, tm: form.tm },
+                status: form.status,
+            });
+            setToast({ message: "Quality result added successfully!", type: "success" });
+            setShowForm(false);
+            setForm({ cargo_id: "", cargo_name: "", surveyor: "", sampling_date: "", gar: 4200, ts: 0.8, ash: 5.0, tm: 30, status: "pending" });
+        } catch (error) {
+            setToast({ message: "Failed to add quality result", type: "error" });
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -137,8 +148,19 @@ export default function QualityPage() {
                             ))}
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={handleSubmit} className="btn-primary"><Plus className="w-4 h-4" /> Submit Result</button>
-                            <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors">Cancel</button>
+                            <button onClick={handleSubmit} className="btn-primary" disabled={isSaving}>
+                                {isSaving ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        Submitting...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Plus className="w-4 h-4 mr-1.5" /> Submit Result
+                                    </>
+                                )}
+                            </button>
+                            <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors" disabled={isSaving}>Cancel</button>
                         </div>
                     </div>
                 )}
@@ -191,6 +213,9 @@ export default function QualityPage() {
                         console.log(`Exporting Quality Data as ${format} with options:`, options);
                     }}
                 />
+                {toast && (
+                    <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+                )}
             </div>
         </AppShell>
     );

@@ -4,21 +4,13 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { syncAllQualityToSheet } from "@/app/actions/sheet-actions";
 
-async function pushToSheets() {
+import { PushService } from "@/lib/push-to-sheets";
+
+async function triggerPush() {
     try {
-        const quality = await prisma.qualityResult.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
-        });
-        const formatted = quality.map((q: any) => ({
-            id: q.id, cargo_id: q.cargoId, cargo_name: q.cargoName, surveyor: q.surveyor,
-            sampling_date: q.samplingDate ? q.samplingDate.toISOString().split('T')[0] : "",
-            spec_result: { gar: q.gar, ts: q.ts, ash: q.ash, tm: q.tm },
-            status: q.status, created_at: q.createdAt.toISOString()
-        }));
-        await syncAllQualityToSheet(formatted);
+        await PushService.pushAllToSheets();
     } catch (err) {
-        console.error("Failed to sync Quality to sheets:", err);
+        console.error("Failed to push Quality Results to sheets:", err);
     }
 }
 
@@ -75,7 +67,7 @@ export async function POST(req: Request) {
             return newQuality;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, quality });
     } catch (error) {
@@ -122,7 +114,7 @@ export async function PUT(req: Request) {
             return updatedQuality;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, quality });
     } catch (error) {
@@ -158,7 +150,7 @@ export async function DELETE(req: Request) {
             });
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true });
     } catch (error) {

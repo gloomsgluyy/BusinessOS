@@ -4,15 +4,13 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { syncAllBlendingToSheet } from "@/app/actions/sheet-actions";
 
-async function pushToSheets() {
+import { PushService } from "@/lib/push-to-sheets";
+
+async function triggerPush() {
     try {
-        const simulations = await prisma.blendingSimulation.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
-        });
-        await syncAllBlendingToSheet(simulations);
+        await PushService.pushAllToSheets();
     } catch (err) {
-        console.error("Failed to sync Blending to sheets:", err);
+        console.error("Failed to push Blending to sheets:", err);
     }
 }
 
@@ -74,7 +72,7 @@ export async function POST(req: Request) {
             return newSim;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, simulation });
     } catch (error) {
@@ -110,7 +108,7 @@ export async function DELETE(req: Request) {
             });
         });
 
-        pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true });
     } catch (error) {

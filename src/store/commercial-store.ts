@@ -116,9 +116,10 @@ interface CommercialState {
     // Sales Monitor
     _rawDeals: SalesDeal[];
     deals: SalesDeal[];
-    addDeal: (d: Omit<SalesDeal, "id" | "deal_number" | "created_at" | "updated_at">) => void;
-    updateDeal: (id: string, u: Partial<SalesDeal>) => void;
-    deleteDeal: (id: string) => void;
+    addDeal: (d: Omit<SalesDeal, "id" | "deal_number" | "created_at" | "updated_at">) => Promise<void>;
+    updateDeal: (id: string, u: Partial<SalesDeal>) => Promise<void>;
+    deleteDeal: (id: string) => Promise<void>;
+    updateDealStatus: (id: string, status: SalesDealStatus) => Promise<void>;
     confirmDeal: (id: string) => void;
 
     // Shipment Monitor
@@ -132,9 +133,9 @@ interface CommercialState {
     // Sources
     _rawSources: SourceSupplier[];
     sources: SourceSupplier[];
-    addSource: (s: Omit<SourceSupplier, "id" | "created_at" | "updated_at">) => void;
-    updateSource: (id: string, u: Partial<SourceSupplier>) => void;
-    deleteSource: (id: string) => void;
+    addSource: (s: Omit<SourceSupplier, "id" | "created_at" | "updated_at">) => Promise<void>;
+    updateSource: (id: string, u: Partial<SourceSupplier>) => Promise<void>;
+    deleteSource: (id: string) => Promise<void>;
 
     // Quality
     _rawQualityResults: QualityResult[];
@@ -168,6 +169,8 @@ interface CommercialState {
     _rawPLForecasts: PLForecastItem[];
     plForecasts: PLForecastItem[];
     addPLForecast: (p: Omit<PLForecastItem, "id" | "created_at" | "updated_at" | "gross_profit_mt" | "total_gross_profit">) => Promise<void>;
+    updatePLForecast: (id: string, u: Partial<PLForecastItem>) => Promise<void>;
+    deletePLForecast: (id: string) => Promise<void>;
 
     // Sync Integration
     lastSyncTime: string;
@@ -235,8 +238,11 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
             return { _rawDeals: raw, deals: raw.filter(x => !x.is_deleted) };
         });
     },
+    updateDealStatus: async (id, status) => {
+        await get().updateDeal(id, { status } as any);
+    },
     confirmDeal: async (id) => {
-        await useCommercialStore.getState().updateDeal(id, { status: "confirmed" });
+        await get().updateDealStatus(id, "confirmed");
     },
 
     // ── Shipments ────────────────────────────────────────────
@@ -261,7 +267,12 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
             salesPrice: s.sales_price,
             marginMt: s.margin_mt,
             picName: s.pic_name,
-            milestones: s.milestones
+            milestones: s.milestones,
+            // Quality Spec Mapping
+            gar: s.spec_actual?.gar,
+            ts: s.spec_actual?.ts,
+            ash: s.spec_actual?.ash,
+            tm: s.spec_actual?.tm
         };
         const res = await fetch("/api/memory/shipments", {
             method: "POST",
@@ -500,6 +511,9 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 id: mtg.id, title: mtg.title, date: mtg.date, time: mtg.time,
                 attendees: mtg.attendees ? JSON.parse(mtg.attendees) : [], location: mtg.location,
                 status: mtg.status, action_items: mtg.actionItems ? JSON.parse(mtg.actionItems) : [],
+                mom_content: mtg.momContent || undefined,
+                voice_note_url: mtg.voiceNoteUrl || undefined,
+                ai_summary: mtg.aiSummary || undefined,
                 created_by: mtg.createdBy, created_by_name: mtg.createdByName,
                 created_at: mtg.createdAt, updated_at: mtg.updatedAt
             };
@@ -520,6 +534,9 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
         if (u.action_items) body.actionItems = JSON.stringify(u.action_items);
         if (u.created_by) body.createdBy = u.created_by;
         if (u.created_by_name) body.createdByName = u.created_by_name;
+        if (u.mom_content !== undefined) body.momContent = u.mom_content;
+        if (u.voice_note_url !== undefined) body.voiceNoteUrl = u.voice_note_url;
+        if (u.ai_summary !== undefined) body.aiSummary = u.ai_summary;
 
         await fetch("/api/memory/meetings", {
             method: "PUT",
@@ -603,25 +620,115 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     _rawPLForecasts: [],
     plForecasts: [],
     addPLForecast: async (p) => {
+        const body: any = { ...p };
+        // Map to camelCase for API
+        if (p.deal_id) body.dealId = p.deal_id;
+        if (p.deal_number) body.dealNumber = p.deal_number;
+        if (p.selling_price !== undefined) body.sellingPrice = p.selling_price;
+        if (p.buying_price !== undefined) body.buyingPrice = p.buying_price;
+        if (p.freight_cost !== undefined) body.freightCost = p.freight_cost;
+        if (p.other_cost !== undefined) body.otherCost = p.other_cost;
+        if (p.project_name) body.projectName = p.project_name;
+
         const res = await fetch("/api/memory/pl-forecasts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(p)
+            body: JSON.stringify(body)
         });
-        if (res.ok) {
-            const data = await res.json();
-            const pl = data.forecast;
-            const mapped: PLForecastItem = {
-                id: pl.id, deal_id: pl.dealId || "", deal_number: pl.dealNumber || "", status: pl.status || "Draft", created_by: pl.createdBy || "unknown", type: pl.type || "FOB", buyer: pl.buyer, quantity: pl.quantity,
-                selling_price: pl.sellingPrice, buying_price: pl.buyingPrice, freight_cost: pl.freightCost,
-                other_cost: pl.otherCost, gross_profit_mt: pl.grossProfitMt, total_gross_profit: pl.totalGrossProfit,
-                created_at: pl.createdAt, updated_at: pl.updatedAt
-            };
-            set((s) => {
-                const raw = [...s._rawPLForecasts, mapped];
-                return { _rawPLForecasts: raw, plForecasts: raw.filter(x => !x.is_deleted) };
-            });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || "Failed to create forecast");
         }
+        const data = await res.json();
+        const pl = data.forecast;
+        const mapped: PLForecastItem = {
+            id: pl.id,
+            deal_id: pl.dealId || "",
+            deal_number: pl.dealNumber || "",
+            project_name: pl.projectName || pl.dealNumber || "",
+            status: pl.status || "forecast",
+            created_by: pl.createdBy || "unknown",
+            type: pl.type || "export",
+            buyer: pl.buyer || "Unknown",
+            quantity: pl.quantity || 0,
+            selling_price: pl.sellingPrice || 0,
+            buying_price: pl.buyingPrice || 0,
+            freight_cost: pl.freightCost || 0,
+            other_cost: pl.otherCost || 0,
+            gross_profit_mt: pl.grossProfitMt || 0,
+            total_gross_profit: pl.totalGrossProfit || 0,
+            created_at: pl.createdAt || new Date().toISOString(),
+            updated_at: pl.updatedAt || new Date().toISOString()
+        };
+        set((s) => {
+            if (s._rawPLForecasts.some(f => f.id === mapped.id)) return s;
+            const raw = [...s._rawPLForecasts, mapped];
+            return { _rawPLForecasts: raw, plForecasts: raw.filter(x => !x.is_deleted) };
+        });
+    },
+    updatePLForecast: async (id: string, u: Partial<PLForecastItem>) => {
+        const body: any = { id, ...u };
+        if (u.deal_id) body.dealId = u.deal_id;
+        if (u.deal_number) body.dealNumber = u.deal_number;
+        if (u.selling_price !== undefined) body.sellingPrice = u.selling_price;
+        if (u.buying_price !== undefined) body.buyingPrice = u.buying_price;
+        if (u.freight_cost !== undefined) body.freightCost = u.freight_cost;
+        if (u.other_cost !== undefined) body.otherCost = u.other_cost;
+        if (u.project_name) body.projectName = u.project_name;
+        if (u.buyer) body.buyer = u.buyer;
+        if (u.status) body.status = u.status;
+        if (u.type) body.type = u.type;
+
+        const res = await fetch("/api/memory/pl-forecasts", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || "Failed to update forecast");
+        }
+
+        const data = await res.json();
+        const pl = data.forecast;
+        const mapped: PLForecastItem = {
+            id: pl.id,
+            deal_id: pl.dealId || "",
+            deal_number: pl.dealNumber || "",
+            project_name: pl.projectName || pl.dealNumber || "",
+            status: pl.status || "forecast",
+            created_by: pl.createdBy || "unknown",
+            type: pl.type || "export",
+            buyer: pl.buyer || "Unknown",
+            quantity: pl.quantity || 0,
+            selling_price: pl.sellingPrice || 0,
+            buying_price: pl.buyingPrice || 0,
+            freight_cost: pl.freightCost || 0,
+            other_cost: pl.otherCost || 0,
+            gross_profit_mt: pl.grossProfitMt || 0,
+            total_gross_profit: pl.totalGrossProfit || 0,
+            created_at: pl.createdAt,
+            updated_at: pl.updatedAt,
+            is_deleted: pl.isDeleted
+        };
+        set((s) => {
+            const raw = s._rawPLForecasts.map((f) => f.id === id ? mapped : f);
+            return { _rawPLForecasts: raw, plForecasts: raw.filter(x => !x.is_deleted) };
+        });
+    },
+    deletePLForecast: async (id: string) => {
+        const res = await fetch(`/api/memory/pl-forecasts?id=${id}`, {
+            method: "DELETE"
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || "Failed to delete forecast");
+        }
+        set((s) => ({
+            _rawPLForecasts: s._rawPLForecasts.map(f => f.id === id ? { ...f, is_deleted: true } : f),
+            plForecasts: s.plForecasts.filter(f => f.id !== id)
+        }));
     },
 
     // ── Sync Integration ─────────────────────────────────────
@@ -728,6 +835,9 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         location: m.location,
                         status: m.status,
                         action_items: Array.isArray(m.actionItems) ? m.actionItems : [],
+                        mom_content: m.momContent || undefined,
+                        voice_note_url: m.voiceNoteUrl || undefined,
+                        ai_summary: m.aiSummary || undefined,
                         created_by: m.createdBy, created_by_name: m.createdByName,
                         created_at: m.createdAt, updated_at: m.updatedAt, is_deleted: m.isDeleted
                     }));
@@ -738,10 +848,24 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 // PL merge
                 if (plRes.success && plRes.forecasts) {
                     const mappedPL: PLForecastItem[] = plRes.forecasts.map((p: any) => ({
-                        id: p.id, deal_id: p.dealId || "", deal_number: p.dealNumber || "", status: p.status || "Draft", created_by: p.createdBy || "unknown", type: p.type || "FOB", buyer: p.buyer, quantity: p.quantity,
-                        selling_price: p.sellingPrice, buying_price: p.buyingPrice, freight_cost: p.freightCost,
-                        other_cost: p.otherCost, gross_profit_mt: p.grossProfitMt, total_gross_profit: p.totalGrossProfit,
-                        created_at: p.createdAt, updated_at: p.updatedAt, is_deleted: p.isDeleted
+                        id: p.id,
+                        deal_id: p.dealId || "",
+                        deal_number: p.dealNumber || "",
+                        project_name: p.projectName || p.dealNumber || "",
+                        status: p.status || "forecast",
+                        created_by: p.createdBy || "unknown",
+                        type: p.type || "export",
+                        buyer: p.buyer || "Unknown",
+                        quantity: p.quantity || 0,
+                        selling_price: p.sellingPrice || 0,
+                        buying_price: p.buyingPrice || 0,
+                        freight_cost: p.freightCost || 0,
+                        other_cost: p.otherCost || 0,
+                        gross_profit_mt: p.grossProfitMt || 0,
+                        total_gross_profit: p.totalGrossProfit || 0,
+                        created_at: p.createdAt,
+                        updated_at: p.updatedAt,
+                        is_deleted: p.isDeleted
                     }));
                     updates._rawPLForecasts = mappedPL;
                     updates.plForecasts = mappedPL.filter(x => !x.is_deleted);

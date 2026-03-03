@@ -9,9 +9,11 @@ import { SourceSupplier, CoalSpec } from "@/types";
 import {
     MapPin, Package, Download, Plus, Search, Filter,
     Anchor, Ship, MoreVertical, LayoutGrid, List, AlertTriangle, TrendingUp, TrendingDown,
-    Building2, Users, FileSignature, Factory, X, Navigation, Truck, Settings, Shield, FlaskConical
+    Building2, Users, FileSignature, Factory, X, Navigation, Truck, Settings, Shield, FlaskConical,
+    Loader2
 } from "lucide-react";
 import { ReportModal } from "@/components/shared/report-modal";
+import { Toast } from "@/components/shared/toast";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
@@ -38,6 +40,8 @@ export default function SourcesPage() {
 
     // Modal states
     const [showForm, setShowForm] = React.useState(false);
+    const [isSaving, setIsSaving] = React.useState(false);
+    const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
     const [isEditing, setIsEditing] = React.useState(false);
     const [form, setForm] = React.useState<Partial<SourceSupplier>>(emptySource);
     const [showReportModal, setShowReportModal] = React.useState(false);
@@ -65,18 +69,38 @@ export default function SourcesPage() {
         setShowForm(true);
     };
 
-    const handleSubmit = () => {
-        if (isEditing && form.id) {
-            updateSource(form.id, form);
-        } else {
-            addSource({
-                ...form,
-                id: generateId("src"),
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-            } as SourceSupplier);
+    const handleSubmit = async () => {
+        setIsSaving(true);
+        try {
+            if (isEditing && form.id) {
+                await updateSource(form.id, form);
+                setToast({ message: "Source updated successfully!", type: "success" });
+            } else {
+                await addSource({
+                    ...form,
+                    id: generateId("src"),
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                } as SourceSupplier);
+                setToast({ message: "New source added successfully!", type: "success" });
+            }
+            setShowForm(false);
+        } catch (error) {
+            setToast({ message: "Failed to save source", type: "error" });
+        } finally {
+            setIsSaving(false);
         }
-        setShowForm(false);
+    };
+
+    const handleDelete = async (id: string) => {
+        if (!confirm("Are you sure you want to delete this supplier?")) return;
+        try {
+            await deleteSource(id);
+            setToast({ message: "Supplier removed successfully", type: "success" });
+            setShowForm(false);
+        } catch (error) {
+            setToast({ message: "Failed to delete supplier", type: "error" });
+        }
     };
 
     const regionStats = sources.reduce((acc, curr) => {
@@ -385,12 +409,19 @@ export default function SourcesPage() {
 
                             <div className="sticky bottom-0 bg-card/90 backdrop-blur border-t border-border/50 p-6 flex justify-between items-center z-10">
                                 {isEditing && form.id ? (
-                                    <button onClick={() => { deleteSource(form.id!); setShowForm(false); }} className="text-red-500 text-xs font-semibold hover:underline">Delete Supplier</button>
+                                    <button onClick={() => handleDelete(form.id!)} className="text-red-500 text-xs font-semibold hover:underline" disabled={isSaving}>Delete Supplier</button>
                                 ) : <div />}
                                 <div className="flex gap-3">
-                                    <button onClick={() => setShowForm(false)} className="px-5 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors font-medium">Cancel</button>
-                                    <button onClick={handleSubmit} className="btn-primary" disabled={!form.name || !form.region}>
-                                        {isEditing ? "Save Changes" : "Register Origin"}
+                                    <button onClick={() => setShowForm(false)} className="px-5 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors font-medium" disabled={isSaving}>Cancel</button>
+                                    <button onClick={handleSubmit} className="btn-primary" disabled={!form.name || !form.region || isSaving}>
+                                        {isSaving ? (
+                                            <>
+                                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                Saving...
+                                            </>
+                                        ) : (
+                                            isEditing ? "Save Changes" : "Register Origin"
+                                        )}
                                     </button>
                                 </div>
                             </div>
@@ -403,6 +434,9 @@ export default function SourcesPage() {
                     moduleName="Source"
                     onExport={(format, options) => { console.log(`Exporting sources as ${format}`, options); }}
                 />
+                {toast && (
+                    <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+                )}
             </div>
         </AppShell >
     );

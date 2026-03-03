@@ -4,27 +4,13 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { syncAllSourcesToSheet } from "@/app/actions/sheet-actions";
 
-async function pushToSheets() {
-    try {
-        const sources = await prisma.sourceSupplier.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
-        });
+import { PushService } from "@/lib/push-to-sheets";
 
-        const formattedSources = sources.map((s: any) => ({
-            id: s.id, name: s.name, region: s.region, calorie_range: s.calorieRange,
-            spec: { gar: s.gar, ts: s.ts, ash: s.ash, tm: s.tm },
-            jetty_port: s.jettyPort, anchorage: s.anchorage, stock_available: s.stockAvailable,
-            min_stock_alert: s.minStockAlert, kyc_status: s.kycStatus, psi_status: s.psiStatus,
-            fob_barge_only: s.fobBargeOnly, price_linked_index: s.priceLinkedIndex,
-            fob_barge_price_usd: s.fobBargePriceUsd, contract_type: s.contractType,
-            pic_name: s.picName, iup_number: s.iupNumber, updatedAt: s.updatedAt.toISOString()
-        }));
-        await syncAllSourcesToSheet(formattedSources);
-
-    } catch (err) {
-        console.error("Failed to sync Sources to sheets:", err);
-    }
+async function triggerPush(model: string = "sourceSupplier") {
+    // Non-blocking trigger
+    PushService.pushModelToSheets(model).catch(err => {
+        console.error(`Failed to push ${model} to sheets:`, err);
+    });
 }
 
 export async function GET() {
@@ -90,7 +76,7 @@ export async function POST(req: Request) {
             return newSource;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, source });
     } catch (error) {
@@ -147,7 +133,7 @@ export async function PUT(req: Request) {
             return updatedSource;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, source });
     } catch (error) {
@@ -183,7 +169,7 @@ export async function DELETE(req: Request) {
             });
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true });
     } catch (error) {

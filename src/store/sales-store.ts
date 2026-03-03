@@ -16,12 +16,12 @@ const DEMO_SALES: SalesOrder[] = [
 interface SalesState {
     _rawOrders: SalesOrder[];
     orders: SalesOrder[];
-    addOrder: (order: Omit<SalesOrder, "id" | "order_number" | "created_at" | "updated_at">) => void;
-    updateOrder: (id: string, updates: Partial<SalesOrder>) => void;
-    deleteOrder: (id: string) => void;
-    submitOrder: (id: string) => void;
-    approveOrder: (id: string, approvedBy: string) => void;
-    rejectOrder: (id: string) => void;
+    addOrder: (order: Omit<SalesOrder, "id" | "order_number" | "created_at" | "updated_at">) => Promise<void>;
+    updateOrder: (id: string, updates: Partial<SalesOrder>) => Promise<void>;
+    deleteOrder: (id: string) => Promise<void>;
+    submitOrder: (id: string) => Promise<void>;
+    approveOrder: (id: string, approvedBy: string) => Promise<void>;
+    rejectOrder: (id: string) => Promise<void>;
     getPendingOrders: () => SalesOrder[];
     getTotalApprovedRevenue: () => number;
     syncFromMemory: () => Promise<void>;

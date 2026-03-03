@@ -4,32 +4,13 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { syncPartnersToSheet } from "@/app/actions/sheet-actions";
 
-async function pushToSheets() {
-    try {
-        const partners = await prisma.partner.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
-        });
+import { PushService } from "@/lib/push-to-sheets";
 
-        const formatted = partners.map((p: any) => ({
-            id: p.id,
-            name: p.name,
-            type: p.type,
-            category: p.category,
-            pic: p.contactPerson, // or p.pic if you renamed it? schema says contactPerson
-            phone: p.phone,
-            email: p.email,
-            region: p.city ? `${p.city}, ${p.country}` : p.country || "Unknown",
-            tax_id: p.taxId,
-            status: p.status,
-            notes: p.notes,
-            updated_at: p.updatedAt.toISOString()
-        }));
-
-        await syncPartnersToSheet(formatted);
-    } catch (err) {
-        console.error("Failed to sync Partners to sheets:", err);
-    }
+async function triggerPush(model: string = "partner") {
+    // Non-blocking trigger
+    PushService.pushModelToSheets(model).catch(err => {
+        console.error(`Failed to push ${model} to sheets:`, err);
+    });
 }
 
 export async function GET() {
@@ -87,7 +68,7 @@ export async function POST(req: Request) {
             return newPartner;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, partner });
     } catch (error) {
@@ -136,7 +117,7 @@ export async function PUT(req: Request) {
             return updatedPartner;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, partner });
     } catch (error) {
@@ -172,7 +153,7 @@ export async function DELETE(req: Request) {
             });
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true });
     } catch (error) {

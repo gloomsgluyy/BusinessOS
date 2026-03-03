@@ -4,21 +4,13 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { syncAllMeetingsToSheet } from "@/app/actions/sheet-actions";
 
-async function pushToSheets() {
+import { PushService } from "@/lib/push-to-sheets";
+
+async function triggerPush() {
     try {
-        const meetings = await prisma.meetingItem.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
-        });
-        const formatted = meetings.map((m: any) => ({
-            id: m.id, title: m.title, date: m.date ? m.date.toISOString().split('T')[0] : "",
-            time: m.time, location: m.location, status: m.status,
-            attendees: m.attendees ? JSON.parse(m.attendees) : [],
-            created_by_name: m.createdByName, updatedAt: m.updatedAt.toISOString()
-        }));
-        await syncAllMeetingsToSheet(formatted);
+        await PushService.pushAllToSheets();
     } catch (err) {
-        console.error("Failed to sync Meetings to sheets:", err);
+        console.error("Failed to push Meetings to sheets:", err);
     }
 }
 
@@ -43,7 +35,13 @@ export async function GET() {
                     attendees = m.attendees.split(',').map((a: string) => a.trim()).filter(Boolean);
                 }
             }
-            return { ...m, attendees };
+            return {
+                ...m,
+                attendees,
+                momContent: m.momContent || null,
+                voiceNoteUrl: m.voiceNoteUrl || null,
+                aiSummary: m.aiSummary || null,
+            };
         });
 
         return NextResponse.json({ success: true, meetings: formatted });
@@ -88,7 +86,7 @@ export async function POST(req: Request) {
             return newMeeting;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, meeting });
     } catch (error) {
@@ -114,7 +112,10 @@ export async function PUT(req: Request) {
                     time: data.time,
                     location: data.location,
                     status: data.status,
-                    attendees: data.attendees ? JSON.stringify(data.attendees) : undefined
+                    attendees: data.attendees ? JSON.stringify(data.attendees) : undefined,
+                    momContent: data.momContent !== undefined ? data.momContent : undefined,
+                    voiceNoteUrl: data.voiceNoteUrl !== undefined ? data.voiceNoteUrl : undefined,
+                    aiSummary: data.aiSummary !== undefined ? data.aiSummary : undefined,
                 }
             });
 
@@ -132,7 +133,7 @@ export async function PUT(req: Request) {
             return updatedMeeting;
         });
 
-        await pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true, meeting });
     } catch (error) {
@@ -168,7 +169,7 @@ export async function DELETE(req: Request) {
             });
         });
 
-        pushToSheets();
+        await triggerPush();
 
         return NextResponse.json({ success: true });
     } catch (error) {

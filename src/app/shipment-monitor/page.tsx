@@ -13,13 +13,14 @@ import {
 } from "lucide-react";
 import { AIAgent } from "@/lib/ai-agent";
 import { ReportModal } from "@/components/shared/report-modal";
+import { Toast, ToastType } from "@/components/shared/toast";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function ShipmentMonitorPage() {
-    const { shipments, marketPrices, sources, updateShipment, deleteShipment } = useCommercialStore();
+    const { shipments, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
     const [mainTab, setMainTab] = React.useState<"Shipments" | "Route Optimizer" | "Import Data" | "Analytics" | "Risk Assessment">("Shipments");
     const [activeTab, setActiveTab] = React.useState<ShipmentStatus | "all">("all");
     const [activeView, setActiveView] = React.useState<"list" | "card" | "map">("list");
@@ -38,6 +39,8 @@ export default function ShipmentMonitorPage() {
     const [isGeneratingRisk, setIsGeneratingRisk] = React.useState(false);
     const [showMilestoneForm, setShowMilestoneForm] = React.useState(false);
     const [milestoneForm, setMilestoneForm] = React.useState({ title: "", subtitle: "", status: "pending" as "completed" | "current" | "pending" });
+    const [isSaving, setIsSaving] = React.useState(false);
+    const [toast, setToast] = React.useState<{ message: string; type: ToastType } | null>(null);
 
     const handleAddMilestone = () => {
         if (!detailShipment || !milestoneForm.title) return;
@@ -75,19 +78,33 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
         }
     };
 
-    const handleSaveBlending = () => {
+    const handleSaveBlending = async () => {
         if (detailShipment) {
             const updated = { ...detailShipment, spec_actual: { ...detailShipment.spec_actual, ...blendingForm } };
-            updateShipment(detailShipment.id, updated);
+            await updateShipment(detailShipment.id, updated);
             setDetailShipment(updated);
+            setToast({ message: "Blending specs updated!", type: "success" });
         }
         setEditBlendingMode(false);
     };
 
-    const handleSaveEdit = () => {
+    const handleSaveEdit = async () => {
         if (!editShipment) return;
-        updateShipment(editShipment.id, editForm);
-        setEditShipment(null);
+        setIsSaving(true);
+        try {
+            if (editShipment.id) {
+                await updateShipment(editShipment.id, editForm);
+                setToast({ message: "Shipment updated successfully!", type: "success" });
+            } else {
+                await addShipment(editForm as any);
+                setToast({ message: "New shipment created successfully!", type: "success" });
+            }
+            setEditShipment(null);
+        } catch (error) {
+            setToast({ message: "Failed to save shipment.", type: "error" });
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const openEdit = (sh: ShipmentDetail) => {
@@ -753,7 +770,17 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                         <button onClick={() => { setEditShipment(detailShipment); setEditForm({ ...detailShipment }); setDetailShipment(null); }} className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded-md hover:bg-accent text-xs font-semibold text-foreground transition-colors">
                                             <Edit className="w-3.5 h-3.5" /> Edit
                                         </button>
-                                        <button onClick={() => { if (window.confirm(`Delete shipment ${detailShipment.shipment_number}? This cannot be undone.`)) { deleteShipment(detailShipment.id); setDetailShipment(null); } }} className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border border-red-500/20 rounded-md hover:bg-red-500/20 text-xs font-semibold text-red-500 transition-colors">
+                                        <button onClick={async () => {
+                                            if (window.confirm(`Delete shipment ${detailShipment.shipment_number}? This cannot be undone.`)) {
+                                                try {
+                                                    await deleteShipment(detailShipment.id);
+                                                    setToast({ message: "Shipment deleted successfully!", type: "success" });
+                                                    setDetailShipment(null);
+                                                } catch (error) {
+                                                    setToast({ message: "Failed to delete shipment.", type: "error" });
+                                                }
+                                            }
+                                        }} className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border border-red-500/20 rounded-md hover:bg-red-500/20 text-xs font-semibold text-red-500 transition-colors">
                                             <Trash2 className="w-3.5 h-3.5" /> Delete
                                         </button>
                                     </div>
@@ -1060,8 +1087,15 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                             </div>
 
                             <div className="mt-6 flex justify-end gap-2 border-t border-border/30 pt-4">
-                                <button onClick={() => setEditShipment(null)} className="px-4 py-2 hover:bg-accent text-sm rounded-lg transition-colors">Cancel</button>
-                                <button onClick={handleSaveEdit} className="btn-primary">Save Changes</button>
+                                <button onClick={() => setEditShipment(null)} className="px-4 py-2 hover:bg-accent text-sm rounded-lg transition-colors" disabled={isSaving}>Cancel</button>
+                                <button onClick={handleSaveEdit} className="btn-primary flex items-center gap-2" disabled={isSaving}>
+                                    {isSaving ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            Saving...
+                                        </>
+                                    ) : "Save Changes"}
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1075,6 +1109,14 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                         console.log(`Exporting shipmets as ${format}`, options);
                     }}
                 />
+
+                {toast && (
+                    <Toast
+                        message={toast.message}
+                        type={toast.type}
+                        onClose={() => setToast(null)}
+                    />
+                )}
             </div>
         </AppShell>
     );

@@ -12,7 +12,6 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
 import { useTaskStore } from "@/store/task-store";
-import { useSalesStore } from "@/store/sales-store";
 import { usePurchaseStore } from "@/store/purchase-store";
 import { useUIStore } from "@/store/ui-store";
 import { NAV_SECTIONS } from "@/lib/constants";
@@ -30,14 +29,12 @@ function SidebarContent({ collapsed, onClose }: { collapsed: boolean; onClose?: 
 
     // Badge counts
     const tasks = useTaskStore((s) => s.tasks);
-    const salesOrders = useSalesStore((s) => s.orders);
     const purchaseRequests = usePurchaseStore((s) => s.purchases);
 
     // Derived state
     const tasksInReview = React.useMemo(() => tasks.filter((t) => t.status === "review").length, [tasks]);
-    const pendingSales = React.useMemo(() => salesOrders.filter((o) => o.status === "pending").length, [salesOrders]);
     const pendingPurchases = React.useMemo(() => purchaseRequests.filter((p) => p.status === "pending").length, [purchaseRequests]);
-    const approvalCount = tasksInReview + pendingSales + pendingPurchases;
+    const approvalCount = tasksInReview + pendingPurchases;
 
     const badgeMap: Record<string, number> = { approvalCount };
 

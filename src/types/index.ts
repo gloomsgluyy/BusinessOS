@@ -189,7 +189,7 @@ export interface SalesDeal {
 }
 
 // ── Shipment Monitor ──────────────────────────────────────────
-export type ShipmentStatus = "draft" | "waiting_loading" | "loading" | "in_transit" | "anchorage" | "discharging" | "completed" | "cancelled";
+export type ShipmentStatus = "draft" | "confirmed" | "waiting_loading" | "loading" | "in_transit" | "anchorage" | "discharging" | "completed" | "cancelled";
 
 export interface ShipmentDetail {
     id: string;
@@ -336,8 +336,9 @@ export interface MeetingItem {
     attendees: string[];
     location?: string;
     google_calendar_id?: string;
-    mom_content?: string;      // Minutes of Meeting markdown
+    mom_content?: string;      // Minutes of Meeting (plain text transcript)
     voice_note_url?: string;
+    ai_summary?: string;       // AI-generated summary (markdown)
     action_items: MeetingActionItem[];
     status: "scheduled" | "in_progress" | "completed" | "cancelled";
     created_by: string;
@@ -387,6 +388,7 @@ export interface PLForecastItem {
     gross_profit_mt: number;
     total_gross_profit: number;
     status: SalesDealStatus;
+    project_name?: string;
     created_by: string;
     created_at: string;
     updated_at: string;
