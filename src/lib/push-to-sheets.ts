@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { NextResponse } from "next/server";
 import prisma from './prisma';
 
 async function getSheets() {
@@ -13,8 +14,24 @@ async function getSheets() {
             credentials = credentials.substring(1, credentials.length - 1);
         }
 
-        // Final attempt to fix common formatting issues (like literal \n)
-        const credsJson = JSON.parse(credentials);
+        // --- EXTRA ROBUSTNESS ---
+        // 1. If there are real newlines inside the JSON string (common copy-paste error),
+        //    JSON.parse will fail. We replace them with literal \n.
+        // 2. Sometimes \n is literal in the env but should be a real newline for the PEM.
+        //    Actually, JSON.parse expects \n as two characters "\\" and "n".
+
+        let sanitized = credentials;
+
+        // If it's not a valid JSON yet, try to escape real newlines
+        try {
+            JSON.parse(sanitized);
+        } catch (initialError) {
+            // Replace actual newlines with literal "\n" strings
+            sanitized = sanitized.replace(/\n/g, '\\n');
+            // Sometimes there are stray characters or weird quoting
+        }
+
+        const credsJson = JSON.parse(sanitized);
 
         const auth = new google.auth.GoogleAuth({
             credentials: credsJson,
@@ -24,9 +41,15 @@ async function getSheets() {
     } catch (e: any) {
         console.error("[PushService] Critical Error: Failed to parse GOOGLE_SHEETS_CREDENTIALS.");
         console.error(`Error details: ${e.message}`);
-        console.error(`String length: ${credentials.length}`);
-        console.error(`First 20 chars: ${credentials.substring(0, 20)}`);
-        console.error(`Last 20 chars: ${credentials.substring(credentials.length - 20)}`);
+
+        // Find the character at the error position if possible
+        const posMatch = e.message.match(/position (\d+)/);
+        if (posMatch) {
+            const pos = parseInt(posMatch[1]);
+            const context = credentials.substring(Math.max(0, pos - 20), Math.min(credentials.length, pos + 20));
+            console.error(`Context at error (pos ${pos}): "...${context}..."`);
+        }
+
         throw new Error(`Google Auth Setup Failed: ${e.message}`);
     }
 }

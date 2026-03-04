@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { PushService } from "@/lib/push-to-sheets";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
     console.log("🛠️  [Maintenance] Manual Sync Triggered...");
 
