@@ -8,9 +8,28 @@ const prisma = new PrismaClient();
 async function getSheets() {
     let credentials = process.env.GOOGLE_SHEETS_CREDENTIALS;
     if (!credentials) throw new Error("GOOGLE_SHEETS_CREDENTIALS not set in .env");
-    credentials = credentials.trim().replace(/^'([\s\S]*)'$/, '$1').replace(/^"([\s\S]*)"$/, '$1');
+
+    credentials = credentials.trim();
+    // Strip outer quotes
+    if ((credentials.startsWith("'") && credentials.endsWith("'")) ||
+        (credentials.startsWith('"') && credentials.endsWith('"'))) {
+        credentials = credentials.substring(1, credentials.length - 1);
+    }
+
+    // Attempt to parse, and if it fails, try to fix common issues
+    let credsJson;
+    try {
+        credsJson = JSON.parse(credentials);
+    } catch (e) {
+        // Fix literal newlines and carriage returns
+        let sanitized = credentials.replace(/\r/g, '').replace(/\n/g, '\\n');
+        // Fix illegal backslash escapes (e.g. \F, \X, etc)
+        sanitized = sanitized.replace(/\\([^"\\\/bfnrtu])/g, '\\\\$1');
+        credsJson = JSON.parse(sanitized);
+    }
+
     const auth = new google.auth.GoogleAuth({
-        credentials: JSON.parse(credentials),
+        credentials: credsJson,
         scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
     return google.sheets({ version: "v4", auth });
@@ -96,10 +115,15 @@ class PullService {
             }
 
             const headers = rows[0] || [];
+            const dataRows = rows.slice(1).filter(r => r && r.length > 0);
             const remoteIds = new Set();
-            if (rows.length > 1) {
-                for (let i = 1; i < rows.length; i++) {
-                    const r = mapRow(headers, rows[i]);
+
+            // ✅ CRITICAL SAFETY: Only process data AND run deletion reconciliation
+            // if the Sheet tab has at least 1 data row.
+            // This prevents wiping the local DB when a Sheet is empty (e.g. due to a failed push cycle).
+            if (dataRows.length > 0) {
+                for (const rawRow of dataRows) {
+                    const r = mapRow(headers, rawRow);
                     const rowId = r['ID'];
                     if (!rowId) continue;
 
@@ -133,32 +157,35 @@ class PullService {
 
                     remoteIds.add(targetId);
                 }
-            }
 
-            // --- DELETION RECONCILIATION ---
-            if (tab.model !== 'marketPrice' && tab.model !== 'syncState') {
-                try {
-                    const localRecords = await prisma[tab.model].findMany({
-                        where: {
-                            isDeleted: false,
-                            // Safety buffer: Don't delete records created in the last 5 minutes
-                            createdAt: { lt: new Date(Date.now() - 5 * 60 * 1000) }
-                        },
-                        select: { id: true }
-                    });
+                // --- DELETION RECONCILIATION ---
+                if (tab.model !== 'marketPrice' && tab.model !== 'syncState') {
+                    try {
+                        const localRecords = await prisma[tab.model].findMany({
+                            where: {
+                                isDeleted: false,
+                                // Safety buffer: Don't delete records created in the last 5 minutes
+                                createdAt: { lt: new Date(Date.now() - 5 * 60 * 1000) }
+                            },
+                            select: { id: true }
+                        });
 
-                    for (const local of localRecords) {
-                        if (!remoteIds.has(local.id)) {
-                            console.log(`  [-] Removing ${tab.name} ID ${local.id} (not found in Sheets)`);
-                            await prisma[tab.model].update({
-                                where: { id: local.id },
-                                data: { isDeleted: true }
-                            });
+                        for (const local of localRecords) {
+                            if (!remoteIds.has(local.id)) {
+                                console.log(`  [-] Removing ${tab.name} ID ${local.id} (not found in Sheets)`);
+                                await prisma[tab.model].update({
+                                    where: { id: local.id },
+                                    data: { isDeleted: true }
+                                });
+                            }
                         }
+                    } catch (e) {
+                        console.error(`  [!] Deletion sync failed for ${tab.name}:`, e.message);
                     }
-                } catch (e) {
-                    console.error(`  [!] Deletion sync failed for ${tab.name}:`, e.message);
                 }
+            } else {
+                // Sheet is empty — skip deletion to protect local data
+                console.log(`  [SKIP] ${tab.name} sheet has no data rows. Skipping deletion reconciliation to protect local DB.`);
             }
 
             await sleep(1000); // Prevent quota hit
