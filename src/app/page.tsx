@@ -486,33 +486,33 @@ export default function DashboardPage() {
     const filteredShipments = filterData(shipments);
     const filteredSources = filterData(sources);
 
-    // Financial calculations from SHIPMENTS (which have real revenue data from sheets)
-    // Revenue = quantity_loaded * sales_price | GP = quantity_loaded * margin_mt
-    const completedShipments = filteredShipments.filter((s) => s.status === "completed");
-    const allActiveShipments = filteredShipments.filter((s) => s.status !== "cancelled" && s.status !== "draft");
+    // Financial calculations: Combined from Confirmed Deals + Active Shipments
+    // We prioritize confirmed deals for revenue visibility
+    const confirmedDeals = filteredDeals.filter(d => d.status === "confirmed");
+    const activeShipments = filteredShipments.filter(s => s.status !== "cancelled" && s.status !== "draft");
 
-    // Revenue from completed + active shipments (deals in execution)
-    const revenueShipments = allActiveShipments;
-    const totalRevenue = revenueShipments.reduce((s, sh) => s + (safeNum(sh.quantity_loaded) * safeNum(sh.sales_price)), 0);
-    const localRevenue = revenueShipments.filter((sh) => (sh as any).type === "local").reduce((s, sh) => s + (safeNum(sh.quantity_loaded) * safeNum(sh.sales_price)), 0);
-    const exportRevenue = revenueShipments.filter((sh) => (sh as any).type !== "local").reduce((s, sh) => s + (safeNum(sh.quantity_loaded) * safeNum(sh.sales_price)), 0);
+    // To avoid double counting, we use Deals for revenue/volume as they represent the contract
+    // Shipments are used for operational tracking
+    const totalRevenue = confirmedDeals.reduce((s, d) => s + (safeNum(d.quantity) * safeNum(d.price_per_mt)), 0);
+    const localRevenue = confirmedDeals.filter(d => (d as any).type === "local").reduce((s, d) => s + (safeNum(d.quantity) * safeNum(d.price_per_mt)), 0);
+    const exportRevenue = totalRevenue - localRevenue;
 
-    const totalQty = revenueShipments.reduce((s, sh) => s + safeNum(sh.quantity_loaded), 0);
-    const localQty = revenueShipments.filter((sh) => (sh as any).type === "local").reduce((s, sh) => s + safeNum(sh.quantity_loaded), 0);
+    const totalQty = confirmedDeals.reduce((s, d) => s + safeNum(d.quantity), 0);
+    const localQty = confirmedDeals.filter(d => (d as any).type === "local").reduce((s, d) => s + safeNum(d.quantity), 0);
     const exportQty = totalQty - localQty;
 
-    // GP from real margin_mt data
-    const totalGrossProfit = revenueShipments.reduce((s, sh) => s + (safeNum(sh.quantity_loaded) * safeNum(sh.margin_mt)), 0);
+    const totalGrossProfit = confirmedDeals.reduce((s, d) => s + (safeNum(d.quantity) * (safeNum(d.price_per_mt) - 45)), 0);
     const localGP = localQty > 0
-        ? revenueShipments.filter((sh) => (sh as any).type === "local").reduce((s, sh) => s + safeNum(sh.margin_mt), 0) / revenueShipments.filter((sh) => (sh as any).type === "local").length
+        ? confirmedDeals.filter((d) => (d as any).type === "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / confirmedDeals.filter((d) => (d as any).type === "local").length
         : 0;
     const exportGP = exportQty > 0
-        ? revenueShipments.filter((sh) => (sh as any).type !== "local").reduce((s, sh) => s + safeNum(sh.margin_mt), 0) / revenueShipments.filter((sh) => (sh as any).type !== "local").length
+        ? confirmedDeals.filter((d) => (d as any).type !== "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / confirmedDeals.filter((d) => (d as any).type !== "local").length
         : 0;
     const avgGrossProfit = totalQty > 0 ? totalGrossProfit / totalQty : 0;
 
     // Deal counts — handles deals from store or falls back to shipment-based count
-    const confirmedCount = filteredDeals.filter((d) => d.status === "confirmed").length || completedShipments.length;
+    // Deal counts
+    const confirmedCount = confirmedDeals.length;
     const preSaleCount = filteredDeals.filter((d) => (d.status as string) === "pre_sale" || d.status === "forecast").length;
     const forecastCount = filteredDeals.filter((d) => d.status === "forecast").length;
 

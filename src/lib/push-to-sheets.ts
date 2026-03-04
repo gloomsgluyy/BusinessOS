@@ -13,8 +13,36 @@ async function getSheets() {
 }
 
 export class PushService {
+    private static pendingModels: Set<string> = new Set();
+    private static debounceTimer: NodeJS.Timeout | null = null;
+
+    /**
+     * Debounced push: collects model names and executes a combined push after 5 seconds of inactivity.
+     */
+    static async debouncedPush(model: string) {
+        this.pendingModels.add(model);
+        console.log(`[PushService] Queued ${model} for debounced push. Current queue: ${Array.from(this.pendingModels).join(', ')}`);
+
+        if (this.debounceTimer) clearTimeout(this.debounceTimer);
+
+        this.debounceTimer = setTimeout(async () => {
+            const modelsToPush = Array.from(this.pendingModels);
+            this.pendingModels.clear();
+            this.debounceTimer = null;
+
+            console.log(`[PushService] Executing debounced push for models: ${modelsToPush.join(', ')}`);
+            for (const m of modelsToPush) {
+                try {
+                    await this.pushModelToSheets(m);
+                } catch (e: any) {
+                    console.error(`[PushService] Debounced push failed for ${m}:`, e.message);
+                }
+            }
+        }, 5000);
+    }
+
     static async pushModelToSheets(model: string) {
-        console.log(`[PushService] Triggered push for model: ${model}`);
+        console.log(`[PushService] Processing push for model: ${model}`);
         const sheets = await getSheets();
         const sid = process.env.GOOGLE_SHEETS_ID;
         if (!sid) throw new Error("GOOGLE_SHEETS_ID not set");
@@ -23,6 +51,10 @@ export class PushService {
             switch (model.toLowerCase()) {
                 case 'marketprice':
                     const prices = await prisma.marketPrice.findMany({ where: { isDeleted: false }, orderBy: { date: 'desc' } });
+                    if (prices.length === 0) {
+                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty. Safety guard triggered to prevent Sheet wipe.`);
+                        return;
+                    }
                     const priceRows = prices.map(p => [p.id, p.date.toISOString(), p.ici1, p.ici2, p.ici3, p.ici4, p.ici5, p.newcastle, p.hba, p.source, p.updatedAt.toISOString()]);
                     await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Market Price!A2:K1000" });
                     await sheets.spreadsheets.values.update({
@@ -34,6 +66,10 @@ export class PushService {
 
                 case 'taskitem':
                     const tasks = await prisma.taskItem.findMany({ where: { isDeleted: false } });
+                    if (tasks.length === 0) {
+                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty.`);
+                        return;
+                    }
                     const taskRows = tasks.map(t => [t.id, t.title, t.description, t.status, t.priority, t.assigneeName, t.dueDate ? t.dueDate.toISOString() : "", "", t.updatedAt.toISOString()]);
                     await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Tasks!A2:I1000" });
                     await sheets.spreadsheets.values.update({
@@ -45,6 +81,10 @@ export class PushService {
 
                 case 'shipmentdetail':
                     const shipments = await prisma.shipmentDetail.findMany({ where: { isDeleted: false } });
+                    if (shipments.length === 0) {
+                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty.`);
+                        return;
+                    }
                     const shipmentRows = shipments.map(s => [
                         s.id, s.shipmentNumber, s.dealId, s.status, s.buyer, s.supplier, s.isBlending ? "Yes" : "No", s.iupOp,
                         s.vesselName, s.bargeName, s.loadingPort, s.dischargePort, s.quantityLoaded, s.blDate ? s.blDate.toISOString() : "",
@@ -60,6 +100,10 @@ export class PushService {
 
                 case 'salesorder':
                     const sales = await prisma.salesOrder.findMany({ where: { isDeleted: false } });
+                    if (sales.length === 0) {
+                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty.`);
+                        return;
+                    }
                     const salesRows = sales.map(s => [s.id, s.orderNumber, s.createdAt.toISOString(), s.client, s.description, s.amount, s.priority, s.status, s.createdByName, s.imageUrl, s.updatedAt.toISOString()]);
                     await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Sales!A2:K1000" });
                     await sheets.spreadsheets.values.update({
@@ -71,6 +115,10 @@ export class PushService {
 
                 case 'sourcesupplier':
                     const sources = await prisma.sourceSupplier.findMany({ where: { isDeleted: false } });
+                    if (sources.length === 0) {
+                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty.`);
+                        return;
+                    }
                     const sourceRows = sources.map(s => [
                         s.id, s.name, s.region, s.calorieRange, s.gar, s.ts, s.ash, s.tm, s.jettyPort, s.anchorage,
                         s.stockAvailable, s.minStockAlert, s.kycStatus, s.psiStatus, s.fobBargeOnly ? "TRUE" : "FALSE",
@@ -86,6 +134,10 @@ export class PushService {
 
                 case 'qualityresult':
                     const qualities = await prisma.qualityResult.findMany({ where: { isDeleted: false } });
+                    if (qualities.length === 0) {
+                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty.`);
+                        return;
+                    }
                     const qualityRows = qualities.map(q => [q.id, q.cargoId, q.cargoName, q.surveyor, q.samplingDate ? q.samplingDate.toISOString() : "", q.gar, q.ts, q.ash, q.tm, q.status, q.updatedAt.toISOString()]);
                     await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Quality!A2:K1000" });
                     await sheets.spreadsheets.values.update({
@@ -97,6 +149,10 @@ export class PushService {
 
                 case 'meetingitem':
                     const meetings = await prisma.meetingItem.findMany({ where: { isDeleted: false } });
+                    if (meetings.length === 0) {
+                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty.`);
+                        return;
+                    }
                     const meetingRows = meetings.map(m => [m.id, m.title, m.date ? m.date.toISOString() : "", m.time, m.location, m.status, m.attendees, m.createdByName, m.updatedAt.toISOString()]);
                     await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Meetings!A2:I1000" });
                     await sheets.spreadsheets.values.update({
@@ -108,6 +164,10 @@ export class PushService {
 
                 case 'purchaserequest':
                     const purchases = await prisma.purchaseRequest.findMany({ where: { isDeleted: false } });
+                    if (purchases.length === 0) {
+                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty.`);
+                        return;
+                    }
                     const purchaseRows = purchases.map(p => [p.id, p.requestNumber, p.createdAt.toISOString(), p.category, p.supplier, p.description, p.amount, p.priority, p.status, p.createdByName, p.imageUrl, p.updatedAt.toISOString()]);
                     await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Expenses!A2:L1000" });
                     await sheets.spreadsheets.values.update({
@@ -119,6 +179,10 @@ export class PushService {
 
                 case 'plforecast':
                     const forecasts = await prisma.pLForecast.findMany({ where: { isDeleted: false } });
+                    if (forecasts.length === 0) {
+                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty.`);
+                        return;
+                    }
                     const forecastRows = forecasts.map(p => [p.id, p.buyer, p.quantity, p.sellingPrice, p.buyingPrice, p.freightCost, p.otherCost, p.grossProfitMt, p.totalGrossProfit, p.updatedAt.toISOString()]);
                     await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "P&L Forecast!A2:J1000" });
                     await sheets.spreadsheets.values.update({
@@ -130,6 +194,10 @@ export class PushService {
 
                 case 'salesdeal':
                     const deals = await prisma.salesDeal.findMany({ where: { isDeleted: false } });
+                    if (deals.length === 0) {
+                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty.`);
+                        return;
+                    }
                     const dealRows = deals.map(d => [d.id, d.dealNumber, d.createdAt.toISOString(), d.buyer, d.vesselName || "-", d.quantity, "high", d.status, d.picName || "System", "", d.updatedAt.toISOString()]);
                     await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Sales!A2:K1000" });
                     await sheets.spreadsheets.values.update({
@@ -147,6 +215,10 @@ export class PushService {
 
                 case 'partner':
                     const partners = await prisma.partner.findMany({ where: { isDeleted: false } });
+                    if (partners.length === 0) {
+                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty.`);
+                        return;
+                    }
                     const partnerRows = partners.map(p => [p.id, p.name, p.type, p.category, p.contactPerson, p.phone, p.email, p.address, p.city, p.country, p.taxId, p.status, p.notes, p.updatedAt.toISOString()]);
                     await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Partners!A2:N1000" });
                     await sheets.spreadsheets.values.update({
@@ -161,13 +233,15 @@ export class PushService {
             }
         } catch (error: any) {
             console.error(`❌ [PushService] PUSH for ${model} failed:`, error.message);
-            if (error.stack) console.error(error.stack);
+            if (error.status === 429) {
+                console.error("!!! GOOGLE SHEETS QUOTA RISK: Action triggered too many requests. Debounce might need tuning.");
+            }
             throw error;
         }
     }
 
     static async pushAllToSheets() {
-        console.log("Memory B: Pushing ALL data to Google Sheets...");
+        console.log("Memory B: Pushing ALL data to Google Sheets (Safe Mode)...");
         const models = [
             'marketPrice', 'taskItem', 'shipmentDetail', 'salesOrder',
             'sourceSupplier', 'qualityResult', 'meetingItem',
@@ -175,8 +249,9 @@ export class PushService {
         ];
 
         for (const model of models) {
-            await this.pushModelToSheets(model).catch(e => console.error(`Failed pushing ${model}:`, e.message));
+            // Use debounced push to avoid overwhelming API if this is called in a loop
+            await this.debouncedPush(model).catch(e => console.error(`Failed pushing ${model}:`, e.message));
         }
-        console.log("✅ Memory B ALL PUSH complete.");
+        console.log("✅ Memory B ALL PUSH triggered (debouncing).");
     }
 }

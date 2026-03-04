@@ -8,7 +8,7 @@ import { PushService } from "@/lib/push-to-sheets";
 
 async function triggerPush() {
     try {
-        await PushService.pushAllToSheets();
+        await PushService.debouncedPush("taskItem");
     } catch (err) {
         console.error("Failed to push Tasks to sheets:", err);
     }

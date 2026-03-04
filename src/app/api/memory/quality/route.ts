@@ -6,12 +6,8 @@ import { syncAllQualityToSheet } from "@/app/actions/sheet-actions";
 
 import { PushService } from "@/lib/push-to-sheets";
 
-async function triggerPush() {
-    try {
-        await PushService.pushAllToSheets();
-    } catch (err) {
-        console.error("Failed to push Quality Results to sheets:", err);
-    }
+function triggerPush() {
+    PushService.debouncedPush("qualityResult").catch(err => console.error("Push failed:", err));
 }
 
 export async function GET() {

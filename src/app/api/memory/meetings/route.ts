@@ -7,11 +7,7 @@ import { syncAllMeetingsToSheet } from "@/app/actions/sheet-actions";
 import { PushService } from "@/lib/push-to-sheets";
 
 async function triggerPush() {
-    try {
-        await PushService.pushAllToSheets();
-    } catch (err) {
-        console.error("Failed to push Meetings to sheets:", err);
-    }
+    PushService.debouncedPush("meetingItem").catch(err => console.error("Push failed:", err));
 }
 
 export async function GET() {

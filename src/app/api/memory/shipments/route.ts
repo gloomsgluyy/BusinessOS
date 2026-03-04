@@ -6,10 +6,10 @@ import { syncAllShipmentsToSheet } from "@/app/actions/sheet-actions";
 
 import { PushService } from "@/lib/push-to-sheets";
 
-async function triggerPush(model: string = "shipmentDetail") {
-    // Non-blocking trigger
-    PushService.pushModelToSheets(model).catch(err => {
-        console.error(`Failed to push ${model} to sheets:`, err);
+async function triggerPush() {
+    // Non-blocking debounced push
+    PushService.debouncedPush("shipmentDetail").catch(err => {
+        console.error(`Failed to push shipmentDetail to sheets:`, err);
     });
 }
 

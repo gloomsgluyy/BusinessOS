@@ -6,11 +6,8 @@ import { syncAllSourcesToSheet } from "@/app/actions/sheet-actions";
 
 import { PushService } from "@/lib/push-to-sheets";
 
-async function triggerPush(model: string = "sourceSupplier") {
-    // Non-blocking trigger
-    PushService.pushModelToSheets(model).catch(err => {
-        console.error(`Failed to push ${model} to sheets:`, err);
-    });
+async function triggerPush() {
+    PushService.debouncedPush("sourceSupplier").catch(err => console.error("Push failed:", err));
 }
 
 export async function GET() {
