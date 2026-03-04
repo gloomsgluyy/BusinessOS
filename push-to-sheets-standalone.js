@@ -16,12 +16,17 @@ function parseCredentials() {
         return JSON.parse(credentials);
     } catch (e) {
         let sanitized = credentials.replace(/\r/g, '').replace(/\n/g, '\\n');
+        // Fix illegal backslash escapes: \F is likely a corrupted \n (common copy-paste issue)
+        // Replace \F (and other invalid escapes) → \\n
+        sanitized = sanitized.replace(/\\F/g, '\\n');
+        // Fix any remaining illegal backslash escapes
         sanitized = sanitized.replace(/\\([^"\\\/bfnrtu])/g, '\\\\$1');
         return JSON.parse(sanitized);
     }
 }
 
-// Fix: convert literal \n to real newlines in private_key (needed by Google Auth / OpenSSL)
+// Fix: after parsing, the private_key has literal "\n" strings that need to be real newlines
+// This is required by OpenSSL/Google Auth to parse the PEM certificate correctly.
 function fixPrivateKey(creds) {
     if (creds && creds.private_key) {
         creds.private_key = creds.private_key.replace(/\\n/g, '\n');
