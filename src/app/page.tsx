@@ -486,9 +486,13 @@ export default function DashboardPage() {
     const filteredShipments = filterData(shipments);
     const filteredSources = filterData(sources);
 
-    // Financial calculations: Combined from Confirmed Deals + Active Shipments
-    // We prioritize confirmed deals for revenue visibility
-    const confirmedDeals = filteredDeals.filter(d => d.status === "confirmed");
+    // Financial calculations: Combined from Confirmed/Contracted/Executed Deals + Active Shipments
+    // We include all "successful" deal statuses for revenue visibility
+    const confirmedDeals = filteredDeals.filter(d =>
+        (d.status as string) === "confirmed" ||
+        (d.status as string) === "contracted" ||
+        (d.status as string).toLowerCase() === "executed"
+    );
     const activeShipments = filteredShipments.filter(s => s.status !== "cancelled" && s.status !== "draft");
 
     // To avoid double counting, we use Deals for revenue/volume as they represent the contract
