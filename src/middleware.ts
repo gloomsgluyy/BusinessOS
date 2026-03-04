@@ -19,7 +19,11 @@ export default withAuth(
     },
     {
         callbacks: {
-            authorized: ({ token }) => !!token,
+            authorized: ({ token, req }) => {
+                // Explicitly allow maintenance sync route without a session
+                if (req.nextUrl.pathname.startsWith("/api/maintenance/sync")) return true;
+                return !!token;
+            },
         },
         pages: {
             signIn: "/login",

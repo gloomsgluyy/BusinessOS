@@ -22,13 +22,14 @@ async function getSheets() {
 
         let sanitized = credentials;
 
-        // If it's not a valid JSON yet, try to escape real newlines
+        // If it's not a valid JSON yet, try to escape real newlines and handle shell-escaped quotes
         try {
             JSON.parse(sanitized);
         } catch (initialError) {
-            // Replace actual newlines with literal "\n" strings
-            sanitized = sanitized.replace(/\n/g, '\\n');
-            // Sometimes there are stray characters or weird quoting
+            // Replace literal newlines and carriage returns
+            sanitized = sanitized.replace(/\r/g, '').replace(/\n/g, '\\n');
+            // Sometimes shell exports result in \" rather than \" inside the string
+            // but for JSON we usually want valid quoting.
         }
 
         const credsJson = JSON.parse(sanitized);
