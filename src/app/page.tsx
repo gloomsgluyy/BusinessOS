@@ -497,20 +497,20 @@ export default function DashboardPage() {
 
     // To avoid double counting, we use Deals for revenue/volume as they represent the contract
     // Shipments are used for operational tracking
-    const totalRevenue = confirmedDeals.reduce((s, d) => s + (safeNum(d.quantity) * safeNum(d.price_per_mt)), 0);
-    const localRevenue = confirmedDeals.filter(d => (d as any).type === "local").reduce((s, d) => s + (safeNum(d.quantity) * safeNum(d.price_per_mt)), 0);
+    const totalRevenue = confirmedDeals.reduce((s, d) => s + (safeNum(d.quantity) * safeNum((d as any).pricePerMt)), 0);
+    const localRevenue = confirmedDeals.filter(d => (d as any).type === "local").reduce((s, d) => s + (safeNum(d.quantity) * safeNum((d as any).pricePerMt)), 0);
     const exportRevenue = totalRevenue - localRevenue;
 
     const totalQty = confirmedDeals.reduce((s, d) => s + safeNum(d.quantity), 0);
     const localQty = confirmedDeals.filter(d => (d as any).type === "local").reduce((s, d) => s + safeNum(d.quantity), 0);
     const exportQty = totalQty - localQty;
 
-    const totalGrossProfit = confirmedDeals.reduce((s, d) => s + (safeNum(d.quantity) * (safeNum(d.price_per_mt) - 45)), 0);
+    const totalGrossProfit = confirmedDeals.reduce((s, d) => s + (safeNum(d.quantity) * (safeNum((d as any).pricePerMt) - 45)), 0);
     const localGP = localQty > 0
-        ? confirmedDeals.filter((d) => (d as any).type === "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / confirmedDeals.filter((d) => (d as any).type === "local").length
+        ? confirmedDeals.filter((d) => (d as any).type === "local").reduce((s, d) => s + (safeNum((d as any).pricePerMt) - 45), 0) / confirmedDeals.filter((d) => (d as any).type === "local").length
         : 0;
     const exportGP = exportQty > 0
-        ? confirmedDeals.filter((d) => (d as any).type !== "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / confirmedDeals.filter((d) => (d as any).type !== "local").length
+        ? confirmedDeals.filter((d) => (d as any).type !== "local").reduce((s, d) => s + (safeNum((d as any).pricePerMt) - 45), 0) / confirmedDeals.filter((d) => (d as any).type !== "local").length
         : 0;
     const avgGrossProfit = totalQty > 0 ? totalGrossProfit / totalQty : 0;
 

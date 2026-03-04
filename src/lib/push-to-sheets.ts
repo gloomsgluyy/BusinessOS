@@ -4,12 +4,31 @@ import prisma from './prisma';
 async function getSheets() {
     let credentials = process.env.GOOGLE_SHEETS_CREDENTIALS;
     if (!credentials) throw new Error("GOOGLE_SHEETS_CREDENTIALS not set in .env");
-    credentials = credentials.trim().replace(/^'([\s\S]*)'$/, '$1').replace(/^"([\s\S]*)"$/, '$1');
-    const auth = new google.auth.GoogleAuth({
-        credentials: JSON.parse(credentials),
-        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-    });
-    return google.sheets({ version: "v4", auth });
+
+    try {
+        // Clean the string (strip potential shell-added quotes)
+        credentials = credentials.trim();
+        if ((credentials.startsWith("'") && credentials.endsWith("'")) ||
+            (credentials.startsWith('"') && credentials.endsWith('"'))) {
+            credentials = credentials.substring(1, credentials.length - 1);
+        }
+
+        // Final attempt to fix common formatting issues (like literal \n)
+        const credsJson = JSON.parse(credentials);
+
+        const auth = new google.auth.GoogleAuth({
+            credentials: credsJson,
+            scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+        });
+        return google.sheets({ version: "v4", auth });
+    } catch (e: any) {
+        console.error("[PushService] Critical Error: Failed to parse GOOGLE_SHEETS_CREDENTIALS.");
+        console.error(`Error details: ${e.message}`);
+        console.error(`String length: ${credentials.length}`);
+        console.error(`First 20 chars: ${credentials.substring(0, 20)}`);
+        console.error(`Last 20 chars: ${credentials.substring(credentials.length - 20)}`);
+        throw new Error(`Google Auth Setup Failed: ${e.message}`);
+    }
 }
 
 export class PushService {
