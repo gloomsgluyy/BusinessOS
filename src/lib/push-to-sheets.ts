@@ -25,11 +25,25 @@ async function getSheets() {
         // If it's not a valid JSON yet, try to escape real newlines and handle shell-escaped quotes
         try {
             JSON.parse(sanitized);
-        } catch (initialError) {
-            // Replace literal newlines and carriage returns
-            sanitized = sanitized.replace(/\r/g, '').replace(/\n/g, '\\n');
-            // Sometimes shell exports result in \" rather than \" inside the string
-            // but for JSON we usually want valid quoting.
+        } catch (initialError: any) {
+            // 1. Replace literal newlines and carriage returns
+            sanitized = sanitized.trim().replace(/\r/g, '').replace(/\n/g, '\\n');
+
+            // 2. Fix potential shell-added outer quotes again after trim
+            if ((sanitized.startsWith("'") && sanitized.endsWith("'")) ||
+                (sanitized.startsWith('"') && sanitized.endsWith('"'))) {
+                sanitized = sanitized.substring(1, sanitized.length - 1);
+            }
+
+            // 3. AGGRESSIVE: Fix illegal backslash escapes (like \F, \X, etc)
+            // JSON only allows: \", \\, \/, \b, \f, \n, \r, \t, \uXXXX
+            // We search for any \ that is NOT followed by one of these and escape the backslash itself.
+            sanitized = sanitized.replace(/\\([^"\\\/bfnrtu])/g, '\\\\$1');
+
+            // 4. Also handle cases where a backslash is at the very end
+            if (sanitized.endsWith('\\') && !sanitized.endsWith('\\\\')) {
+                sanitized += '\\';
+            }
         }
 
         const credsJson = JSON.parse(sanitized);

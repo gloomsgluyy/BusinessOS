@@ -8,8 +8,6 @@ if (!credentials) {
 }
 
 console.log(`Length: ${credentials.length} characters`);
-console.log(`Starts with: "${credentials.substring(0, 10)}..."`);
-console.log(`Ends with: "...${credentials.substring(credentials.length - 10)}"`);
 
 try {
     JSON.parse(credentials);
@@ -18,17 +16,25 @@ try {
     console.error("❌ ERROR: Standard JSON.parse() failed.");
     console.error(`Reason: ${e.message}`);
 
-    // Attempt sanitization logic from PushService
+    // Attempt AGGRESSIVE sanitization logic from PushService
     let sanitized = credentials.trim();
+
+    // Fix outer quotes
     if ((sanitized.startsWith("'") && sanitized.endsWith("'")) ||
         (sanitized.startsWith('"') && sanitized.endsWith('"'))) {
         sanitized = sanitized.substring(1, sanitized.length - 1);
     }
+
+    // Fix newlines
     sanitized = sanitized.replace(/\r/g, '').replace(/\n/g, '\\n');
+
+    // Fix illegal backslashes (the "Unexpected token F" fix)
+    sanitized = sanitized.replace(/\\([^"\\\/bfnrtu])/g, '\\\\$1');
 
     try {
         JSON.parse(sanitized);
-        console.log("⚠️  NOTICE: JSON.parse() works ONLY AFTER sanitization.");
+        console.log("⚠️  NOTICE: JSON.parse() works ONLY AFTER aggressive sanitization.");
+        console.log("This sanitization logic is now included in your production build.");
     } catch (e2) {
         console.error("❌ CRITICAL: Even sanitized JSON fails to parse.");
         console.error(`Reason: ${e2.message}`);
