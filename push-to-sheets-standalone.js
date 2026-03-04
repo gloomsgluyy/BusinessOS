@@ -21,9 +21,17 @@ function parseCredentials() {
     }
 }
 
+// Fix: convert literal \n to real newlines in private_key (needed by Google Auth / OpenSSL)
+function fixPrivateKey(creds) {
+    if (creds && creds.private_key) {
+        creds.private_key = creds.private_key.replace(/\\n/g, '\n');
+    }
+    return creds;
+}
+
 async function getSheets() {
     const auth = new google.auth.GoogleAuth({
-        credentials: parseCredentials(),
+        credentials: fixPrivateKey(parseCredentials()),
         scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
     return google.sheets({ version: "v4", auth });
