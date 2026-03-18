@@ -38,25 +38,6 @@ export const authOptions: NextAuthOptions = {
                 });
 
                 if (!user || !user.password) {
-                    // If no user exists, let's create a CEO user on the fly for demonstration/setup
-                    // In production, you'd remove this auto-creation and seed the DB properly
-                    if (credentials.email === "CEO" || credentials.email === "ceo@company.com" || await prisma.user.count() === 0) {
-                        const hashedPassword = await bcrypt.hash(credentials.password, 10)
-                        const newUser = await prisma.user.create({
-                            data: {
-                                email: credentials.email,
-                                name: "Initial CEO",
-                                password: hashedPassword,
-                                role: "ceo"
-                            }
-                        })
-                        return {
-                            id: newUser.id,
-                            name: newUser.name,
-                            email: newUser.email,
-                            role: newUser.role,
-                        };
-                    }
                     return null;
                 }
 
@@ -98,5 +79,9 @@ export const authOptions: NextAuthOptions = {
     session: {
         strategy: "jwt",
     },
-    secret: process.env.NEXTAUTH_SECRET || "fallback_default_secret_for_local_dev",
+    secret: (() => {
+        const secret = process.env.NEXTAUTH_SECRET;
+        if (!secret) throw new Error("NEXTAUTH_SECRET is not set!");
+        return secret;
+    })(),
 };

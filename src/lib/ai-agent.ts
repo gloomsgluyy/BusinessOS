@@ -15,8 +15,8 @@ export class AIAgent {
     private apiKey: string;
     private baseUrl = "https://openrouter.ai/api/v1";
 
-    constructor(config: AIConfig) {
-        this.apiKey = config.apiKey;
+    constructor(config?: AIConfig) {
+        this.apiKey = config?.apiKey || "";
     }
 
     private async callMsg(messages: any[], model: string = "meta-llama/llama-4-scout-17b-16e-instruct") {
@@ -28,8 +28,7 @@ export class AIAgent {
             },
             body: JSON.stringify({
                 model,
-                messages,
-                apiKey: this.apiKey
+                messages
             })
         });
 

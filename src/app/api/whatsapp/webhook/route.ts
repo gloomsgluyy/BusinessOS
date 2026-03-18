@@ -1,11 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseInboundMessage } from "@/lib/whatsapp";
 import { appendRow } from "@/lib/google-sheets";
+import twilio from "twilio";
 
 export async function POST(req: NextRequest) {
     try {
         const body = await req.text();
+        const signature = req.headers.get("x-twilio-signature") || "";
+        const originalUrl = req.url; // Ensure this matches exactly the webhook URL Twilio reaches
+
         const params = new URLSearchParams(body);
+        const paramsObject = Object.fromEntries(params);
+
+        const isValid = twilio.validateRequest(
+            process.env.TWILIO_AUTH_TOKEN || "",
+            signature,
+            originalUrl,
+            paramsObject
+        );
+
+        if (!isValid) {
+            return new NextResponse("Forbidden", { status: 403 });
+        }
+
         const messageBody = params.get("Body") || "";
         const from = params.get("From") || "";
 

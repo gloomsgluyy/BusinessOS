@@ -16,7 +16,8 @@ export async function GET(req: Request) {
         });
         return NextResponse.json(history);
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error("Chat history fetch error:", error);
+        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 }
 
@@ -40,6 +41,7 @@ export async function POST(req: Request) {
 
         return NextResponse.json(newChat);
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error("Chat history save error:", error);
+        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 }

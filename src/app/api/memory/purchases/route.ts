@@ -94,6 +94,13 @@ export async function PUT(req: Request) {
         const data = await req.json();
         if (!data.id) return NextResponse.json({ error: "Purchase ID missing" }, { status: 400 });
 
+        const existingRecord = await prisma.purchaseRequest.findUnique({ where: { id: data.id } });
+        if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
+        const userRole = session.user.role?.toLowerCase() || "";
+        if (existingRecord.createdBy !== session.user.id && !["ceo", "director", "manager"].includes(userRole)) {
+            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+
         const purchase = await prisma.$transaction(async (tx) => {
             const updatedPurchase = await tx.purchaseRequest.update({
                 where: { id: data.id },
@@ -144,6 +151,13 @@ export async function DELETE(req: Request) {
         const url = new URL(req.url);
         const id = url.searchParams.get("id");
         if (!id) return NextResponse.json({ error: "Purchase ID missing" }, { status: 400 });
+
+        const existingRecord = await prisma.purchaseRequest.findUnique({ where: { id } });
+        if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
+        const userRole = session.user.role?.toLowerCase() || "";
+        if (existingRecord.createdBy !== session.user.id && !["ceo", "director", "manager"].includes(userRole)) {
+            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
 
         await prisma.$transaction(async (tx) => {
             await tx.purchaseRequest.update({

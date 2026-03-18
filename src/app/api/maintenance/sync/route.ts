@@ -3,7 +3,14 @@ import { PushService } from "@/lib/push-to-sheets";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+    const authHeader = req.headers.get("authorization");
+    const SYNC_SECRET = process.env.MAINTENANCE_SYNC_SECRET;
+
+    if (!SYNC_SECRET || authHeader !== `Bearer ${SYNC_SECRET}`) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     console.log("🛠️  [Maintenance] Manual Sync Triggered...");
 
     try {

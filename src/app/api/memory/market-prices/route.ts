@@ -113,6 +113,13 @@ export async function PUT(req: Request) {
         const data = await req.json();
         if (!data.id) return NextResponse.json({ error: "Market Price ID missing" }, { status: 400 });
 
+        const existingRecord = await prisma.marketPrice.findUnique({ where: { id: data.id } });
+        if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
+        const userRole = session.user.role?.toLowerCase() || "";
+        if (!["ceo", "director", "manager"].includes(userRole)) {
+            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+
         const price = await prisma.$transaction(async (tx) => {
             const updatedPrice = await tx.marketPrice.update({
                 where: { id: data.id },
@@ -161,6 +168,13 @@ export async function DELETE(req: Request) {
         const url = new URL(req.url);
         const id = url.searchParams.get("id");
         if (!id) return NextResponse.json({ error: "Market Price ID missing" }, { status: 400 });
+
+        const existingRecord = await prisma.marketPrice.findUnique({ where: { id } });
+        if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
+        const userRole = session.user.role?.toLowerCase() || "";
+        if (!["ceo", "director", "manager"].includes(userRole)) {
+            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
 
         await prisma.$transaction(async (tx) => {
             await tx.marketPrice.update({
