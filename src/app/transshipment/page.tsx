@@ -14,7 +14,7 @@ const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function TransshipmentPage() {
-    const { shipments, syncFromMemory, updateShipment } = useCommercialStore();
+    const { shipments, syncFromMemory, updateShipment, addShipment } = useCommercialStore();
 
     React.useEffect(() => {
         syncFromMemory();
@@ -26,6 +26,7 @@ export default function TransshipmentPage() {
     const [detailModalTab, setDetailModalTab] = React.useState<"overview" | "timeline">("overview");
 
     const [showAddModal, setShowAddModal] = React.useState(false);
+    const [addForm, setAddForm] = React.useState<Partial<ShipmentDetail>>({ status: "loading" });
     const [showReportModal, setShowReportModal] = React.useState(false);
 
     // Edit Modal States
@@ -45,6 +46,16 @@ export default function TransshipmentPage() {
         if (detailShipment?.id === editShipment.id) {
             setDetailShipment({ ...detailShipment, ...editForm });
         }
+    };
+
+    const handleAddShipment = async () => {
+        if (!addForm.shipment_number) {
+            alert("Shipment Number is required");
+            return;
+        }
+        await addShipment(addForm as any);
+        setShowAddModal(false);
+        setAddForm({ status: "loading" });
     };
 
     const handleAddMilestone = () => {
@@ -404,6 +415,64 @@ Give a 3-sentence mitigation recommendation focusing on route weather, bunker pr
                             <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-border/30">
                                 <button onClick={() => setEditShipment(null)} className="px-5 py-2 rounded-lg text-sm font-semibold text-muted-foreground hover:bg-accent transition-colors">Cancel</button>
                                 <button onClick={handleSaveEdit} className="btn-primary px-5 py-2 shadow-lg shadow-blue-500/20">Save Changes</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Allocate Vessel / Add Modal Add-in */}
+                {showAddModal && (
+                    <div className="modal-overlay">
+                        <div className="modal-backdrop" onClick={() => setShowAddModal(false)} />
+                        <div className="modal-content max-w-2xl w-full bg-card border border-border rounded-xl shadow-lg p-6 animate-scale-in">
+                            <div className="flex items-center justify-between mb-4 border-b border-border/30 pb-3">
+                                <div>
+                                    <h2 className="text-xl font-bold text-foreground">Allocate Vessel</h2>
+                                    <p className="text-xs text-muted-foreground mt-0.5">Create a new transshipment or freight record</p>
+                                </div>
+                                <button onClick={() => setShowAddModal(false)} className="p-1.5 rounded-lg hover:bg-accent bg-accent/50 text-muted-foreground"><X className="w-4 h-4" /></button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4 mt-4">
+                                <div>
+                                    <label className="text-xs font-semibold text-muted-foreground">Shipment Number *</label>
+                                    <input value={addForm.shipment_number || ""} onChange={e => setAddForm({ ...addForm, shipment_number: e.target.value })} className="w-full mt-1.5 bg-background border border-border px-3 py-2 rounded-lg text-sm transition-colors focus:border-blue-500 outline-none" placeholder="e.g. SH-202603-xxx" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-muted-foreground">Vessel Name</label>
+                                    <input value={addForm.vessel_name || ""} onChange={e => setAddForm({ ...addForm, vessel_name: e.target.value })} className="w-full mt-1.5 bg-background border border-border px-3 py-2 rounded-lg text-sm transition-colors focus:border-blue-500 outline-none" placeholder="e.g. MV Bulk Trader" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-muted-foreground">Buyer</label>
+                                    <input value={addForm.buyer || ""} onChange={e => setAddForm({ ...addForm, buyer: e.target.value })} className="w-full mt-1.5 bg-background border border-border px-3 py-2 rounded-lg text-sm transition-colors focus:border-blue-500 outline-none" placeholder="e.g. KEPCO" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-muted-foreground">Supplier</label>
+                                    <input value={addForm.supplier || ""} onChange={e => setAddForm({ ...addForm, supplier: e.target.value })} className="w-full mt-1.5 bg-background border border-border px-3 py-2 rounded-lg text-sm transition-colors focus:border-blue-500 outline-none" placeholder="e.g. PT Indo Mining" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-muted-foreground">Loading Port</label>
+                                    <input value={addForm.loading_port || ""} onChange={e => setAddForm({ ...addForm, loading_port: e.target.value })} className="w-full mt-1.5 bg-background border border-border px-3 py-2 rounded-lg text-sm transition-colors focus:border-blue-500 outline-none" placeholder="e.g. Samarinda" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-muted-foreground">Discharge Port</label>
+                                    <input value={addForm.discharge_port || ""} onChange={e => setAddForm({ ...addForm, discharge_port: e.target.value })} className="w-full mt-1.5 bg-background border border-border px-3 py-2 rounded-lg text-sm transition-colors focus:border-blue-500 outline-none" placeholder="e.g. Pohang" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-muted-foreground">Volume (MT)</label>
+                                    <input type="number" value={addForm.quantity_loaded || ""} onChange={e => setAddForm({ ...addForm, quantity_loaded: Number(e.target.value) })} className="w-full mt-1.5 bg-background border border-border px-3 py-2 rounded-lg text-sm transition-colors focus:border-blue-500 outline-none" placeholder="e.g. 50000" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-muted-foreground">Status</label>
+                                    <select value={addForm.status || ""} onChange={e => setAddForm({ ...addForm, status: e.target.value as ShipmentStatus })} className="w-full mt-1.5 bg-background border border-border px-3 py-2 rounded-lg text-sm transition-colors focus:border-blue-500 outline-none">
+                                        {SHIPMENT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-border/30">
+                                <button onClick={() => setShowAddModal(false)} className="px-5 py-2 rounded-lg text-sm font-semibold text-muted-foreground hover:bg-accent transition-colors">Cancel</button>
+                                <button onClick={handleAddShipment} className="btn-primary px-5 py-2 shadow-lg shadow-blue-500/20">Allocate Vessel</button>
                             </div>
                         </div>
                     </div>
