@@ -210,8 +210,12 @@ export class PushService {
                         console.warn(`[PushService] Skipping ${model} check: Local DB is empty.`);
                         return;
                     }
-                    const meetingRows = meetings.map(m => [m.id, m.title, m.date ? m.date.toISOString() : "", m.time, m.location, m.status, m.attendees, m.createdByName, m.updatedAt.toISOString()]);
-                    await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Meetings!A2:I1000" });
+                    const meetingRows = meetings.map(m => [
+                        m.id, m.title, m.date ? m.date.toISOString() : "", m.time, m.location, m.status,
+                        m.attendees, m.voiceNoteUrl || "", m.momContent || "", m.aiSummary || "",
+                        m.createdByName, m.updatedAt.toISOString()
+                    ]);
+                    await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Meetings!A2:L1000" });
                     await sheets.spreadsheets.values.update({
                         spreadsheetId: sid, range: "Meetings!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: meetingRows }

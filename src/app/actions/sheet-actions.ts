@@ -26,7 +26,7 @@ const SHIPMENT_HEADERS = ["ID", "Shipment #", "Deal ID", "Status", "Buyer", "Sup
 const SOURCE_HEADERS = ["ID", "Name", "Region", "Calorie Range", "GAR", "TS", "Ash", "TM", "Jetty Port", "Anchorage", "Stock Available", "Min Stock Alert", "KYC Status", "PSI Status", "FOB Barge Only", "Price Linked Index", "FOB Barge Price (USD)", "Contract Type", "PIC", "IUP Number", "Updated At"];
 const QUALITY_HEADERS = ["ID", "Cargo ID", "Cargo Name", "Surveyor", "Sampling Date", "GAR", "TS", "Ash", "TM", "Status", "Updated At"];
 const MARKET_PRICE_HEADERS = ["ID", "Date", "ICI 1", "ICI 2", "ICI 3", "ICI 4", "ICI 5", "Newcastle", "HBA", "Source", "Updated At"];
-const MEETING_HEADERS = ["ID", "Title", "Date", "Time", "Location", "Status", "Attendees", "Created By", "Updated At"];
+const MEETING_HEADERS = ["ID", "Title", "Date", "Time", "Location", "Status", "Attendees", "Voice Note URL", "MoM Content", "AI Summary", "Created By", "Updated At"];
 const PL_FORECAST_HEADERS = ["ID", "Project / Buyer", "Quantity", "Selling Price", "Buying Price", "Freight Cost", "Other Cost", "Gross Profit / MT", "Total Gross Profit", "Updated At"];
 const PROJECT_HEADERS = ["ID", "Buyer", "Country", "Type", "Quantity (MT)", "Price/MT", "Total Value", "Status", "Vessel", "Laycan Start", "Laycan End", "PIC", "Updated At"];
 const PARTNERS_HEADERS = ["ID", "Name", "Type", "Category", "Contact Person", "Phone", "Email", "Address", "City", "Country", "Tax ID", "Status", "Notes", "Updated At"];
@@ -153,6 +153,9 @@ async function setupSheet(sheetName: string, headers: string[]) {
                 }
             });
         } else if (sheetName === SHEET_MEETINGS) {
+            // Title = 250px, MoM Content = 350px, AI Summary = 350px
+            requests.push({ updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 250 }, fields: "pixelSize" } });
+            requests.push({ updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 10 }, properties: { pixelSize: 350 }, fields: "pixelSize" } });
             // Status Dropdown (Col F = Index 5)
             requests.push({
                 setDataValidation: {
@@ -421,11 +424,12 @@ export async function syncAllMeetingsToSheet(meetings: any[]) {
 
         const rows = meetings.map(m => [
             m.id, m.title || "-", m.date || "-", m.time || "-", m.location || "-",
-            m.status || "scheduled", m.attendees?.join(", ") || "", m.created_by_name || "-",
-            m.updated_at || new Date().toISOString()
+            m.status || "scheduled", m.attendees?.join(", ") || "",
+            m.voice_note_url || "", m.mom_content || "", m.ai_summary || "",
+            m.created_by_name || "-", m.updated_at || new Date().toISOString()
         ]);
 
-        await sheets.spreadsheets.values.clear({ spreadsheetId, range: `${SHEET_MEETINGS}!A2:I1000` });
+        await sheets.spreadsheets.values.clear({ spreadsheetId, range: `${SHEET_MEETINGS}!A2:L1000` });
         if (rows.length > 0) {
             await sheets.spreadsheets.values.update({
                 spreadsheetId, range: `${SHEET_MEETINGS}!A2`, valueInputOption: "USER_ENTERED", requestBody: { values: rows }
@@ -1000,7 +1004,7 @@ export async function syncMeetingsFromSheet(): Promise<{ success: boolean, meeti
 
         const res = await sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: `${SHEET_MEETINGS}!A:I`,
+            range: `${SHEET_MEETINGS}!A:L`,
             valueRenderOption: "UNFORMATTED_VALUE"
         });
         const rows = res.data.values || [];
@@ -1018,7 +1022,11 @@ export async function syncMeetingsFromSheet(): Promise<{ success: boolean, meeti
                 location: String(row[4] || "").trim(),
                 status: String(row[5] || "scheduled").trim().toLowerCase(),
                 attendees: String(row[6] || "").split(",").map(a => a.trim()).filter(a => a !== ""),
-                updated_at: row[8] ? String(row[8]).trim() : undefined,
+                voice_note_url: String(row[7] || "").trim() || undefined,
+                mom_content: String(row[8] || "").trim() || undefined,
+                ai_summary: String(row[9] || "").trim() || undefined,
+                created_by_name: String(row[10] || "").trim(),
+                updated_at: row[11] ? String(row[11]).trim() : undefined,
             };
         }).filter(m => m !== null);
 
