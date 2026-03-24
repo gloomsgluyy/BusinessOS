@@ -466,22 +466,31 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     },
     updateQualityResult: async (id, u) => {
         const body: any = { id };
-        if (u.cargo_id) body.cargoId = u.cargo_id;
-        if (u.cargo_name) body.cargoName = u.cargo_name;
-        if (u.surveyor) body.surveyor = u.surveyor;
-        if (u.sampling_date) body.samplingDate = u.sampling_date;
-        if (u.spec_result) {
-            body.specResult = u.spec_result;
-        }
-        if (u.status) body.status = u.status;
+        if (u.cargo_id !== undefined) body.cargoId = u.cargo_id;
+        if (u.cargo_name !== undefined) body.cargoName = u.cargo_name;
+        if (u.surveyor !== undefined) body.surveyor = u.surveyor;
+        if (u.sampling_date !== undefined) body.samplingDate = u.sampling_date;
+        if (u.spec_result !== undefined) body.specResult = u.spec_result;
+        if (u.status !== undefined) body.status = u.status;
 
-        await fetch("/api/memory/quality", {
+        const res = await fetch("/api/memory/quality", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
         });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || "Failed to update quality result");
+        }
+        const data = await res.json();
+        const qr = data.quality;
+        const mapped = {
+            id: qr.id, cargo_id: qr.cargoId, cargo_name: qr.cargoName, surveyor: qr.surveyor,
+            sampling_date: qr.samplingDate, spec_result: { gar: qr.gar, ts: qr.ts, ash: qr.ash, tm: qr.tm },
+            status: qr.status, created_at: qr.createdAt
+        };
         set((s) => {
-            const raw = s._rawQualityResults.map((q) => q.id === id ? { ...q, ...u } : q);
+            const raw = s._rawQualityResults.map((q) => q.id === id ? { ...q, ...mapped } : q);
             return { _rawQualityResults: raw, qualityResults: raw.filter(x => !x.is_deleted) };
         });
     },
