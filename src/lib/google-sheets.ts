@@ -26,7 +26,7 @@ export async function getSheetData(tab: string): Promise<string[][]> {
     return (res.data.values as string[][]) || [];
 }
 
-export async function appendRow(tab: string, values: string[]): Promise<void> {
+export async function appendRow(tab: string, values: any[]): Promise<void> {
     const sheets = getSheets();
     await sheets.spreadsheets.values.append({
         spreadsheetId: SPREADSHEET_ID,
@@ -36,7 +36,7 @@ export async function appendRow(tab: string, values: string[]): Promise<void> {
     });
 }
 
-export async function updateRow(tab: string, rowIndex: number, values: string[]): Promise<void> {
+export async function updateRow(tab: string, rowIndex: number, values: any[]): Promise<void> {
     const sheets = getSheets();
     await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
@@ -89,7 +89,7 @@ export async function findRowIndex(tab: string, columnIndex: number, value: stri
     return index === -1 ? -1 : index + 1;
 }
 
-export async function upsertRow(tab: string, keyColumnIndex: number, keyValue: string, values: string[]): Promise<void> {
+export async function upsertRow(tab: string, keyColumnIndex: number, keyValue: string, values: any[]): Promise<void> {
     const rowIndex = await findRowIndex(tab, keyColumnIndex, keyValue);
     if (rowIndex > 0) {
         await updateRow(tab, rowIndex, values);

@@ -340,11 +340,33 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     _rawSources: [],
     sources: [],
     addSource: async (src) => {
-        const now = new Date().toISOString();
+        const body: any = { ...src };
+        if (src.calorie_range !== undefined) body.calorieRange = src.calorie_range;
+        if (src.jetty_port !== undefined) body.jettyPort = src.jetty_port;
+        if (src.anchorage !== undefined) body.anchorage = src.anchorage;
+        if (src.min_stock_alert !== undefined) body.minStockAlert = src.min_stock_alert;
+        if (src.kyc_status !== undefined) body.kycStatus = src.kyc_status;
+        if (src.psi_status !== undefined) body.psiStatus = src.psi_status;
+        if (src.stock_available !== undefined) body.stockAvailable = src.stock_available;
+        if (src.fob_barge_only !== undefined) body.fobBargeOnly = src.fob_barge_only;
+        if (src.requires_transshipment !== undefined) body.requiresTransshipment = src.requires_transshipment;
+        if (src.price_linked_index !== undefined) body.priceLinkedIndex = src.price_linked_index;
+        if (src.fob_barge_price_idr !== undefined) body.fobBargePriceIdr = src.fob_barge_price_idr;
+        if (src.fob_barge_price_usd !== undefined) body.fobBargePriceUsd = src.fob_barge_price_usd;
+        if (src.transshipment_costs !== undefined) body.transshipmentCosts = JSON.stringify(src.transshipment_costs);
+        if (src.psi_date !== undefined) body.psiDate = src.psi_date;
+        if (src.psi_result !== undefined) body.psiResult = src.psi_result;
+        if (src.contract_type !== undefined) body.contractType = src.contract_type;
+        if (src.pic_id !== undefined) body.picId = src.pic_id;
+        if (src.pic_name !== undefined) body.picName = src.pic_name;
+        if (src.contact_person !== undefined) body.contactPerson = src.contact_person;
+        if (src.phone !== undefined) body.phone = src.phone;
+        if (src.iup_number !== undefined) body.iupNumber = src.iup_number;
+
         const res = await fetch("/api/memory/sources", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(src)
+            body: JSON.stringify(body)
         });
         if (res.ok) {
             const data = await res.json();
@@ -369,32 +391,29 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     },
     updateSource: async (id, u) => {
         const body: any = { id };
-        if (u.name) body.name = u.name;
-        if (u.region) body.region = u.region;
-        if (u.calorie_range) body.calorieRange = u.calorie_range;
-        if (u.spec) {
-            body.gar = u.spec.gar; body.ts = u.spec.ts; body.ash = u.spec.ash; body.tm = u.spec.tm;
-            body.hgi = u.spec.hgi; body.adb = u.spec.adb; body.nar = u.spec.nar;
-        }
-        if (u.jetty_port) body.jettyPort = u.jetty_port;
-        if (u.anchorage) body.anchorage = u.anchorage;
+        if (u.name !== undefined) body.name = u.name;
+        if (u.region !== undefined) body.region = u.region;
+        if (u.calorie_range !== undefined) body.calorieRange = u.calorie_range;
+        if (u.spec !== undefined) body.spec = u.spec;
+        if (u.jetty_port !== undefined) body.jettyPort = u.jetty_port;
+        if (u.anchorage !== undefined) body.anchorage = u.anchorage;
         if (u.min_stock_alert !== undefined) body.minStockAlert = u.min_stock_alert;
-        if (u.kyc_status) body.kycStatus = u.kyc_status;
-        if (u.psi_status) body.psiStatus = u.psi_status;
+        if (u.kyc_status !== undefined) body.kycStatus = u.kyc_status;
+        if (u.psi_status !== undefined) body.psiStatus = u.psi_status;
         if (u.stock_available !== undefined) body.stockAvailable = u.stock_available;
         if (u.fob_barge_only !== undefined) body.fobBargeOnly = u.fob_barge_only;
         if (u.requires_transshipment !== undefined) body.requiresTransshipment = u.requires_transshipment;
-        if (u.price_linked_index) body.priceLinkedIndex = u.price_linked_index;
+        if (u.price_linked_index !== undefined) body.priceLinkedIndex = u.price_linked_index;
         if (u.fob_barge_price_idr !== undefined) body.fobBargePriceIdr = u.fob_barge_price_idr;
         if (u.fob_barge_price_usd !== undefined) body.fobBargePriceUsd = u.fob_barge_price_usd;
-        if (u.transshipment_costs) body.transshipmentCosts = JSON.stringify(u.transshipment_costs);
-        if (u.psi_date) body.psiDate = u.psi_date;
-        if (u.psi_result) body.psiResult = u.psi_result;
-        if (u.contract_type) body.contractType = u.contract_type;
-        if (u.pic_name) body.picName = u.pic_name;
-        if (u.contact_person) body.contactPerson = u.contact_person;
-        if (u.phone) body.phone = u.phone;
-        if (u.iup_number) body.iupNumber = u.iup_number;
+        if (u.transshipment_costs !== undefined) body.transshipmentCosts = JSON.stringify(u.transshipment_costs);
+        if (u.psi_date !== undefined) body.psiDate = u.psi_date;
+        if (u.psi_result !== undefined) body.psiResult = u.psi_result;
+        if (u.contract_type !== undefined) body.contractType = u.contract_type;
+        if (u.pic_name !== undefined) body.picName = u.pic_name;
+        if (u.contact_person !== undefined) body.contactPerson = u.contact_person;
+        if (u.phone !== undefined) body.phone = u.phone;
+        if (u.iup_number !== undefined) body.iupNumber = u.iup_number;
 
         await fetch("/api/memory/sources", {
             method: "PUT",
@@ -418,14 +437,22 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     _rawQualityResults: [],
     qualityResults: [],
     addQualityResult: async (q) => {
-        const res = await fetch("/api/memory/quality-results", {
+        const body = {
+            cargoId: q.cargo_id,
+            cargoName: q.cargo_name,
+            surveyor: q.surveyor,
+            samplingDate: q.sampling_date,
+            specResult: q.spec_result,
+            status: q.status,
+        };
+        const res = await fetch("/api/memory/quality", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(q)
+            body: JSON.stringify(body)
         });
         if (res.ok) {
             const data = await res.json();
-            const qr = data.qualityResult;
+            const qr = data.quality;
             const mapped: QualityResult = {
                 id: qr.id, cargo_id: qr.cargoId, cargo_name: qr.cargoName, surveyor: qr.surveyor,
                 sampling_date: qr.samplingDate, spec_result: { gar: qr.gar, ts: qr.ts, ash: qr.ash, tm: qr.tm },
@@ -444,11 +471,11 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
         if (u.surveyor) body.surveyor = u.surveyor;
         if (u.sampling_date) body.samplingDate = u.sampling_date;
         if (u.spec_result) {
-            body.gar = u.spec_result.gar; body.ts = u.spec_result.ts; body.ash = u.spec_result.ash; body.tm = u.spec_result.tm;
+            body.specResult = u.spec_result;
         }
         if (u.status) body.status = u.status;
 
-        await fetch("/api/memory/quality-results", {
+        await fetch("/api/memory/quality", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)

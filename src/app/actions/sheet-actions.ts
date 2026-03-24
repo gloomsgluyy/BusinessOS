@@ -660,16 +660,21 @@ export async function syncTasksFromSheet(): Promise<{ success: boolean, tasks?: 
         const rows = res.data.values || [];
         const dataRows = rows.slice(1);
 
-        const tasks: Partial<Task>[] = dataRows.map(row => ({
-            id: String(row[0]).trim(),
-            title: String(row[1] || "").trim(),
-            description: String(row[2] || "").trim(),
-            status: (String(row[3] || "todo").trim().toLowerCase()) as TaskStatus,
-            priority: (String(row[4] || "medium").trim().toLowerCase()) as TaskPriority,
-            assignee_id: String(row[5] || "").trim(),
-            due_date: row[6] ? cleanDate(row[6]) : undefined,
-            updated_at: row[8] ? String(row[8]).trim() : undefined,
-        })).filter(t => t.id && t.id.toLowerCase() !== "undefined");
+        const tasks: Partial<Task>[] = dataRows.map(row => {
+            const title = String(row[1] || "").trim();
+            if (!title) return null as any; // Treat cleared row as deleted
+
+            return {
+                id: String(row[0]).trim(),
+                title,
+                description: String(row[2] || "").trim(),
+                status: (String(row[3] || "todo").trim().toLowerCase()) as TaskStatus,
+                priority: (String(row[4] || "medium").trim().toLowerCase()) as TaskPriority,
+                assignee_id: String(row[5] || "").trim(),
+                due_date: row[6] ? cleanDate(row[6]) : undefined,
+                updated_at: row[8] ? String(row[8]).trim() : undefined,
+            };
+        }).filter(t => t && t.id && t.id.toLowerCase() !== "undefined");
 
         return { success: true, tasks };
     } catch (e) {
@@ -699,9 +704,12 @@ export async function syncSalesFromSheet(): Promise<{ success: boolean, orders?:
             const id = String(row[0] || "").trim();
             if (!id || id.toLowerCase() === "undefined") return null;
 
+            const order_number = String(row[1] || "").trim();
+            if (!order_number) return null; // Treat cleared row as deleted
+
             return {
                 id,
-                order_number: String(row[1] || "").trim(),
+                order_number,
                 client: String(row[3] || "").trim(),
                 description: String(row[4] || "").trim(),
                 amount: cleanAmount(row[5]),
@@ -740,9 +748,12 @@ export async function syncExpensesFromSheet(): Promise<{ success: boolean, purch
             const id = String(row[0] || "").trim();
             if (!id || id.toLowerCase() === "undefined") return null;
 
+            const request_number = String(row[1] || "").trim();
+            if (!request_number) return null; // Treat cleared row as deleted
+
             return {
                 id,
-                request_number: String(row[1] || "").trim(),
+                request_number,
                 category: String(row[3] || "").trim(),
                 supplier: String(row[4] || "").trim(),
                 description: String(row[5] || "").trim(),
@@ -782,6 +793,9 @@ export async function syncShipmentsFromSheet(): Promise<{ success: boolean, ship
             const id = String(row[0] || "").trim();
             if (!id || id.toLowerCase() === "undefined") return null;
 
+            const shipment_number = String(row[1] || "").trim();
+            if (!shipment_number) return null; // Treat cleared row as deleted
+
             let parsedMilestones;
             try {
                 if (row[19]) parsedMilestones = JSON.parse(String(row[19]));
@@ -791,7 +805,7 @@ export async function syncShipmentsFromSheet(): Promise<{ success: boolean, ship
 
             return {
                 id,
-                shipment_number: String(row[1] || "").trim(),
+                shipment_number,
                 deal_id: String(row[2] || "").trim(),
                 status: normalizeShipmentStatus(row[3]),
                 buyer: String(row[4] || "").trim(),
@@ -834,7 +848,7 @@ export async function syncSourcesFromSheet(): Promise<{ success: boolean, source
 
         const res = await sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: `${SHEET_SOURCES}!A:U`,
+            range: `${SHEET_SOURCES}!A:Y`,
             valueRenderOption: "UNFORMATTED_VALUE"
         });
         const rows = res.data.values || [];
@@ -844,9 +858,12 @@ export async function syncSourcesFromSheet(): Promise<{ success: boolean, source
             const id = String(row[0] || "").trim();
             if (!id || id.toLowerCase() === "undefined") return null;
 
+            const name = String(row[1] || "").trim();
+            if (!name) return null; // Treat cleared row as deleted
+
             return {
                 id,
-                name: String(row[1] || "").trim(),
+                name,
                 region: String(row[2] || "").trim(),
                 calorie_range: String(row[3] || "").trim(),
                 spec: {
@@ -854,6 +871,10 @@ export async function syncSourcesFromSheet(): Promise<{ success: boolean, source
                     ts: cleanAmount(row[5]),
                     ash: cleanAmount(row[6]),
                     tm: cleanAmount(row[7]),
+                    im: cleanAmount(row[21]),
+                    fc: cleanAmount(row[22]),
+                    nar: cleanAmount(row[23]),
+                    adb: cleanAmount(row[24]),
                 },
                 jetty_port: String(row[8] || "").trim(),
                 anchorage: String(row[9] || "").trim(),
@@ -865,6 +886,7 @@ export async function syncSourcesFromSheet(): Promise<{ success: boolean, source
                 price_linked_index: String(row[15] || "").trim(),
                 fob_barge_price_usd: cleanAmount(row[16]),
                 contract_type: String(row[17] || "").trim(),
+                pic_name: String(row[18] || "").trim(),
                 iup_number: String(row[19] || "").trim(),
                 updated_at: row[20] ? String(row[20]).trim() : undefined,
             };

@@ -200,6 +200,7 @@ export const NAV_SECTIONS: NavSection[] = [
             { href: "/meetings", label: "Meeting", icon: "Calendar", permission: "meetings" },
             { href: "/my-tasks", label: "Tasks", icon: "ClipboardList", permission: "my_tasks" },
             { href: "/pl-forecast", label: "P&L", icon: "DollarSign", permission: "profit_loss" },
+            { href: "/purchase-requests", label: "Expenses", icon: "Receipt", permission: "purchase_requests" },
         ],
     },
     {
