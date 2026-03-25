@@ -133,7 +133,7 @@ export async function POST(req: Request) {
             voiceNoteUrl: null,
             momContent: null,
             aiSummary: null,
-            createdByName: session.user.name,
+            createdByName: session.user.name || null,
             updatedAt: now
         };
 
