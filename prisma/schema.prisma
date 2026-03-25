@@ -44,7 +44,7 @@ model User {
   emailVerified DateTime?
   image         String?
   password      String?
-  role          String    @default("STAFF") // Roles: CEO, ASSISTANT_CEO, MANAGER, STAFF
+  role          String    @default("staff") // Roles: ceo, director, manager, staff
 
   accounts      Account[]
   sessions      Session[]

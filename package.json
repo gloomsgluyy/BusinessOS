@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "sync": "node sync-manager.cjs"
+    "sync": "node sync-manager.cjs",
+    "fix-roles": "node fix-roles-lowercase.js"
   },
   "prisma": {
     "seed": "ts-node --project tsconfig.seed.json prisma/seed.ts"

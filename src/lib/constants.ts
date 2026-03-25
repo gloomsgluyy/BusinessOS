@@ -199,7 +199,7 @@ export const NAV_SECTIONS: NavSection[] = [
             { href: "/market-price", label: "Market Price", icon: "LineChart", permission: "market_price" },
             { href: "/meetings", label: "Meeting", icon: "Calendar", permission: "meetings" },
             { href: "/my-tasks", label: "Tasks", icon: "ClipboardList", permission: "my_tasks" },
-            { href: "/pl-forecast", label: "P&L", icon: "DollarSign", permission: "profit_loss" },
+            { href: "/profit-loss", label: "P&L", icon: "DollarSign", permission: "profit_loss" },
             { href: "/purchase-requests", label: "Expenses", icon: "Receipt", permission: "purchase_requests" },
         ],
     },
