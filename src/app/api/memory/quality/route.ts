@@ -4,8 +4,11 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { syncQualityFromSheet } from "@/app/actions/sheet-actions";
 import { appendRow, upsertRow, deleteRow, findRowIndex } from "@/lib/google-sheets";
+import { v4 as uuidv4 } from 'uuid';
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 export async function GET() {
     try {
@@ -16,8 +19,24 @@ export async function GET() {
         try {
             const sheetData = await syncQualityFromSheet();
             if (sheetData.success && sheetData.qualityResults) {
+                // Return data directly from Sheets immediately for maximum performance and truthfulness
+                const formattedRemote = sheetData.qualityResults.map(q => ({
+                    id: q.id,
+                    cargoId: q.cargo_id,
+                    cargoName: q.cargo_name,
+                    surveyor: q.surveyor,
+                    samplingDate: q.sampling_date || null,
+                    gar: q.spec_result?.gar ?? null,
+                    ts: q.spec_result?.ts ?? null,
+                    ash: q.spec_result?.ash ?? null,
+                    tm: q.spec_result?.tm ?? null,
+                    status: q.status || "pending",
+                    createdAt: q.created_at || new Date().toISOString(),
+                    updatedAt: q.created_at || new Date().toISOString(),
+                    isDeleted: false,
+                }));
 
-                // Upsert ke DB sebagai backup
+                // Upsert ke DB sebagai backup secara asinkron (tanpa await / memblokir return UI)
                 const upsertPromises = sheetData.qualityResults.map(q =>
                     prisma.qualityResult.upsert({
                         where: { id: q.id },
@@ -46,45 +65,8 @@ export async function GET() {
                         }
                     })
                 );
-                await Promise.allSettled(upsertPromises);
-
-                // --- REKONSILIASI PENGHAPUSAN ---
-                const remoteIds = new Set(sheetData.qualityResults.map(q => q.id));
-                const localRecords = await prisma.qualityResult.findMany({
-                    where: { isDeleted: false },
-                    select: { id: true }
-                });
-
-                const deletePromises = localRecords
-                    .filter(loc => !remoteIds.has(loc.id))
-                    .map(loc =>
-                        prisma.qualityResult.update({
-                            where: { id: loc.id },
-                            data: { isDeleted: true }
-                        })
-                    );
-
-                if (deletePromises.length > 0) {
-                    await Promise.allSettled(deletePromises);
-                    console.log(`[Sync] Removing ${deletePromises.length} local quality results not found in Google Sheets.`);
-                }
-
-                // --- KEMBALIKAN DATA DARI SHEET DALAM FORMAT CAMELCASE KE UI ---
-                const formattedRemote = sheetData.qualityResults.map(q => ({
-                    id: q.id,
-                    cargoId: q.cargo_id,
-                    cargoName: q.cargo_name,
-                    surveyor: q.surveyor,
-                    samplingDate: q.sampling_date || null,
-                    gar: q.spec_result?.gar ?? null,
-                    ts: q.spec_result?.ts ?? null,
-                    ash: q.spec_result?.ash ?? null,
-                    tm: q.spec_result?.tm ?? null,
-                    status: q.status || "pending",
-                    createdAt: q.created_at || new Date().toISOString(),
-                    updatedAt: q.created_at || new Date().toISOString(),
-                    isDeleted: false,
-                }));
+                
+                Promise.allSettled(upsertPromises).catch(err => console.error("Backup DB Quality failed:", err));
 
                 return NextResponse.json({ success: true, quality: formattedRemote });
             }
@@ -112,12 +94,39 @@ export async function POST(req: Request) {
 
         const data = await req.json();
 
-        // 1. SIMPAN KE DATABASE (Capture DB)
+        // 1. TULIS KE GOOGLE SHEETS DAHULU (Acuan Utama)
+        const qualityId = uuidv4();
+        const nowStr = new Date().toISOString();
+        const sdStr = data.samplingDate ? new Date(data.samplingDate).toISOString().split("T")[0] : "-";
+        
+        const rowValues = [
+            qualityId,
+            data.cargoId || "",
+            data.cargoName || "",
+            data.surveyor || "-",
+            sdStr,
+            data.specResult?.gar ?? 0,
+            data.specResult?.ts ?? 0,
+            data.specResult?.ash ?? 0,
+            data.specResult?.tm ?? 0,
+            data.status || "pending",
+            nowStr
+        ];
+
+        try {
+            await appendRow("Quality", rowValues);
+        } catch (sheetErr) {
+            console.error("Gagal update Google Sheets:", sheetErr);
+            return NextResponse.json({ error: "Gagal menyimpan ke Google Sheets" }, { status: 500 });
+        }
+
+        // 2. JIKA BERHASIL, SIMPAN SEBAGAI BACKUP KE DATABASE
         const quality = await prisma.qualityResult.create({
             data: {
-                cargoId: data.cargoId,
-                cargoName: data.cargoName,
-                surveyor: data.surveyor,
+                id: qualityId,
+                cargoId: data.cargoId || "",
+                cargoName: data.cargoName || "",
+                surveyor: data.surveyor || "-",
                 samplingDate: data.samplingDate ? new Date(data.samplingDate) : null,
                 gar: data.specResult?.gar ? parseFloat(data.specResult.gar.toString()) : null,
                 ts: data.specResult?.ts ? parseFloat(data.specResult.ts.toString()) : null,
@@ -128,38 +137,21 @@ export async function POST(req: Request) {
         });
 
         try {
-            await prisma.auditLog.create({
-                data: {
-                    userId: session.user.id,
-                    userName: session.user.name || "Unknown",
-                    action: "CREATE",
-                    entity: "QualityResult",
-                    entityId: quality.id,
-                    details: JSON.stringify(quality)
-                }
-            });
+            const dbUser = await prisma.user.findUnique({ where: { id: session.user.id } });
+            if (dbUser) {
+                await prisma.auditLog.create({
+                    data: {
+                        userId: session.user.id,
+                        userName: session.user.name || "Unknown",
+                        action: "CREATE",
+                        entity: "QualityResult",
+                        entityId: quality.id,
+                        details: JSON.stringify(quality)
+                    }
+                });
+            }
         } catch (auditErr) {
-            console.warn("Audit log skipped (user FK missing):", auditErr);
-        }
-
-        // 2. TULIS KE GOOGLE SHEETS (Primary Source of Truth)
-        try {
-            const rowValues = [
-                quality.id,
-                quality.cargoId || "",
-                quality.cargoName || "",
-                quality.surveyor || "-",
-                quality.samplingDate ? quality.samplingDate.toISOString().split("T")[0] : "-",
-                quality.gar ?? 0,
-                quality.ts ?? 0,
-                quality.ash ?? 0,
-                quality.tm ?? 0,
-                quality.status || "pending",
-                quality.updatedAt ? quality.updatedAt.toISOString() : new Date().toISOString()
-            ];
-            await appendRow("Quality", rowValues);
-        } catch (sheetErr) {
-            console.error("Failed writing to Google Sheets in POST /quality:", sheetErr);
+            console.warn("Audit log skipped:", auditErr);
         }
 
         return NextResponse.json({ success: true, quality });
@@ -185,7 +177,32 @@ export async function PUT(req: Request) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
-        // 1. UPDATE DI DATABASE
+        // 1. UPDATE DI GOOGLE SHEETS DAHULU
+        const nowStr = new Date().toISOString();
+        const sdStr = data.samplingDate ? new Date(data.samplingDate).toISOString().split("T")[0] : "-";
+
+        const rowValues = [
+            data.id,
+            data.cargoId || "",
+            data.cargoName || "",
+            data.surveyor || "-",
+            sdStr,
+            data.specResult?.gar ?? 0,
+            data.specResult?.ts ?? 0,
+            data.specResult?.ash ?? 0,
+            data.specResult?.tm ?? 0,
+            data.status || "pending",
+            nowStr
+        ];
+
+        try {
+            await upsertRow("Quality", 0, data.id, rowValues);
+        } catch (sheetErr) {
+            console.error("Gagal modifikasi Google Sheets di PUT /quality:", sheetErr);
+            return NextResponse.json({ error: "Gagal update Google Sheets" }, { status: 500 });
+        }
+
+        // 2. JIKA SHEET BERHASIL, BARU UPDATE DB SEBAGAI BACKUP/HISTORY
         const quality = await prisma.qualityResult.update({
             where: { id: data.id },
             data: {
@@ -202,38 +219,21 @@ export async function PUT(req: Request) {
         });
 
         try {
-            await prisma.auditLog.create({
-                data: {
-                    userId: session.user.id,
-                    userName: session.user.name || "Unknown",
-                    action: "UPDATE",
-                    entity: "QualityResult",
-                    entityId: quality.id,
-                    details: JSON.stringify(data)
-                }
-            });
+            const dbUser = await prisma.user.findUnique({ where: { id: session.user.id } });
+            if (dbUser) {
+                await prisma.auditLog.create({
+                    data: {
+                        userId: session.user.id,
+                        userName: session.user.name || "Unknown",
+                        action: "UPDATE",
+                        entity: "QualityResult",
+                        entityId: quality.id,
+                        details: JSON.stringify(data)
+                    }
+                });
+            }
         } catch (auditErr) {
-            console.warn("Audit log skipped (user FK missing):", auditErr);
-        }
-
-        // 2. UPDATE DI GOOGLE SHEETS
-        try {
-            const rowValues = [
-                quality.id,
-                quality.cargoId || "",
-                quality.cargoName || "",
-                quality.surveyor || "-",
-                quality.samplingDate ? quality.samplingDate.toISOString().split("T")[0] : "-",
-                quality.gar ?? 0,
-                quality.ts ?? 0,
-                quality.ash ?? 0,
-                quality.tm ?? 0,
-                quality.status || "pending",
-                quality.updatedAt ? quality.updatedAt.toISOString() : new Date().toISOString()
-            ];
-            await upsertRow("Quality", 0, quality.id, rowValues);
-        } catch (sheetErr) {
-            console.error("Failed modifying Google Sheets in PUT /quality:", sheetErr);
+            console.warn("Audit log skipped:", auditErr);
         }
 
         return NextResponse.json({ success: true, quality });
@@ -260,35 +260,39 @@ export async function DELETE(req: Request) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
-        // 1. SOFT DELETE DI DATABASE
-        await prisma.qualityResult.update({
-            where: { id },
-            data: { isDeleted: true }
-        });
-
-        try {
-            await prisma.auditLog.create({
-                data: {
-                    userId: session.user.id,
-                    userName: session.user.name || "Unknown",
-                    action: "DELETE",
-                    entity: "QualityResult",
-                    entityId: id,
-                    details: JSON.stringify({ isDeleted: true })
-                }
-            });
-        } catch (auditErr) {
-            console.warn("Audit log skipped (user FK missing):", auditErr);
-        }
-
-        // 2. HAPUS DARI GOOGLE SHEETS
+        // 1. HAPUS DARI GOOGLE SHEETS DAHULU
         try {
             const rowIndex = await findRowIndex("Quality", 0, id);
             if (rowIndex > 0) {
                 await deleteRow("Quality", rowIndex);
             }
         } catch (sheetErr) {
-            console.error("Failed deleting from Google Sheets in DELETE /quality:", sheetErr);
+            console.error("Gagal menghapus dari Google Sheets di DELETE /quality:", sheetErr);
+            return NextResponse.json({ error: "Gagal menghapus dari Google Sheets" }, { status: 500 });
+        }
+
+        // 2. SOFT DELETE DI DATABASE JIKA SHEET BERHASIL
+        await prisma.qualityResult.update({
+            where: { id },
+            data: { isDeleted: true }
+        });
+
+        try {
+            const dbUser = await prisma.user.findUnique({ where: { id: session.user.id } });
+            if (dbUser) {
+                await prisma.auditLog.create({
+                    data: {
+                        userId: session.user.id,
+                        userName: session.user.name || "Unknown",
+                        action: "DELETE",
+                        entity: "QualityResult",
+                        entityId: id,
+                        details: JSON.stringify({ isDeleted: true })
+                    }
+                });
+            }
+        } catch (auditErr) {
+            console.warn("Audit log skipped:", auditErr);
         }
 
         return NextResponse.json({ success: true });

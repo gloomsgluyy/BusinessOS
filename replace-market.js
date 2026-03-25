@@ -1,4 +1,6 @@
-import { NextResponse } from "next/server";
+const fs = require('fs');
+
+const content = `import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
@@ -206,3 +208,5 @@ export async function DELETE(req: Request) {
         return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
     }
 }
+`;
+fs.writeFileSync('src/app/api/memory/market-prices/route.ts', content);

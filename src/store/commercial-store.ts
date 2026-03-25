@@ -504,19 +504,25 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(m)
         });
+        if (!res.ok) {
+            const errorText = await res.text();
+            console.error("Failed to add market price:", errorText);
+            throw new Error("Failed to save market price: " + res.status);
+        }
         if (res.ok) {
             const data = await res.json();
             const mp = data.price; // API returns { success: true, price: ... }
             const mapped: MarketPriceEntry = {
                 id: mp.id,
+                is_deleted: mp.isDeleted || false,
                 date: mp.date,
-                ici_1: mp.ici1 !== undefined ? mp.ici1 : (mp.ici_1 || 0),
-                ici_2: mp.ici2 !== undefined ? mp.ici2 : (mp.ici_2 || 0),
-                ici_3: mp.ici3 !== undefined ? mp.ici3 : (mp.ici_3 || 0),
-                ici_4: mp.ici4 !== undefined ? mp.ici4 : (mp.ici_4 || 0),
-                ici_5: mp.ici5 !== undefined ? mp.ici5 : (mp.ici_5 || 0),
-                newcastle: mp.newcastle || 0,
-                hba: mp.hba || 0,
+                ici_1: mp.ici1 !== undefined && mp.ici1 !== null ? mp.ici1 : (mp.ici_1 || 0),
+                ici_2: mp.ici2 !== undefined && mp.ici2 !== null ? mp.ici2 : (mp.ici_2 || 0),
+                ici_3: mp.ici3 !== undefined && mp.ici3 !== null ? mp.ici3 : (mp.ici_3 || 0),
+                ici_4: mp.ici4 !== undefined && mp.ici4 !== null ? mp.ici4 : (mp.ici_4 || 0),
+                ici_5: mp.ici5 !== undefined && mp.ici5 !== null ? mp.ici5 : (mp.ici_5 || 0),
+                newcastle: mp.newcastle !== undefined && mp.newcastle !== null ? mp.newcastle : 0,
+                hba: mp.hba !== undefined && mp.hba !== null ? mp.hba : 0,
                 source: mp.source
             };
             set((s) => {
@@ -526,6 +532,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                     new Date(x.date).toISOString().split('T')[0] !== dateOnly
                 );
                 const raw = [mapped, ...filtered];
+                raw.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
                 return { _rawMarketPrices: raw, marketPrices: raw.filter(x => !x.is_deleted) };
             });
         }
@@ -770,15 +777,17 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     // ── Sync Integration ─────────────────────────────────────
     syncFromMemory: async () => {
         try {
+            const ts = Date.now();
+            const fetchOpts = { cache: 'no-store' as RequestCache, headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } };
             const [shipRes, srcRes, qRes, mpRes, mtgRes, plRes, dealRes, blendRes] = await Promise.all([
-                fetch("/api/memory/shipments").then(res => res.json()),
-                fetch("/api/memory/sources").then(res => res.json()),
-                fetch("/api/memory/quality").then(res => res.json()),
-                fetch("/api/memory/market-prices").then(res => res.json()),
-                fetch("/api/memory/meetings").then(res => res.json()),
-                fetch("/api/memory/pl-forecasts").then(res => res.json()),
-                fetch("/api/memory/sales-deals").then(res => res.json()),
-                fetch("/api/memory/blending").then(res => res.json())
+                fetch(`/api/memory/shipments?t=${ts}`, fetchOpts).then(res => res.json()),
+                fetch(`/api/memory/sources?t=${ts}`, fetchOpts).then(res => res.json()),
+                fetch(`/api/memory/quality?t=${ts}`, fetchOpts).then(res => res.json()),
+                fetch(`/api/memory/market-prices?t=${ts}`, fetchOpts).then(res => res.json()),
+                fetch(`/api/memory/meetings?t=${ts}`, fetchOpts).then(res => res.json()),
+                fetch(`/api/memory/pl-forecasts?t=${ts}`, fetchOpts).then(res => res.json()),
+                fetch(`/api/memory/sales-deals?t=${ts}`, fetchOpts).then(res => res.json()),
+                fetch(`/api/memory/blending?t=${ts}`, fetchOpts).then(res => res.json())
             ]);
 
             set((state) => {

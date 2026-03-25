@@ -961,7 +961,7 @@ export async function syncMarketPriceFromSheet(): Promise<{ success: boolean, pr
 
         const res = await sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: `${SHEET_MARKET_PRICE}!A:J`,
+            range: `${SHEET_MARKET_PRICE}!A:K`,
             valueRenderOption: "UNFORMATTED_VALUE"
         });
         const rows = res.data.values || [];
@@ -978,10 +978,11 @@ export async function syncMarketPriceFromSheet(): Promise<{ success: boolean, pr
                 ici_2: cleanAmount(row[3]),
                 ici_3: cleanAmount(row[4]),
                 ici_4: cleanAmount(row[5]),
-                newcastle: cleanAmount(row[6]),
-                hba: cleanAmount(row[7]),
-                source: String(row[8] || "").trim(),
-                updated_at: row[9] ? String(row[9]).trim() : undefined,
+                ici_5: cleanAmount(row[6]),
+                newcastle: cleanAmount(row[7]),
+                hba: cleanAmount(row[8]),
+                source: String(row[9] || "").trim(),
+                updated_at: row[10] ? String(row[10]).trim() : undefined,
             };
         }).filter(p => p !== null);
 
