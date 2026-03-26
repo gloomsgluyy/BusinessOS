@@ -392,6 +392,7 @@ export interface PLForecastItem {
     created_by: string;
     created_at: string;
     updated_at: string;
+    _isOptimistic?: boolean;   // Flag for optimistic UI updates
 }
 
 // ── Audit Logs ────────────────────────────────────────────────

@@ -42,7 +42,8 @@ function mapRow(headers, row) {
     const obj = {};
     headers.forEach((h, i) => {
         if (!h) return;
-        const normalizedKey = String(h).trim().toUpperCase();
+        // Normalize: trim, uppercase, and replace multiple spaces with single space
+        const normalizedKey = String(h).trim().toUpperCase().replace(/\s+/g, ' ');
         obj[normalizedKey] = row[i] || null;
     });
     return obj;
@@ -94,7 +95,16 @@ class PullService {
             { name: "Market Price", model: "marketPrice", map: (r) => ({ date: parseDate(r['DATE']) || new Date(), ici1: num(r['ICI 1']), ici2: num(r['ICI 2']), ici3: num(r['ICI 3']), ici4: num(r['ICI 4']), ici5: num(r['ICI 5']), newcastle: num(r['NEWCASTLE']), hba: num(r['HBA']), source: r['SOURCE'] }) },
             { name: "Meetings", model: "meetingItem", map: (r) => ({ title: r['TITLE'] || "Untitled", date: parseDate(r['DATE']), time: r['TIME'], location: r['LOCATION'], status: r['STATUS'] || "scheduled", attendees: r['ATTENDEES'] }), create: (r) => ({ createdBy: "system" }) },
             { name: "Expenses", model: "purchaseRequest", key: "requestNumber", keyValue: (r) => r['REQUEST #'] || r['ID'], map: (r) => ({ requestNumber: r['REQUEST #'], category: r['CATEGORY'] || "Other", supplier: r['SUPPLIER'], description: r['DESCRIPTION'], amount: num(r['AMOUNT']), priority: r['PRIORITY'] || "medium", status: r['STATUS'] || "pending" }), create: (r) => ({ createdBy: "system", createdByName: r['CREATED BY'] }) },
-            { name: "P&L Forecast", model: "pLForecast", map: (r) => ({ dealNumber: r['ID'] ? r['ID'].split('-')[0] : undefined, buyer: r['PROJECT / BUYER'], quantity: num(r['QUANTITY']), sellingPrice: num(r['SELLING PRICE']), buyingPrice: num(r['BUYING PRICE']), freightCost: num(r['FREIGHT COST']), otherCost: num(r['OTHER COST']), grossProfitMt: num(r['GROSS PROFIT / MT']), totalGrossProfit: num(r['TOTAL GROSS PROFIT']) }) },
+            { name: "P&L Forecast", model: "pLForecast", map: (r) => ({ 
+                buyer: r['PROJECT / BUYER'] || r['BUYER'] || 'Unknown', 
+                quantity: num(r['QUANTITY']), 
+                sellingPrice: num(r['SELLING PRICE']), 
+                buyingPrice: num(r['BUYING PRICE']), 
+                freightCost: num(r['FREIGHT COST']), 
+                otherCost: num(r['OTHER COST']), 
+                grossProfitMt: num(r['GROSS PROFIT / MT']), 
+                totalGrossProfit: num(r['TOTAL GROSS PROFIT']) 
+            }) },
             { name: "Projects", model: "salesDeal", key: "dealNumber", keyValue: (r) => r['ID'], map: (r) => ({ dealNumber: r['ID'] ? (r['ID'].startsWith('DEAL-') ? r['ID'] : `DEAL-${r['ID']}`) : undefined, status: r['STATUS'] || "confirmed", buyer: r['BUYER'] || "Unknown", buyerCountry: r['COUNTRY'], type: r['TYPE'] || "export", quantity: num(r['QUANTITY (MT)']), pricePerMt: num(r['PRICE/MT']), totalValue: num(r['TOTAL VALUE']), laycanStart: parseDate(r['LAYCAN START']), laycanEnd: parseDate(r['LAYCAN END']), picName: r['PIC'] }), create: (r) => ({ createdBy: "system" }) },
             { name: "Partners", model: "partner", map: (r) => ({ name: r['NAME'] || "Unknown", type: r['TYPE'] || "buyer", category: r['CATEGORY'], contactPerson: r['CONTACT PERSON'], phone: r['PHONE'], email: r['EMAIL'], address: r['ADDRESS'], city: r['CITY'], country: r['COUNTRY'], taxId: r['TAX ID'], status: r['STATUS'] || "active", notes: r['NOTES'] }) },
         ];

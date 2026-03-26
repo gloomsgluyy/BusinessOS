@@ -2,10 +2,10 @@
 
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
-import { useAuthStore } from "@/store/auth-store";
+import { useSession } from "next-auth/react";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useRouter } from "next/navigation";
-import { DollarSign, TrendingUp, TrendingDown, ArrowRight, Activity, Percent, Plus, X, Loader2, Edit3, Trash2 } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, ArrowRight, Activity, Percent, Plus, X, Loader2, Edit3, Trash2, RefreshCw } from "lucide-react";
 import { Toast } from "@/components/shared/toast";
 import { cn } from "@/lib/utils";
 import { PLForecastItem } from "@/types";
@@ -16,22 +16,25 @@ const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(
 const formatCurrency = (n: number) => `$${safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
 export default function PLForecastClient() {
-    const { hasRole, currentUser } = useAuthStore();
+    const { data: session, status } = useSession();
     const router = useRouter();
     const { plForecasts, addPLForecast, updatePLForecast, deletePLForecast, deals, syncFromMemory } = useCommercialStore();
 
-    const hasAccess = hasRole(["ceo", "director", "operation", "marketing", "purchasing"]);
-    const isHighLevel = hasRole(["ceo", "director"]);
+    const userRole = session?.user?.role?.toLowerCase() || "";
+    const allowedRoles = ["ceo", "director", "operation", "marketing", "purchasing"];
+    const hasAccess = allowedRoles.includes(userRole);
+    const isHighLevel = ["ceo", "director"].includes(userRole);
 
     React.useEffect(() => {
         syncFromMemory();
-        if (!hasAccess) {
+        if (status === "authenticated" && !hasAccess) {
             router.push("/");
         }
-    }, [hasAccess, router, syncFromMemory]);
+    }, [hasAccess, router, syncFromMemory, status]);
 
     const [showForm, setShowForm] = React.useState(false);
     const [isSaving, setIsSaving] = React.useState(false);
+    const [isSyncing, setIsSyncing] = React.useState(false);
     const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
     const [editingId, setEditingId] = React.useState<string | null>(null);
 
@@ -66,7 +69,7 @@ export default function PLForecastClient() {
                     ...form,
                     type: form.type as "local" | "export",
                     status: "forecast",
-                    created_by: currentUser.id || "system",
+                    created_by: session?.user?.id || "system",
                 });
                 console.log("Create successful");
                 setToast({ message: "P&L Forecast created!", type: "success" });
@@ -87,6 +90,19 @@ export default function PLForecastClient() {
         setEditingId(null);
     };
 
+    const handleManualSync = async () => {
+        setIsSyncing(true);
+        try {
+            await syncFromMemory();
+            setToast({ message: "Data synced successfully from Google Sheets!", type: "success" });
+        } catch (error) {
+            console.error("Manual sync error:", error);
+            setToast({ message: "Failed to sync data", type: "error" });
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
     const handleEdit = (f: PLForecastItem) => {
         setForm({
             deal_id: f.deal_id,
@@ -104,7 +120,7 @@ export default function PLForecastClient() {
     };
 
     // Filter forecasts based on role
-    const visibleForecasts = (isHighLevel ? plForecasts : (plForecasts || []).filter((f) => f.created_by === currentUser.id || f.buyer.includes(currentUser.name))) || [];
+    const visibleForecasts = (isHighLevel ? plForecasts : (plForecasts || []).filter((f) => f.created_by === session?.user?.id || f.buyer.includes(session?.user?.name || ""))) || [];
 
     // Summary stats for CEO view
     const totalRevenue = visibleForecasts.reduce((sum, f) => sum + f.quantity * f.selling_price, 0);
@@ -133,7 +149,19 @@ export default function PLForecastClient() {
     const liveProfit = liveRevenue - liveCogs;
     const liveMargin = liveRevenue ? (liveProfit / liveRevenue) * 100 : 0;
 
-    if (!hasAccess) return null;
+    // Show loading while checking authentication
+    if (status === "loading") {
+        return (
+            <AppShell>
+                <div className="p-8 flex items-center justify-center">
+                    <Loader2 className="w-8 h-8 animate-spin" />
+                </div>
+            </AppShell>
+        );
+    }
+
+    // Redirect if not authenticated or no access
+    if (status === "unauthenticated" || !hasAccess) return null;
 
     return (
         <AppShell>
@@ -144,11 +172,22 @@ export default function PLForecastClient() {
                         <h1 className="text-xl md:text-2xl font-bold">P&amp;L Forecast</h1>
                         <p className="text-sm text-muted-foreground">Collaborative profit margin simulation. CEO creates, team members input costs.</p>
                     </div>
-                    {isHighLevel && (
-                        <button onClick={() => { resetForm(); setShowForm(true); }} className="btn-primary flex items-center gap-1.5 shadow-lg shadow-primary/20">
-                            <Plus className="w-4 h-4" /> Create Forecast
+                    <div className="flex items-center gap-2">
+                        <button 
+                            onClick={handleManualSync}
+                            disabled={isSyncing}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                            title="Sync from Google Sheets"
+                        >
+                            <RefreshCw className={cn("w-4 h-4", isSyncing && "animate-spin")} />
+                            {isSyncing ? "Syncing..." : "Sync"}
                         </button>
-                    )}
+                        {isHighLevel && (
+                            <button onClick={() => { resetForm(); setShowForm(true); }} className="btn-primary flex items-center gap-1.5 shadow-lg shadow-primary/20">
+                                <Plus className="w-4 h-4" /> Create Forecast
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Summary Cards */}
@@ -226,7 +265,7 @@ export default function PLForecastClient() {
                             </div>
                         </div>
                         <div className="flex gap-2 mt-4 pt-4 border-t border-border/50">
-                            <button onClick={handleAddOrUpdate} className="btn-primary px-8" disabled={isSaving || !form.deal_id}>
+                            <button onClick={handleAddOrUpdate} className="btn-primary px-8" disabled={isSaving || (!editingId && !form.deal_id)}>
                                 {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</> : editingId ? "Update Costs" : "Create Forecast"}
                             </button>
                             <button onClick={() => { setShowForm(false); resetForm(); }} className="px-6 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent transition-colors" disabled={isSaving}>Cancel</button>

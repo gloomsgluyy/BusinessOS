@@ -663,115 +663,218 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     _rawPLForecasts: [],
     plForecasts: [],
     addPLForecast: async (p) => {
-        const body: any = { ...p };
-        // Map to camelCase for API
-        if (p.deal_id) body.dealId = p.deal_id;
-        if (p.deal_number) body.dealNumber = p.deal_number;
-        if (p.selling_price !== undefined) body.sellingPrice = p.selling_price;
-        if (p.buying_price !== undefined) body.buyingPrice = p.buying_price;
-        if (p.freight_cost !== undefined) body.freightCost = p.freight_cost;
-        if (p.other_cost !== undefined) body.otherCost = p.other_cost;
-        if (p.project_name) body.projectName = p.project_name;
-
-        const res = await fetch("/api/memory/pl-forecasts", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-        });
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.error || "Failed to create forecast");
-        }
-        const data = await res.json();
-        const pl = data.forecast;
-        const mapped: PLForecastItem = {
-            id: pl.id,
-            deal_id: pl.dealId || "",
-            deal_number: pl.dealNumber || "",
-            project_name: pl.projectName || pl.dealNumber || "",
-            status: pl.status || "forecast",
-            created_by: pl.createdBy || "unknown",
-            type: pl.type || "export",
-            buyer: pl.buyer || "Unknown",
-            quantity: pl.quantity || 0,
-            selling_price: pl.sellingPrice || 0,
-            buying_price: pl.buyingPrice || 0,
-            freight_cost: pl.freightCost || 0,
-            other_cost: pl.otherCost || 0,
-            gross_profit_mt: pl.grossProfitMt || 0,
-            total_gross_profit: pl.totalGrossProfit || 0,
-            created_at: pl.createdAt || new Date().toISOString(),
-            updated_at: pl.updatedAt || new Date().toISOString()
+        // OPTIMISTIC UPDATE: Create temporary forecast immediately for better UX
+        const tempId = `temp-${Date.now()}`;
+        const grossProfitMt = (p.selling_price || 0) - (p.buying_price || 0) - (p.freight_cost || 0) - (p.other_cost || 0);
+        const totalGrossProfit = grossProfitMt * (p.quantity || 0);
+        
+        const optimisticForecast: PLForecastItem = {
+            id: tempId,
+            deal_id: p.deal_id || "",
+            deal_number: p.deal_number || "",
+            project_name: p.project_name || p.deal_number || "",
+            status: p.status || "forecast",
+            created_by: p.created_by || "unknown",
+            type: p.type || "export",
+            buyer: p.buyer || "Unknown",
+            quantity: p.quantity || 0,
+            selling_price: p.selling_price || 0,
+            buying_price: p.buying_price || 0,
+            freight_cost: p.freight_cost || 0,
+            other_cost: p.other_cost || 0,
+            gross_profit_mt: grossProfitMt,
+            total_gross_profit: totalGrossProfit,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            _isOptimistic: true // Flag for UI to show loading state
         };
+
+        // Add optimistic forecast to UI immediately
         set((s) => {
-            if (s._rawPLForecasts.some(f => f.id === mapped.id)) return s;
-            const raw = [...s._rawPLForecasts, mapped];
+            const raw = [...s._rawPLForecasts, optimisticForecast];
             return { _rawPLForecasts: raw, plForecasts: raw.filter(x => !x.is_deleted) };
         });
+
+        try {
+            const body: any = { ...p };
+            // Map to camelCase for API
+            if (p.deal_id) body.dealId = p.deal_id;
+            if (p.deal_number) body.dealNumber = p.deal_number;
+            if (p.selling_price !== undefined) body.sellingPrice = p.selling_price;
+            if (p.buying_price !== undefined) body.buyingPrice = p.buying_price;
+            if (p.freight_cost !== undefined) body.freightCost = p.freight_cost;
+            if (p.other_cost !== undefined) body.otherCost = p.other_cost;
+            if (p.project_name) body.projectName = p.project_name;
+
+            const res = await fetch("/api/memory/pl-forecasts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body)
+            });
+            
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                // ROLLBACK: Remove optimistic forecast on error
+                set((s) => {
+                    const raw = s._rawPLForecasts.filter(f => f.id !== tempId);
+                    return { _rawPLForecasts: raw, plForecasts: raw.filter(x => !x.is_deleted) };
+                });
+                throw new Error(err.error || "Failed to create forecast");
+            }
+            
+            const data = await res.json();
+            const pl = data.forecast;
+            const mapped: PLForecastItem = {
+                id: pl.id,
+                deal_id: pl.dealId || "",
+                deal_number: pl.dealNumber || "",
+                project_name: pl.projectName || pl.dealNumber || "",
+                status: pl.status || "forecast",
+                created_by: pl.createdBy || "unknown",
+                type: pl.type || "export",
+                buyer: pl.buyer || "Unknown",
+                quantity: pl.quantity || 0,
+                selling_price: pl.sellingPrice || 0,
+                buying_price: pl.buyingPrice || 0,
+                freight_cost: pl.freightCost || 0,
+                other_cost: pl.otherCost || 0,
+                gross_profit_mt: pl.grossProfitMt || 0,
+                total_gross_profit: pl.totalGrossProfit || 0,
+                created_at: pl.createdAt || new Date().toISOString(),
+                updated_at: pl.updatedAt || new Date().toISOString()
+            };
+            
+            // REPLACE: Replace optimistic forecast with real one from server
+            set((s) => {
+                const raw = s._rawPLForecasts.map(f => f.id === tempId ? mapped : f);
+                return { _rawPLForecasts: raw, plForecasts: raw.filter(x => !x.is_deleted) };
+            });
+        } catch (error) {
+            console.error('[Store] addPLForecast failed:', error);
+            throw error;
+        }
     },
     updatePLForecast: async (id: string, u: Partial<PLForecastItem>) => {
-        const body: any = { id, ...u };
-        if (u.deal_id) body.dealId = u.deal_id;
-        if (u.deal_number) body.dealNumber = u.deal_number;
-        if (u.selling_price !== undefined) body.sellingPrice = u.selling_price;
-        if (u.buying_price !== undefined) body.buyingPrice = u.buying_price;
-        if (u.freight_cost !== undefined) body.freightCost = u.freight_cost;
-        if (u.other_cost !== undefined) body.otherCost = u.other_cost;
-        if (u.project_name) body.projectName = u.project_name;
-        if (u.buyer) body.buyer = u.buyer;
-        if (u.status) body.status = u.status;
-        if (u.type) body.type = u.type;
-
-        const res = await fetch("/api/memory/pl-forecasts", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-        });
-
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.error || "Failed to update forecast");
-        }
-
-        const data = await res.json();
-        const pl = data.forecast;
-        const mapped: PLForecastItem = {
-            id: pl.id,
-            deal_id: pl.dealId || "",
-            deal_number: pl.dealNumber || "",
-            project_name: pl.projectName || pl.dealNumber || "",
-            status: pl.status || "forecast",
-            created_by: pl.createdBy || "unknown",
-            type: pl.type || "export",
-            buyer: pl.buyer || "Unknown",
-            quantity: pl.quantity || 0,
-            selling_price: pl.sellingPrice || 0,
-            buying_price: pl.buyingPrice || 0,
-            freight_cost: pl.freightCost || 0,
-            other_cost: pl.otherCost || 0,
-            gross_profit_mt: pl.grossProfitMt || 0,
-            total_gross_profit: pl.totalGrossProfit || 0,
-            created_at: pl.createdAt,
-            updated_at: pl.updatedAt,
-            is_deleted: pl.isDeleted
-        };
+        // OPTIMISTIC UPDATE: Apply changes immediately to UI
+        const previousState = get()._rawPLForecasts.find(f => f.id === id);
+        
         set((s) => {
-            const raw = s._rawPLForecasts.map((f) => f.id === id ? mapped : f);
+            const raw = s._rawPLForecasts.map((f) => {
+                if (f.id !== id) return f;
+                const updated = { ...f, ...u, updated_at: new Date().toISOString(), _isOptimistic: true };
+                // Recalculate GP for UI
+                const quantity = u.quantity !== undefined ? u.quantity : f.quantity;
+                const sellingPrice = u.selling_price !== undefined ? u.selling_price : f.selling_price;
+                const buyingPrice = u.buying_price !== undefined ? u.buying_price : f.buying_price;
+                const freightCost = u.freight_cost !== undefined ? u.freight_cost : f.freight_cost;
+                const otherCost = u.other_cost !== undefined ? u.other_cost : f.other_cost;
+                updated.gross_profit_mt = sellingPrice - buyingPrice - freightCost - otherCost;
+                updated.total_gross_profit = updated.gross_profit_mt * quantity;
+                return updated;
+            });
             return { _rawPLForecasts: raw, plForecasts: raw.filter(x => !x.is_deleted) };
         });
+
+        try {
+            const body: any = { id };
+            // Map snake_case to camelCase for API
+            if (u.deal_id !== undefined) body.dealId = u.deal_id;
+            if (u.deal_number !== undefined) body.dealNumber = u.deal_number;
+            if (u.selling_price !== undefined) body.sellingPrice = u.selling_price;
+            if (u.buying_price !== undefined) body.buyingPrice = u.buying_price;
+            if (u.freight_cost !== undefined) body.freightCost = u.freight_cost;
+            if (u.other_cost !== undefined) body.otherCost = u.other_cost;
+            if (u.project_name !== undefined) body.projectName = u.project_name;
+            if (u.buyer !== undefined) body.buyer = u.buyer;
+            if (u.status !== undefined) body.status = u.status;
+            if (u.type !== undefined) body.type = u.type;
+            if (u.quantity !== undefined) body.quantity = u.quantity;
+
+            console.log('[Store] Sending PUT request with body:', body);
+
+            const res = await fetch("/api/memory/pl-forecasts", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body)
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                console.error('[Store] PUT request failed:', err);
+                // ROLLBACK: Restore previous state on error
+                if (previousState) {
+                    set((s) => {
+                        const raw = s._rawPLForecasts.map((f) => f.id === id ? previousState : f);
+                        return { _rawPLForecasts: raw, plForecasts: raw.filter(x => !x.is_deleted) };
+                    });
+                }
+                throw new Error(err.error || "Failed to update forecast");
+            }
+
+            const data = await res.json();
+            const pl = data.forecast;
+            const mapped: PLForecastItem = {
+                id: pl.id,
+                deal_id: pl.dealId || "",
+                deal_number: pl.dealNumber || "",
+                project_name: pl.projectName || pl.dealNumber || "",
+                status: pl.status || "forecast",
+                created_by: pl.createdBy || "unknown",
+                type: pl.type || "export",
+                buyer: pl.buyer || "Unknown",
+                quantity: pl.quantity || 0,
+                selling_price: pl.sellingPrice || 0,
+                buying_price: pl.buyingPrice || 0,
+                freight_cost: pl.freightCost || 0,
+                other_cost: pl.otherCost || 0,
+                gross_profit_mt: pl.grossProfitMt || 0,
+                total_gross_profit: pl.totalGrossProfit || 0,
+                created_at: pl.createdAt,
+                updated_at: pl.updatedAt,
+                is_deleted: pl.isDeleted
+            };
+            
+            // CONFIRM: Replace optimistic update with server response
+            set((s) => {
+                const raw = s._rawPLForecasts.map((f) => f.id === id ? mapped : f);
+                return { _rawPLForecasts: raw, plForecasts: raw.filter(x => !x.is_deleted) };
+            });
+        } catch (error) {
+            console.error('[Store] updatePLForecast failed:', error);
+            throw error;
+        }
     },
     deletePLForecast: async (id: string) => {
-        const res = await fetch(`/api/memory/pl-forecasts?id=${id}`, {
-            method: "DELETE"
-        });
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.error || "Failed to delete forecast");
-        }
+        // OPTIMISTIC UPDATE: Mark as deleted immediately in UI
+        const previousState = get()._rawPLForecasts.find(f => f.id === id);
+        
         set((s) => ({
-            _rawPLForecasts: s._rawPLForecasts.map(f => f.id === id ? { ...f, is_deleted: true } : f),
+            _rawPLForecasts: s._rawPLForecasts.map(f => f.id === id ? { ...f, is_deleted: true, _isOptimistic: true } : f),
             plForecasts: s.plForecasts.filter(f => f.id !== id)
         }));
+
+        try {
+            const res = await fetch(`/api/memory/pl-forecasts?id=${id}`, {
+                method: "DELETE"
+            });
+            
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                // ROLLBACK: Restore if deletion failed
+                if (previousState) {
+                    set((s) => {
+                        const raw = s._rawPLForecasts.map(f => f.id === id ? previousState : f);
+                        return { _rawPLForecasts: raw, plForecasts: raw.filter(x => !x.is_deleted) };
+                    });
+                }
+                throw new Error(err.error || "Failed to delete forecast");
+            }
+            
+            // CONFIRM: Deletion successful, optimistic state is already correct
+        } catch (error) {
+            console.error('[Store] deletePLForecast failed:', error);
+            throw error;
+        }
     },
 
     // ── Sync Integration ─────────────────────────────────────
