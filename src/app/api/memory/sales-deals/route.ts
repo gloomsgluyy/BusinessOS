@@ -2,25 +2,127 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { syncAllProjectsToSheet } from "@/app/actions/sheet-actions";
+import { syncProjectsFromSheet } from "@/app/actions/sheet-actions";
+import { appendRow, updateRow, deleteRow, findRowIndex } from "@/lib/google-sheets";
 
-import { PushService } from "@/lib/push-to-sheets";
-
-async function triggerPush() {
-    PushService.debouncedPush("salesDeal").catch(err => console.error("Push failed:", err));
-}
+const SHEET_NAME = "Projects";
 
 export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        const deals = await prisma.salesDeal.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
+        // 1. Fetch from source of truth (Sheet) FIRST
+        const sheetRes = await syncProjectsFromSheet();
+
+        if (!sheetRes.success || !sheetRes.projects) {
+            // Fallback if sheets API fails
+            const deals = await prisma.salesDeal.findMany({
+                where: { isDeleted: false },
+                orderBy: { createdAt: "desc" }
+            });
+            return NextResponse.json({ success: true, deals });
+        }
+
+        // 2. Fetch local DB to merge additional specs & fields not tracked in Sheet
+        const dbDeals = await prisma.salesDeal.findMany({
+            where: { isDeleted: false }
+        });
+        const dbMap = new Map(dbDeals.map(d => [d.id, d]));
+
+        // 3. Map sheet data overriding DB data to construct the final response
+        const mergedDeals = sheetRes.projects.map(sp => {
+            const db = dbMap.get(sp.id);
+            return {
+                id: sp.id,
+                dealNumber: db?.dealNumber || sp.id,
+                status: sp.status,
+                buyer: sp.buyer,
+                buyerCountry: sp.buyer_country,
+                type: sp.type,
+                shippingTerms: db?.shippingTerms || "FOB",
+                quantity: sp.quantity,
+                pricePerMt: sp.price_per_mt,
+                totalValue: sp.total_value,
+                laycanStart: sp.laycan_start ? new Date(sp.laycan_start).toISOString() : null,
+                laycanEnd: sp.laycan_end ? new Date(sp.laycan_end).toISOString() : null,
+                vesselName: sp.vessel_name,
+                gar: db?.gar || null,
+                ts: db?.ts || null,
+                ash: db?.ash || null,
+                tm: db?.tm || null,
+                projectId: db?.projectId || null,
+                picId: db?.picId || null,
+                picName: sp.pic_name,
+                createdAt: db?.createdAt || new Date().toISOString(),
+                updatedAt: sp.updated_at || new Date().toISOString()
+            };
         });
 
-        return NextResponse.json({ success: true, deals });
+        // 4. Asynchronous Reconciliation (Sync Sheet changes to DB)
+        Promise.resolve().then(async () => {
+            try {
+                const sheetIds = new Set(sheetRes.projects!.map(p => p.id));
+
+                // Update or create DB records from Sheet data
+                for (const p of sheetRes.projects!) {
+                    const existing = dbMap.get(p.id);
+                    if (existing) {
+                        await prisma.salesDeal.update({
+                            where: { id: p.id },
+                            data: {
+                                buyer: p.buyer,
+                                buyerCountry: p.buyer_country,
+                                type: p.type,
+                                quantity: p.quantity,
+                                pricePerMt: p.price_per_mt,
+                                totalValue: p.total_value,
+                                status: p.status,
+                                vesselName: p.vessel_name,
+                                laycanStart: p.laycan_start ? new Date(p.laycan_start) : null,
+                                laycanEnd: p.laycan_end ? new Date(p.laycan_end) : null,
+                                picName: p.pic_name,
+                                isDeleted: false
+                            }
+                        });
+                    } else {
+                        await prisma.salesDeal.create({
+                            data: {
+                                id: p.id,
+                                dealNumber: p.id,
+                                buyer: p.buyer,
+                                buyerCountry: p.buyer_country,
+                                type: p.type,
+                                quantity: p.quantity,
+                                pricePerMt: p.price_per_mt,
+                                totalValue: p.total_value,
+                                status: p.status,
+                                vesselName: p.vessel_name,
+                                laycanStart: p.laycan_start ? new Date(p.laycan_start) : null,
+                                laycanEnd: p.laycan_end ? new Date(p.laycan_end) : null,
+                                picName: p.pic_name,
+                                createdBy: "system",
+                                createdByName: "System",
+                                shippingTerms: "FOB"
+                            }
+                        });
+                    }
+                }
+
+                // Track deletions
+                const toDelete = dbDeals.filter(d => !sheetIds.has(d.id));
+                for (const d of toDelete) {
+                    await prisma.salesDeal.update({
+                        where: { id: d.id },
+                        data: { isDeleted: true }
+                    });
+                }
+            } catch (e) {
+                console.error("Reconciliation error in Projects:", e);
+            }
+        });
+
+        return NextResponse.json({ success: true, deals: mergedDeals });
     } catch (error) {
         console.error("GET /api/memory/sales-deals error:", error);
         return NextResponse.json({ error: "Failed to fetch sales deals" }, { status: 500 });
@@ -33,12 +135,35 @@ export async function POST(req: Request) {
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const data = await req.json();
+        const id = `SD-${Date.now()}`;
+        const dealNumber = data.deal_number || data.dealNumber || id;
 
+        // SpreadSheet First: Push to Sheet
+        const rowData = [
+            id,
+            data.buyer || "-",
+            data.buyer_country || data.buyerCountry || "-",
+            data.type || "export",
+            data.quantity || 0,
+            data.price_per_mt || data.pricePerMt || 0,
+            data.total_value || data.totalValue || 0,
+            data.status || "confirmed",
+            data.vessel_name || data.vesselName || "-",
+            data.laycan_start || data.laycanStart || "-",
+            data.laycan_end || data.laycanEnd || "-",
+            data.pic_name || data.picName || session.user.name,
+            new Date().toISOString()
+        ];
+
+        await appendRow(SHEET_NAME, rowData);
+
+        // Then update DB
         const deal = await prisma.$transaction(async (tx) => {
             const newDeal = await tx.salesDeal.create({
                 data: {
-                    dealNumber: data.deal_number || data.dealNumber || `SD-${Date.now()}`,
-                    status: data.status || "pre_sale",
+                    id: id,
+                    dealNumber: dealNumber,
+                    status: data.status || "confirmed",
                     buyer: data.buyer,
                     buyerCountry: data.buyer_country || data.buyerCountry,
                     type: data.type || "export",
@@ -75,8 +200,7 @@ export async function POST(req: Request) {
             return newDeal;
         });
 
-        await triggerPush();
-
+        // The Frontend maps from `deal` returned, format it explicitly or trust the Prisma formatting.
         return NextResponse.json({ success: true, deal });
     } catch (error) {
         console.error("POST /api/memory/sales-deals error:", error);
@@ -97,6 +221,29 @@ export async function PUT(req: Request) {
         const userRole = session.user.role?.toLowerCase() || "";
         if (existingRecord.createdBy !== session.user.id && !["ceo", "director", "manager"].includes(userRole)) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+
+        // Spreadsheet First: Update Sheet
+        const rowIndex = await findRowIndex(SHEET_NAME, 0, data.id);
+        if (rowIndex > 0) {
+            const sheetRes = await syncProjectsFromSheet();
+            const existingSheet = sheetRes.projects?.find(p => p.id === data.id);
+            const rowData = [
+                data.id,
+                data.buyer ?? existingSheet?.buyer ?? "-",
+                data.buyer_country ?? data.buyerCountry ?? existingSheet?.buyer_country ?? "-",
+                data.type ?? existingSheet?.type ?? "export",
+                data.quantity ?? existingSheet?.quantity ?? 0,
+                data.price_per_mt ?? data.pricePerMt ?? existingSheet?.price_per_mt ?? 0,
+                data.total_value ?? data.totalValue ?? existingSheet?.total_value ?? 0,
+                data.status ?? existingSheet?.status ?? "confirmed",
+                data.vessel_name ?? data.vesselName ?? existingSheet?.vessel_name ?? "-",
+                data.laycan_start ?? data.laycanStart ?? existingSheet?.laycan_start ?? "-",
+                data.laycan_end ?? data.laycanEnd ?? existingSheet?.laycan_end ?? "-",
+                data.pic_name ?? data.picName ?? existingSheet?.pic_name ?? session.user.name,
+                new Date().toISOString()
+            ];
+            await updateRow(SHEET_NAME, rowIndex, rowData);
         }
 
         const deal = await prisma.$transaction(async (tx) => {
@@ -138,8 +285,6 @@ export async function PUT(req: Request) {
             return updatedDeal;
         });
 
-        await triggerPush();
-
         return NextResponse.json({ success: true, deal });
     } catch (error) {
         console.error("PUT /api/memory/sales-deals error:", error);
@@ -163,6 +308,12 @@ export async function DELETE(req: Request) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
+        // Spreadsheet First: Delete Row
+        const rowIndex = await findRowIndex(SHEET_NAME, 0, id);
+        if (rowIndex > 0) {
+            await deleteRow(SHEET_NAME, rowIndex);
+        }
+
         await prisma.$transaction(async (tx) => {
             await tx.salesDeal.update({
                 where: { id },
@@ -180,8 +331,6 @@ export async function DELETE(req: Request) {
                 }
             });
         });
-
-        await triggerPush();
 
         return NextResponse.json({ success: true });
     } catch (error) {

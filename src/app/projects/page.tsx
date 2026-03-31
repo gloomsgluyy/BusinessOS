@@ -9,7 +9,7 @@ import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
 
 export default function ProjectsPage() {
-    const { deals, syncFromMemory, addDeal } = useCommercialStore();
+    const { deals, syncFromMemory, addDeal, updateDeal } = useCommercialStore();
 
     React.useEffect(() => {
         syncFromMemory();
@@ -21,6 +21,10 @@ export default function ProjectsPage() {
     const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
     const [selectedProject, setSelectedProject] = React.useState<any | null>(null);
     const [search, setSearch] = React.useState("");
+
+    const [assigningVesselId, setAssigningVesselId] = React.useState<string | null>(null);
+    const [vesselNameInput, setVesselNameInput] = React.useState("");
+    const [isAssigning, setIsAssigning] = React.useState(false);
 
     const [form, setForm] = React.useState({
         buyer: "",
@@ -63,6 +67,22 @@ export default function ProjectsPage() {
             setToast({ message: "Failed to create project", type: "error" });
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleAssignVessel = async () => {
+        if (!assigningVesselId || !vesselNameInput.trim()) return;
+        setIsAssigning(true);
+        try {
+            await updateDeal(assigningVesselId, { vessel_name: vesselNameInput.trim() } as any);
+            setToast({ message: "Vessel assigned successfully!", type: "success" });
+            // Update local selectedProject state
+            setSelectedProject({ ...selectedProject, vessel_name: vesselNameInput.trim() });
+            setAssigningVesselId(null);
+        } catch (error) {
+            setToast({ message: "Failed to assign vessel", type: "error" });
+        } finally {
+            setIsAssigning(false);
         }
     };
 
@@ -243,12 +263,31 @@ export default function ProjectsPage() {
                                                 <button className="px-4 py-2 bg-background border border-border shadow-sm rounded-lg text-xs font-bold hover:bg-accent transition-colors">Nominate Surveyor</button>
                                             </div>
                                         </div>
+                                    ) : assigningVesselId === selectedProject.id ? (
+                                        <div className="p-5 rounded-xl border border-sky-500/20 bg-sky-500/5 space-y-3">
+                                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Assign Vessel</p>
+                                            <input
+                                                autoFocus
+                                                value={vesselNameInput}
+                                                onChange={(e) => setVesselNameInput(e.target.value)}
+                                                placeholder="e.g. MV Bulk Prosperity"
+                                                className="w-full px-3 py-2 text-sm rounded-lg border border-border outline-none focus:border-sky-500"
+                                            />
+                                            <div className="flex gap-2 pt-1">
+                                                <button onClick={handleAssignVessel} disabled={isAssigning || !vesselNameInput.trim()} className="px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-sm transition-colors disabled:opacity-50">
+                                                    {isAssigning ? "Saving..." : "Save"}
+                                                </button>
+                                                <button onClick={() => setAssigningVesselId(null)} disabled={isAssigning} className="px-4 py-1.5 rounded-lg bg-background border border-border hover:bg-accent text-xs font-bold transition-colors">
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </div>
                                     ) : (
                                         <div className="p-8 rounded-xl border border-dashed border-border/80 bg-accent/10 text-center flex flex-col items-center">
                                             <Ship className="w-10 h-10 text-muted-foreground/30 mb-3" />
                                             <p className="text-base font-bold mb-1">No Vessel Assigned</p>
                                             <p className="text-xs text-muted-foreground mb-4 max-w-xs mx-auto leading-relaxed">Vessel nomination is pending from buyer/logistics. Please coordinate with operations.</p>
-                                            <button className="px-5 py-2 rounded-lg bg-background border border-border text-xs font-bold hover:bg-accent transition-colors shadow-sm">Assign Vessel Now</button>
+                                            <button onClick={() => { setAssigningVesselId(selectedProject.id); setVesselNameInput(""); }} className="px-5 py-2 rounded-lg bg-background border border-border text-xs font-bold hover:bg-accent transition-colors shadow-sm">Assign Vessel Now</button>
                                         </div>
                                     )}
                                 </div>
