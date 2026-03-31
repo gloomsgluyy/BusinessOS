@@ -4,9 +4,9 @@ import { DEMO_USERS, ROLE_PERMISSIONS } from "@/lib/constants";
 import { generateId } from "@/lib/utils";
 
 interface AuthState {
-    currentUser: User;
+    currentUser: User | null;
     users: User[];
-    setCurrentUser: (user: User) => void;
+    setCurrentUser: (user: User | null) => void;
     switchRole: (role: Role) => void;
     hasPermission: (permission: Permission) => boolean;
     hasRole: (roles: Role[]) => boolean;
@@ -16,7 +16,7 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-    currentUser: DEMO_USERS[0] as User,
+    currentUser: null,
     users: DEMO_USERS as User[],
 
     setCurrentUser: (user) => set({ currentUser: user }),

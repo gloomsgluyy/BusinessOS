@@ -20,7 +20,7 @@ export function TaskDetail({ task, onClose }: { task: Task; onClose: () => void 
     const priCfg = TASK_PRIORITIES.find((p) => p.value === task.priority);
 
     const handleComment = () => {
-        if (!comment.trim()) return;
+        if (!comment.trim() || !currentUser) return;
         addComment(task.id, currentUser.id, currentUser.name, currentUser.role, comment);
         setComment("");
     };

@@ -65,8 +65,8 @@ export default function SalesOrdersPage() {
             status: "draft",
             priority: newPriority as any,
             image_url: newImageUrl,
-            created_by: currentUser.id,
-            created_by_name: currentUser.name,
+            created_by: currentUser?.id || "system",
+            created_by_name: currentUser?.name || "System",
         });
 
         // Reset
@@ -162,7 +162,7 @@ export default function SalesOrdersPage() {
                                                     )}
                                                     {o.status === "pending" && hasPermission("approve_sales") && (
                                                         <>
-                                                            <button onClick={(e) => { e.stopPropagation(); approveOrder(o.id, currentUser.name); }} className="p-1 hover:text-emerald-500 transition-colors" title="Approve">
+                                                            <button onClick={(e) => { e.stopPropagation(); approveOrder(o.id, currentUser?.name || "System"); }} className="p-1 hover:text-emerald-500 transition-colors" title="Approve">
                                                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                                             </button>
                                                             <button onClick={(e) => { e.stopPropagation(); rejectOrder(o.id); }} className="p-1 hover:text-red-500 transition-colors" title="Reject">

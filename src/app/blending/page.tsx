@@ -42,7 +42,7 @@ export default function BlendingPage() {
                 source_name: inp.name, quantity: inp.quantity,
                 spec: { gar: inp.gar, ts: inp.ts, ash: inp.ash, tm: inp.tm } as CoalSpec,
             }));
-            const r = await simulateBlend(blendInputs, currentUser.id);
+            const r = await simulateBlend(blendInputs, currentUser?.id || "system");
             setResult(r);
         } finally {
             setIsSimulating(false);

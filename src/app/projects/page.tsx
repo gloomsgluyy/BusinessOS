@@ -53,10 +53,10 @@ export default function ProjectsPage() {
                 laycan_end: form.laycan_end,
                 spec: { gar: form.gar, ts: 0.8, ash: 5.0, tm: 30 },
                 status: "confirmed", // auto confirm as active project
-                created_by: currentUser.id,
-                created_by_name: currentUser.name,
-                pic_id: currentUser.id,
-                pic_name: currentUser.name,
+                created_by: currentUser?.id || "system",
+                created_by_name: currentUser?.name || "System",
+                pic_id: currentUser?.id || "system",
+                pic_name: currentUser?.name || "System",
                 deal_number: `PRJ-${new Date().getFullYear()}${new Date().getMonth() + 1}-${Math.floor(100 + Math.random() * 900)}`,
                 total_value: form.quantity * 50
             } as any);

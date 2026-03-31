@@ -69,8 +69,8 @@ export default function PurchaseRequestsPage() {
             status: "draft",
             priority: newPriority as any,
             image_url: newImageUrl,
-            created_by: currentUser.id,
-            created_by_name: currentUser.name,
+            created_by: currentUser?.id || "system",
+            created_by_name: currentUser?.name || "System",
         });
 
         // Reset
@@ -206,7 +206,7 @@ export default function PurchaseRequestsPage() {
                                                     )}
                                                     {p.status === "pending" && hasPermission("approve_purchases") && (
                                                         <>
-                                                            <button onClick={() => approvePurchase(p.id, currentUser.name)} className="p-1.5 rounded-lg hover:bg-emerald-500/10 transition-colors text-emerald-500" title="Approve">
+                                                            <button onClick={() => approvePurchase(p.id, currentUser?.name || "System")} className="p-1.5 rounded-lg hover:bg-emerald-500/10 transition-colors text-emerald-500" title="Approve">
                                                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                                             </button>
                                                             <button onClick={() => rejectPurchase(p.id)} className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors text-red-500" title="Reject">

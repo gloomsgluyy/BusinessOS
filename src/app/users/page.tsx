@@ -131,7 +131,7 @@ export default function UsersPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                     {filteredUsers.map((user) => {
                         const roleCfg = ROLES.find((r) => r.value === user.role);
-                        const isSelf = user.id === currentUser.id;
+                        const isSelf = user.id === (currentUser?.id);
                         return (
                             <div key={user.id} className="card-elevated p-5 space-y-4 group relative hover:shadow-lg transition-all">
                                 {/* Actions */}

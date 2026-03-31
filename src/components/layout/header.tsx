@@ -78,9 +78,9 @@ export function Header() {
         return map[pathname] || "Dashboard";
     }, [pathname]);
 
-    const roleConfig = ROLES.find((r) => r.value === currentUser.role);
+    const roleConfig = ROLES.find((r) => r.value === currentUser?.role);
 
-    const isHighLevel = ["ceo", "director", "operation"].includes(currentUser.role);
+    const isHighLevel = currentUser ? ["ceo", "director", "operation"].includes(currentUser.role) : false;
     const shipments = useCommercialStore((s) => s.shipments);
     const meetings = useCommercialStore((s) => s.meetings);
     const marketPrices = useCommercialStore((s) => s.marketPrices);
@@ -156,7 +156,7 @@ export function Header() {
         return notifs;
     }, [tasks, meetings, shipments, marketPrices, deals, purchases]);
 
-    const visibleNotifications = ALL_NOTIFICATIONS.filter(n => n.targetRoles.includes(currentUser.role) && (notifTab === "All" || n.category === notifTab));
+    const visibleNotifications = ALL_NOTIFICATIONS.filter(n => currentUser && n.targetRoles.includes(currentUser.role) && (notifTab === "All" || n.category === notifTab));
 
     return (
         <header className="sticky top-0 z-40 h-14 bg-background border-b border-border flex items-center justify-between px-4 md:px-6">

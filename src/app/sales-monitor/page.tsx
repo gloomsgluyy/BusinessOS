@@ -76,8 +76,8 @@ export default function SalesMonitorPage() {
                 vessel_name: form.vessel_name,
                 spec: { gar: form.gar, ts: form.ts, ash: form.ash, tm: form.tm },
                 notes: form.notes,
-                created_by: currentUser.id,
-                created_by_name: currentUser.name,
+                created_by: currentUser?.id || "system",
+                created_by_name: currentUser?.name || "System",
             });
             setToast({ message: "Sales deal created successfully!", type: "success" });
             setShowForm(false);

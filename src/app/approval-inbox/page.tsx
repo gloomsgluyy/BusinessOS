@@ -127,10 +127,10 @@ export default function ApprovalInboxPage() {
                                                 <p className="text-xs text-muted-foreground">Submitted by <span className="font-medium text-foreground">{t.assignee_name}</span> · Due {relativeDate(t.due_date)}</p>
                                             </div>
                                             <div className="flex gap-2 shrink-0">
-                                                <button onClick={() => moveTask(t.id, "done", currentUser.name)} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5">
+                                                <button onClick={() => moveTask(t.id, "done", currentUser?.name || "System")} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5">
                                                     <CheckCircle2 className="w-3.5 h-3.5" /> Approve
                                                 </button>
-                                                <button onClick={() => moveTask(t.id, "in_progress", currentUser.name)} className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5">
+                                                <button onClick={() => moveTask(t.id, "in_progress", currentUser?.name || "System")} className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5">
                                                     <XCircle className="w-3.5 h-3.5" /> Reject
                                                 </button>
                                             </div>
@@ -168,7 +168,7 @@ export default function ApprovalInboxPage() {
                                                 <p className="text-[10px] text-muted-foreground">{relativeDate(o.created_at)}</p>
                                             </div>
                                             <div className="flex gap-2 shrink-0">
-                                                <button onClick={() => approveOrder(o.id, currentUser.name)} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5">
+                                                <button onClick={() => approveOrder(o.id, currentUser?.name || "System")} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5">
                                                     <CheckCircle2 className="w-3.5 h-3.5" /> Approve
                                                 </button>
                                                 <button onClick={() => rejectOrder(o.id)} className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5">
@@ -209,7 +209,7 @@ export default function ApprovalInboxPage() {
                                                 <p className="text-[10px] text-muted-foreground">{relativeDate(p.created_at)}</p>
                                             </div>
                                             <div className="flex gap-2 shrink-0">
-                                                <button onClick={() => approvePurchase(p.id, currentUser.name)} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5">
+                                                <button onClick={() => approvePurchase(p.id, currentUser?.name || "System")} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5">
                                                     <CheckCircle2 className="w-3.5 h-3.5" /> Approve
                                                 </button>
                                                 <button onClick={() => rejectPurchase(p.id)} className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5">
