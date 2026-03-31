@@ -58,6 +58,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     deleteUser: (id) =>
         set((state) => ({
-            users: state.users.filter((u) => u.id !== id && u.id !== state.currentUser.id),
+            users: state.users.filter((u) => u.id !== id && u.id !== state.currentUser?.id),
         })),
 }));

@@ -41,8 +41,8 @@ export function SessionSync() {
                     email: session.user.email || "",
                     role: session.user.role as any,
                     phone: "",
-                    job_title: "",
-                    department: "",
+                    job_title: undefined,
+                    department: undefined,
                     created_at: new Date().toISOString(),
                 });
             }
