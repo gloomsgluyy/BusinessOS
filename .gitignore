@@ -12,3 +12,4 @@ test_*.js
 *.log
 *.db
 *.db-journal
+.vercel
