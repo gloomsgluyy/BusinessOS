@@ -40,13 +40,10 @@ export default function MarketPricePage() {
     const [isSaving, setIsSaving] = React.useState(false);
     const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
     const [showScrapeSettings, setShowScrapeSettings] = React.useState(false);
-    const [autoScrape, setAutoScrape] = React.useState(true);
-    const [scrapeInterval, setScrapeInterval] = React.useState("6_hours");
     const [calc, setCalc] = React.useState({ index: "ici_4", baseAdjust: 0, freight: 0 });
     const [form, setForm] = React.useState({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0 });
     const [isScraping, setIsScraping] = React.useState(false);
     const [scrapeLogs, setScrapeLogs] = React.useState<string[]>([]);
-    const [lastScrapeTime, setLastScrapeTime] = React.useState<string | null>(null);
 
     const addLog = (msg: string) => setScrapeLogs(prev => [...prev.slice(-20), `[${new Date().toLocaleTimeString()}] ${msg}`]);
 
@@ -82,7 +79,6 @@ export default function MarketPricePage() {
                 });
 
                 addLog("Market data updated/saved and synced.");
-                setLastScrapeTime(new Date().toLocaleTimeString());
                 addLog("Scraping complete.");
             } else {
                 addLog(`Error: ${data.error || "Unknown error"}`);
@@ -96,16 +92,6 @@ export default function MarketPricePage() {
 
     React.useEffect(() => setMounted(true), []);
 
-    // Auto-scrape interval
-    React.useEffect(() => {
-        if (!autoScrape) return;
-        const intervals: Record<string, number> = { "1_min": 60000, "5_min": 300000, "1_hour": 3600000, "6_hours": 21600000, "12_hours": 43200000, "daily": 86400000 };
-        const ms = intervals[scrapeInterval] || 21600000;
-        // Fetch once on mount
-        const timeout = setTimeout(() => fetchMarketPrices(), 3000);
-        const interval = setInterval(fetchMarketPrices, ms);
-        return () => { clearTimeout(timeout); clearInterval(interval); };
-    }, [autoScrape, scrapeInterval]);
 
     const data = [...marketPrices].reverse().map((p) => {
         const d = new Date(p.date);
@@ -180,11 +166,9 @@ export default function MarketPricePage() {
                     <div>
                         <h1 className="text-xl md:text-2xl font-bold flex items-center gap-3">
                             Market Price Index
-                            {autoScrape && (
-                                <span className="inline-flex items-center gap-1.5 text-[10px] bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded border border-emerald-500/20 font-bold uppercase tracking-wider">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> AI Scraping Active
-                                </span>
-                            )}
+                            <span className="inline-flex items-center gap-1.5 text-[10px] bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded border border-emerald-500/20 font-bold uppercase tracking-wider">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Global Scraping Active
+                            </span>
                         </h1>
                         <p className="text-sm text-muted-foreground">ICI, Newcastle &amp; HBA coal price tracking</p>
                     </div>
@@ -201,34 +185,19 @@ export default function MarketPricePage() {
                         <div className="modal-content relative bg-card border border-border w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl animate-scale-in p-6">
                             <div className="flex items-center justify-between mb-6">
                                 <div>
-                                    <h2 className="text-lg font-bold">Automated Scraping</h2>
-                                    <p className="text-xs text-muted-foreground mt-1">Configure automated intelligence gathering.</p>
+                                    <h2 className="text-lg font-bold">Market Scraping</h2>
+                                    <p className="text-xs text-muted-foreground mt-1">Global background scraping is active (every 6 hours).</p>
                                 </div>
                                 <button onClick={() => setShowScrapeSettings(false)} className="p-2 hover:bg-accent rounded-lg transition-colors"><X className="w-4 h-4" /></button>
                             </div>
 
                             <div className="space-y-5">
-                                <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-accent/20">
+                                <div className="flex items-center justify-between p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10">
                                     <div>
-                                        <p className="text-sm font-semibold">Enable Auto-Fetch</p>
-                                        <p className="text-[10px] text-muted-foreground">Automatically scrape index providers</p>
+                                        <p className="text-sm font-semibold text-emerald-600">Global Auto-Scraping</p>
+                                        <p className="text-[10px] text-muted-foreground">Runs automatically in the background every 6 hours, regardless of which page you are on.</p>
                                     </div>
-                                    <label className="relative inline-flex items-center cursor-pointer">
-                                        <input type="checkbox" checked={autoScrape} onChange={(e) => setAutoScrape(e.target.checked)} className="sr-only peer" />
-                                        <div className="w-9 h-5 bg-accent peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-                                    </label>
-                                </div>
-
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Scraping Interval</label>
-                                    <select value={scrapeInterval} onChange={(e) => setScrapeInterval(e.target.value)} disabled={!autoScrape} className="w-full px-3 py-2 bg-accent/30 rounded-lg border border-border text-sm outline-none focus:border-primary/50 disabled:opacity-50">
-                                        <option value="1_min">Every 1 Minute (Testing)</option>
-                                        <option value="5_min">Every 5 Minutes (Testing)</option>
-                                        <option value="1_hour">Every 1 Hour</option>
-                                        <option value="6_hours">Every 6 Hours</option>
-                                        <option value="12_hours">Every 12 Hours</option>
-                                        <option value="daily">Daily</option>
-                                    </select>
+                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
                                 </div>
 
                                 <div className="space-y-2 pt-2 border-t border-border/50">
@@ -239,7 +208,7 @@ export default function MarketPricePage() {
                                     <div className="grid grid-cols-2 gap-2">
                                         {["GlobalCoal API", "Argus Media", "McCloskey", "ICE Futures"].map(source => (
                                             <label key={source} className="flex items-center gap-2 cursor-pointer opacity-80 hover:opacity-100">
-                                                <input type="checkbox" defaultChecked disabled={!autoScrape} className="rounded text-emerald-500 focus:ring-emerald-500 bg-accent/30 border-border" />
+                                                <input type="checkbox" defaultChecked readOnly className="rounded text-emerald-500 focus:ring-emerald-500 bg-accent/30 border-border" />
                                                 <span className="text-xs font-medium">{source}</span>
                                             </label>
                                         ))}
@@ -247,12 +216,9 @@ export default function MarketPricePage() {
                                 </div>
 
                                 <div className="space-y-1.5 pt-2 border-t border-border/50">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-[10px] font-semibold text-muted-foreground uppercase">Live Scraping Logs</label>
-                                        {lastScrapeTime && <span className="text-[9px] text-muted-foreground">Last: {lastScrapeTime}</span>}
-                                    </div>
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Manual Fetch Logs</label>
                                     <div className="bg-black/50 p-3 rounded-lg border border-border/50 space-y-1 font-mono text-[10px] h-32 overflow-y-auto">
-                                        {scrapeLogs.length === 0 && <p className="text-muted-foreground">Waiting for scrape...</p>}
+                                        {scrapeLogs.length === 0 && <p className="text-muted-foreground">No manual fetch performed yet.</p>}
                                         {scrapeLogs.map((log, i) => (
                                             <p key={i} className={log.includes("Error") || log.includes("failed") ? "text-red-400" : log.includes("$") ? "text-emerald-400" : "text-muted-foreground"}>
                                                 {log}
@@ -263,10 +229,10 @@ export default function MarketPricePage() {
                                 </div>
 
                                 <button onClick={fetchMarketPrices} disabled={isScraping} className="btn-outline w-full mt-2 disabled:opacity-50">
-                                    {isScraping ? "Scraping..." : "Fetch Now"}
+                                    {isScraping ? "Scraping..." : "Fetch Now (Manual)"}
                                 </button>
                                 <button onClick={() => setShowScrapeSettings(false)} className="btn-primary w-full mt-2">
-                                    Save Configuration
+                                    Close
                                 </button>
                             </div>
                         </div>

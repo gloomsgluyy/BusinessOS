@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/components/auth-provider";
 import { SessionSync } from "@/components/session-sync";
+import { GlobalMarketScraper } from "@/components/global-market-scraper";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,6 +20,7 @@ export default function RootLayout({
             <body>
                 <AuthProvider>
                     <SessionSync />
+                    <GlobalMarketScraper />
                     <ThemeProvider
                         attribute="class"
                         defaultTheme="light"
