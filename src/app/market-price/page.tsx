@@ -44,8 +44,15 @@ export default function MarketPricePage() {
     const [form, setForm] = React.useState({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0 });
     const [isScraping, setIsScraping] = React.useState(false);
     const [scrapeLogs, setScrapeLogs] = React.useState<string[]>([]);
+    const [scrapeInterval, setScrapeInterval] = React.useState("21600000");
 
     const addLog = (msg: string) => setScrapeLogs(prev => [...prev.slice(-20), `[${new Date().toLocaleTimeString()}] ${msg}`]);
+
+    const handleIntervalChange = (val: string) => {
+        setScrapeInterval(val);
+        localStorage.setItem("marketScrapeInterval", val);
+        window.dispatchEvent(new Event("marketScrapeIntervalChanged"));
+    };
 
     const fetchMarketPrices = React.useCallback(async () => {
         if (isScraping) return;
@@ -90,7 +97,11 @@ export default function MarketPricePage() {
         }
     }, [isScraping, marketPrices, addMarketPrice]);
 
-    React.useEffect(() => setMounted(true), []);
+    React.useEffect(() => {
+        setMounted(true);
+        const stored = localStorage.getItem("marketScrapeInterval");
+        if (stored) setScrapeInterval(stored);
+    }, []);
 
 
     const data = [...marketPrices].reverse().map((p) => {
@@ -195,9 +206,22 @@ export default function MarketPricePage() {
                                 <div className="flex items-center justify-between p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10">
                                     <div>
                                         <p className="text-sm font-semibold text-emerald-600">Global Auto-Scraping</p>
-                                        <p className="text-[10px] text-muted-foreground">Runs automatically in the background every 6 hours, regardless of which page you are on.</p>
+                                        <p className="text-[10px] text-muted-foreground">Runs automatically in the background, regardless of which page you are on.</p>
                                     </div>
                                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Scraping Interval</label>
+                                    <select value={scrapeInterval} onChange={(e) => handleIntervalChange(e.target.value)} className="w-full px-3 py-2 bg-accent/30 rounded-lg border border-border text-sm outline-none focus:border-primary/50">
+                                        <option value="3000">Every 3 Seconds (Testing)</option>
+                                        <option value="60000">Every 1 Minute (Testing)</option>
+                                        <option value="300000">Every 5 Minutes (Testing)</option>
+                                        <option value="3600000">Every 1 Hour</option>
+                                        <option value="21600000">Every 6 Hours</option>
+                                        <option value="43200000">Every 12 Hours</option>
+                                        <option value="86400000">Daily</option>
+                                    </select>
                                 </div>
 
                                 <div className="space-y-2 pt-2 border-t border-border/50">
