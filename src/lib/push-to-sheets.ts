@@ -108,17 +108,18 @@ export class PushService {
             switch (model.toLowerCase()) {
                 case 'marketprice':
                     const prices = await prisma.marketPrice.findMany({ where: { isDeleted: false }, orderBy: { date: 'desc' } });
-                    if (prices.length === 0) {
-                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty. Safety guard triggered to prevent Sheet wipe.`);
-                        return;
-                    }
-                    const priceRows = prices.map(p => [p.id, p.date.toISOString(), p.ici1, p.ici2, p.ici3, p.ici4, p.ici5, p.newcastle, p.hba, p.source, p.updatedAt.toISOString()]);
-                    await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Market Price!A2:K1000" });
+                    if (prices.length === 0) { console.warn(`[PushService] Skipping ${model}: DB empty.`); return; }
+                    const priceRows = prices.map(p => [
+                        p.id, p.date.toISOString(), p.ici1, p.ici2, p.ici3, p.ici4, p.ici5, p.newcastle, p.hba,
+                        p.hbaI, p.hbaII, p.hbaIII, p.changeWeekly, p.avgMonthlyIci1, p.avg2WeeksIci1, p.avg4WeeksIci1,
+                        p.hpbValue, p.source, p.updatedAt.toISOString()
+                    ]);
+                    await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Market Price!A2:S5000" });
                     await sheets.spreadsheets.values.update({
                         spreadsheetId: sid, range: "Market Price!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: priceRows }
                     });
-                    console.log(`[PushService] Successfully pushed ${priceRows.length} MarketPrice records.`);
+                    console.log(`[PushService] Pushed ${priceRows.length} MarketPrice records.`);
                     break;
 
                 case 'taskitem':
@@ -138,21 +139,24 @@ export class PushService {
 
                 case 'shipmentdetail':
                     const shipments = await prisma.shipmentDetail.findMany({ where: { isDeleted: false } });
-                    if (shipments.length === 0) {
-                        console.warn(`[PushService] Skipping ${model} check: Local DB is empty.`);
-                        return;
-                    }
+                    if (shipments.length === 0) { console.warn(`[PushService] Skipping ${model}: DB empty.`); return; }
                     const shipmentRows = shipments.map(s => [
-                        s.id, s.shipmentNumber, s.dealId, s.status, s.buyer, s.supplier, s.isBlending ? "Yes" : "No", s.iupOp,
-                        s.vesselName, s.bargeName, s.loadingPort, s.dischargePort, s.quantityLoaded, s.blDate ? s.blDate.toISOString() : "",
-                        s.eta ? s.eta.toISOString() : "", s.salesPrice, s.marginMt, s.picName, s.type, s.milestones, s.createdAt.toISOString(), s.updatedAt.toISOString()
+                        s.id, s.no, s.exportDmo, s.status, s.origin, s.mvProjectName, s.source, s.iupOp, s.shipmentFlow,
+                        s.jettyLoadingPort, s.laycan, s.nomination, s.qtyPlan, s.qtyCob, s.remarks,
+                        s.hargaActualFob, s.hargaActualFobMv, s.hpb, s.statusHpb, s.shipmentStatus,
+                        s.issueNotes, s.blDate ? s.blDate.toISOString() : '', s.pic,
+                        s.kuotaExport, s.surveyorLhv, s.completelyLoaded ? s.completelyLoaded.toISOString() : '',
+                        s.lhvTerbit ? s.lhvTerbit.toISOString() : '', s.lossGainCargo, s.sp, s.deadfreight,
+                        s.jarak, s.shippingTerm, s.shippingRate, s.priceFreight, s.allowance, s.demm,
+                        s.noSpal, s.noSi, s.coaDate ? s.coaDate.toISOString() : '', s.resultGar,
+                        s.year, s.updatedAt.toISOString()
                     ]);
-                    await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Shipments!A2:V1000" });
+                    await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "MV Barge!A2:AP5000" });
                     await sheets.spreadsheets.values.update({
-                        spreadsheetId: sid, range: "Shipments!A2", valueInputOption: "USER_ENTERED",
+                        spreadsheetId: sid, range: "MV Barge!A2", valueInputOption: "USER_ENTERED",
                         requestBody: { values: shipmentRows }
                     });
-                    console.log(`[PushService] Successfully pushed ${shipmentRows.length} ShipmentDetail records.`);
+                    console.log(`[PushService] Pushed ${shipmentRows.length} ShipmentDetail (MV Barge) records.`);
                     break;
 
                 case 'salesorder':
@@ -292,6 +296,44 @@ export class PushService {
                 default:
                     console.warn(`[PushService] No push mapping for model: ${model}`);
             }
+
+            // --- NEW: Daily Delivery & Outstanding Payment ---
+            if (model.toLowerCase() === 'dailydelivery') {
+                const deliveries = await prisma.dailyDelivery.findMany({ where: { isDeleted: false } });
+                if (deliveries.length === 0) { console.warn(`[PushService] Skipping DailyDelivery: DB empty.`); return; }
+                const deliveryRows = deliveries.map(d => [
+                    d.id, d.reportType, d.year, d.shipmentStatus, d.buyer, d.pod, d.shippingTerm,
+                    d.latestEtaPod ? d.latestEtaPod.toISOString() : '', d.arriveAtPod ? d.arriveAtPod.toISOString() : '',
+                    d.keterlambatan, d.pol, d.laycanPol, d.area, d.supplier, d.mvBargeNomination,
+                    d.issue, d.blMonth, d.blQuantity, d.blDate ? d.blDate.toISOString() : '',
+                    d.surveyorPol, d.surveyorPod, d.project, d.flow, d.basePrice, d.poNo,
+                    d.contractNo, d.contractType, d.invoicePrice, d.paymentDueDate ? d.paymentDueDate.toISOString() : '',
+                    d.paymentStatus, d.actualGcvGar, d.actualTs, d.actualAsh, d.actualTm, d.updatedAt.toISOString()
+                ]);
+                await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Daily Delivery!A2:AI5000" });
+                await sheets.spreadsheets.values.update({
+                    spreadsheetId: sid, range: "Daily Delivery!A2", valueInputOption: "USER_ENTERED",
+                    requestBody: { values: deliveryRows }
+                });
+                console.log(`[PushService] Pushed ${deliveryRows.length} DailyDelivery records.`);
+            }
+
+            if (model.toLowerCase() === 'outstandingpayment') {
+                const payments = await prisma.outstandingPayment.findMany({ where: { isDeleted: false } });
+                if (payments.length === 0) { console.warn(`[PushService] Skipping OutstandingPayment: DB empty.`); return; }
+                const paymentRows = payments.map(p => [
+                    p.id, p.perusahaan, p.kodeBatu, p.priceInclPph, p.qty, p.totalDp,
+                    p.calculationDate ? p.calculationDate.toISOString() : '', p.dpToShipment ? p.dpToShipment.toISOString() : '',
+                    p.timeframeDays, p.status, p.year, p.updatedAt.toISOString()
+                ]);
+                await sheets.spreadsheets.values.clear({ spreadsheetId: sid, range: "Outstanding Payment!A2:L5000" });
+                await sheets.spreadsheets.values.update({
+                    spreadsheetId: sid, range: "Outstanding Payment!A2", valueInputOption: "USER_ENTERED",
+                    requestBody: { values: paymentRows }
+                });
+                console.log(`[PushService] Pushed ${paymentRows.length} OutstandingPayment records.`);
+            }
+
         } catch (error: any) {
             console.error(`❌ [PushService] PUSH for ${model} failed:`, error.message);
             if (error.status === 429) {
@@ -306,7 +348,8 @@ export class PushService {
         const models = [
             'marketPrice', 'taskItem', 'shipmentDetail', 'salesOrder',
             'sourceSupplier', 'qualityResult', 'meetingItem',
-            'purchaseRequest', 'pLForecast', 'salesDeal', 'partner'
+            'purchaseRequest', 'pLForecast', 'salesDeal', 'partner',
+            'dailyDelivery', 'outstandingPayment'
         ];
 
         for (const model of models) {

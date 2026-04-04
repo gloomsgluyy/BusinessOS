@@ -29,6 +29,9 @@ export async function GET() {
                     ici5: p.ici_5,
                     newcastle: p.newcastle,
                     hba: p.hba,
+                    hbaI: p.hba_1,
+                    hbaII: p.hba_2,
+                    hbaIII: p.hba_3,
                     source: p.source,
                     createdAt: p.updated_at || new Date().toISOString(),
                     updatedAt: p.updated_at || new Date().toISOString(),
@@ -42,13 +45,17 @@ export async function GET() {
                         update: {
                             date: p.date ? new Date(p.date) : new Date(),
                             ici1: p.ici1, ici2: p.ici2, ici3: p.ici3, ici4: p.ici4, ici5: p.ici5,
-                            newcastle: p.newcastle, hba: p.hba, source: p.source
+                            newcastle: p.newcastle, hba: p.hba, 
+                            hbaI: p.hbaI, hbaII: p.hbaII, hbaIII: p.hbaIII,
+                            source: p.source
                         },
                         create: {
                             id: p.id,
                             date: p.date ? new Date(p.date) : new Date(),
                             ici1: p.ici1, ici2: p.ici2, ici3: p.ici3, ici4: p.ici4, ici5: p.ici5,
-                            newcastle: p.newcastle, hba: p.hba, source: p.source
+                            newcastle: p.newcastle, hba: p.hba, 
+                            hbaI: p.hbaI, hbaII: p.hbaII, hbaIII: p.hbaIII,
+                            source: p.source
                         }
                     })
                 );
@@ -95,6 +102,9 @@ export async function POST(req: Request) {
             ici5: data.ici5 ?? data.ici_5 ?? 0,
             newcastle: data.newcastle ?? 0,
             hba: data.hba ?? 0,
+            hbaI: data.hba1 ?? data.hba_1 ?? 0,
+            hbaII: data.hba2 ?? data.hba_2 ?? 0,
+            hbaIII: data.hba3 ?? data.hba_3 ?? 0,
             source: data.source || "Manual Entry"
         };
         
@@ -166,6 +176,9 @@ export async function PUT(req: Request) {
                 ici5: data.ici5 ?? data.ici_5 ?? 0,
                 newcastle: data.newcastle ?? 0,
                 hba: data.hba ?? 0,
+                hbaI: data.hba1 ?? data.hba_1 ?? 0,
+                hbaII: data.hba2 ?? data.hba_2 ?? 0,
+                hbaIII: data.hba3 ?? data.hba_3 ?? 0,
                 source: data.source
             }
         });

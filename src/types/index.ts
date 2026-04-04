@@ -26,7 +26,8 @@ export type Permission =
     | "market_price"
     | "market_price_edit"
     | "meetings"
-    | "transshipment";
+    | "transshipment"
+    | "outstanding_payment";
 
 // ── Job Titles & Departments ────────────────────────────────────
 export type JobTitle =
@@ -189,37 +190,148 @@ export interface SalesDeal {
 }
 
 // ── Shipment Monitor ──────────────────────────────────────────
-export type ShipmentStatus = "draft" | "confirmed" | "waiting_loading" | "loading" | "in_transit" | "anchorage" | "discharging" | "completed" | "cancelled";
+export type ShipmentStatus = "upcoming" | "done_shipment" | "loading" | "in_transit" | "completed" | "cancelled";
 
 export interface ShipmentDetail {
     id: string;
     is_deleted?: boolean;
-    shipment_number: string;   // SH-YYYYMMDD-XXXX
-    deal_id: string;           // linked to SalesDeal
-    status: ShipmentStatus;
-    buyer: string;
-    supplier: string;
-    is_blending: boolean;
-    blend_sources?: string[];  // array of source IDs if blending
-    iup_op?: string;           // Mining license
+    no?: number;
+    export_dmo?: string;
+    status: string;
+    origin?: string;
+    mv_project_name?: string;
+    source?: string;
+    iup_op?: string;
+    shipment_flow?: string;
+    jetty_loading_port?: string;
+    laycan?: string;
+    nomination?: string;
+    qty_plan?: number;
+    qty_cob?: number;
+    remarks?: string;
+    harga_actual_fob?: number;
+    harga_actual_fob_mv?: number;
+    hpb?: number;
+    status_hpb?: string;
+    shipment_status?: string;
+    issue_notes?: string;
+    bl_date?: string;
+    pic?: string;
+    kuota_export?: string;
+    surveyor_lhv?: string;
+    completely_loaded?: string;
+    lhv_terbit?: string;
+    loss_gain_cargo?: number;
+    sp?: number;
+    deadfreight?: number;
+    jarak?: number;
+    shipping_term?: string;
+    shipping_rate?: number;
+    price_freight?: number;
+    allowance?: string;
+    demm?: string;
+    no_spal?: string;
+    no_si?: string;
+    coa_date?: string;
+    result_gar?: number;
+    // Legacy compat
+    shipment_number?: string;
+    deal_id?: string;
+    buyer?: string;
+    supplier?: string;
     vessel_name?: string;
     barge_name?: string;
     loading_port?: string;
     discharge_port?: string;
-    quantity_loaded?: number;   // MT
+    quantity_loaded?: number;
     quantity_discharged?: number;
-    bl_date?: string;          // Bill of Lading date
     eta?: string;
-    spec_actual?: CoalSpec;
-    pending_items?: string[];  // e.g. ["LC belum keluar", "Draft BL"]
-    milestones?: { title: string; subtitle: string; status: "completed" | "current" | "pending" }[];
-    sales_price?: number;      // USD
-    margin_mt?: number;        // USD
-    pic_id?: string;
+    sales_price?: number;
+    margin_mt?: number;
     pic_name?: string;
-    notes?: string;
-    created_at: string;
-    updated_at: string;
+    type?: string;
+    year?: number;
+    region?: string;
+    buyer_country?: string;
+    is_blending?: boolean;
+    blend_sources?: string[];
+    spec_actual?: CoalSpec;
+    pending_items?: string[];
+    milestones?: { title: string; subtitle: string; status: string }[];
+    created_at?: string;
+    updated_at?: string;
+}
+
+// ── Daily Delivery ────────────────────────────────────────────────
+export interface DailyDelivery {
+    id: string;
+    report_type: string; // "domestic" | "export"
+    year: number;
+    shipment_status?: string;
+    buyer?: string;
+    pod?: string;
+    shipping_term?: string;
+    latest_eta_pod?: string;
+    arrive_at_pod?: string;
+    keterlambatan?: string;
+    pol?: string;
+    laycan_pol?: string;
+    area?: string;
+    supplier?: string;
+    mv_barge_nomination?: string;
+    issue?: string;
+    bl_month?: string;
+    bl_quantity?: number;
+    bl_date?: string;
+    analysis_method?: string;
+    surveyor_pol?: string;
+    surveyor_pod?: string;
+    project?: string;
+    flow?: string;
+    terpal?: string;
+    insurance?: string;
+    base_price?: number;
+    base_price_notes?: string;
+    po_month?: string;
+    product?: string;
+    arrive_at_pol?: string;
+    commence_loading?: string;
+    complete_loading?: string;
+    start_discharging?: string;
+    complete_discharged?: string;
+    pod_quantity?: number;
+    loss_gain_cargo?: number;
+    po_no?: string;
+    contract_no?: string;
+    contract_type?: string;
+    invoice_price?: number;
+    invoice_amount?: number;
+    payment_due_date?: string;
+    payment_status?: string;
+    spec_contract?: string;
+    actual_gcv_gar?: number;
+    actual_ts?: number;
+    actual_ash?: number;
+    actual_tm?: number;
+    created_at?: string;
+    updated_at?: string;
+}
+
+// ── Outstanding Payment ──────────────────────────────────────────
+export interface OutstandingPayment {
+    id: string;
+    perusahaan: string;
+    kode_batu?: string;
+    price_incl_pph?: number;
+    qty?: number;
+    total_dp?: number;
+    calculation_date?: string;
+    dp_to_shipment?: string;
+    timeframe_days?: string;
+    status: string; // pending, partial, paid
+    year: number;
+    created_at?: string;
+    updated_at?: string;
 }
 
 // ── Source / Supplier Management ──────────────────────────────
@@ -321,6 +433,9 @@ export interface MarketPriceEntry {
     ici_5?: number;            // ICI 5 (GAR 3400)
     newcastle: number;         // Newcastle Index
     hba: number;               // Harga Batubara Acuan
+    hba_1?: number; // HBA I
+    hba_2?: number; // HBA II
+    hba_3?: number; // HBA III
     source?: string;
     notes?: string;
     created_by?: string;

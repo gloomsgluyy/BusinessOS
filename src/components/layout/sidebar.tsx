@@ -7,7 +7,7 @@ import {
     LayoutDashboard, Users, Inbox, ClipboardList, ListChecks,
     ShoppingCart, Receipt, TrendingUp, ScrollText, ChevronLeft, X,
     Ship, Factory, FlaskConical, Beaker, LineChart, Truck, Calendar, DollarSign,
-    Anchor, Briefcase, ShieldCheck, Target, Activity, PieChart, Kanban, Map
+    Anchor, Briefcase, ShieldCheck, Target, Activity, PieChart, Kanban, Map, Wallet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -20,7 +20,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
     LayoutDashboard, Users, Inbox, ClipboardList, ListChecks,
     ShoppingCart, Receipt, TrendingUp, ScrollText,
     Ship, Factory, FlaskConical, Beaker, LineChart, Truck, Calendar, DollarSign,
-    Activity, Anchor, Briefcase, ShieldCheck, Target, PieChart, Kanban, Map
+    Activity, Anchor, Briefcase, ShieldCheck, Target, PieChart, Kanban, Map, Wallet
 };
 
 function SidebarContent({ collapsed, onClose }: { collapsed: boolean; onClose?: () => void }) {

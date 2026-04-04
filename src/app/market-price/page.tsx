@@ -41,7 +41,8 @@ export default function MarketPricePage() {
     const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
     const [showScrapeSettings, setShowScrapeSettings] = React.useState(false);
     const [calc, setCalc] = React.useState({ index: "ici_4", baseAdjust: 0, freight: 0 });
-    const [form, setForm] = React.useState({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0 });
+    const [hpbCalc, setHpbCalc] = React.useState({ gar: 4200, tm: 35, ts: 0.2, ash: 8 });
+    const [form, setForm] = React.useState({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0, hba_1: 0, hba_2: 0, hba_3: 0 });
     const [isScraping, setIsScraping] = React.useState(false);
     const [scrapeLogs, setScrapeLogs] = React.useState<string[]>([]);
 
@@ -75,6 +76,9 @@ export default function MarketPricePage() {
                     ici_5: p.ici_5,
                     newcastle: p.newcastle,
                     hba: p.hba,
+                    hba_1: p.hba_1,
+                    hba_2: p.hba_2,
+                    hba_3: p.hba_3,
                     source: p.source
                 });
 
@@ -105,11 +109,49 @@ export default function MarketPricePage() {
             "ICI 5 (3400)": p.ici_5 || 0,
             Newcastle: p.newcastle,
             HBA: p.hba,
+            "HBA I": p.hba_1 || 0,
+            "HBA II": p.hba_2 || 0,
+            "HBA III": p.hba_3 || 0,
         };
     });
 
-    const latest = marketPrices[0];
-    const prev = marketPrices[1];
+    const latest = marketPrices.length > 0 ? marketPrices[marketPrices.length - 1] : null;
+    const prev = marketPrices.length > 1 ? marketPrices[marketPrices.length - 2] : null;
+
+    const calculateHpbEstimate = () => {
+        if (!latest) return 0;
+        const { gar, tm, ts, ash } = hpbCalc;
+        
+        const tiers = [
+            { hba: latest.hba, gar: 6322, tm: 8, ts: 0.8, ash: 15 },
+            { hba: latest.hba_1, gar: 5300, tm: 21.32, ts: 0.75, ash: 6 },
+            { hba: latest.hba_2, gar: 4100, tm: 35.73, ts: 0.23, ash: 9 },
+            { hba: latest.hba_3, gar: 3400, tm: 44.3, ts: 0.20, ash: 27.5 },
+        ];
+        
+        let closestTier = tiers[0];
+        let minDiff = Math.abs(gar - tiers[0].gar);
+        for (let i = 1; i < tiers.length; i++) {
+            const diff = Math.abs(gar - tiers[i].gar);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestTier = tiers[i];
+            }
+        }
+        
+        let basePrice = (gar / closestTier.gar) * (closestTier.hba || 0);
+        
+        const tmDiff = tm - closestTier.tm;
+        const ashDiff = ash - closestTier.ash;
+        const tsDiff = ts - closestTier.ts;
+        
+        const tmAdj = (tmDiff * -0.01) * basePrice;
+        const ashAdj = (ashDiff * -0.005) * basePrice;
+        const tsAdj = (tsDiff * 10 * -0.01) * basePrice;
+        
+        return Math.max(0, basePrice + tmAdj + ashAdj + tsAdj);
+    };
+
     const changes = latest && prev ? [
         { label: "ICI 1 (6500)", val: safeNum(latest.ici_1), diff: safeNum(latest.ici_1) - safeNum(prev.ici_1), color: "#ef4444" },
         { label: "ICI 2 (5800)", val: safeNum(latest.ici_2), diff: safeNum(latest.ici_2) - safeNum(prev.ici_2), color: "#f59e0b" },
@@ -118,6 +160,9 @@ export default function MarketPricePage() {
         { label: "ICI 5 (3400)", val: safeNum(latest.ici_5), diff: safeNum(latest.ici_5) - safeNum(prev.ici_5), color: "#6366f1" },
         { label: "Newcastle", val: safeNum(latest.newcastle), diff: safeNum(latest.newcastle) - safeNum(prev.newcastle), color: "#ec4899" },
         { label: "HBA", val: safeNum(latest.hba), diff: safeNum(latest.hba) - safeNum(prev.hba), color: "#10b981" },
+        { label: "HBA I (5300)", val: safeNum(latest.hba_1), diff: safeNum(latest.hba_1) - safeNum(prev.hba_1), color: "#14b8a6" },
+        { label: "HBA II (4100)", val: safeNum(latest.hba_2), diff: safeNum(latest.hba_2) - safeNum(prev.hba_2), color: "#06b6d4" },
+        { label: "HBA III (3400)", val: safeNum(latest.hba_3), diff: safeNum(latest.hba_3) - safeNum(prev.hba_3), color: "#0ea5e9" },
     ] : [];
 
     const handleSubmit = async () => {
@@ -136,11 +181,14 @@ export default function MarketPricePage() {
                 ici_5: form.ici_5 || 0,
                 newcastle: form.newcastle || 0,
                 hba: form.hba || 0,
+                hba_1: form.hba_1 || 0,
+                hba_2: form.hba_2 || 0,
+                hba_3: form.hba_3 || 0,
                 source: "Manual"
             });
             setToast({ message: "Market prices saved successfully!", type: "success" });
             setShowForm(false);
-            setForm({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0 });
+            setForm({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0, hba_1: 0, hba_2: 0, hba_3: 0 });
         } catch (error) {
             setToast({ message: "Failed to save market prices", type: "error" });
         } finally {
@@ -155,9 +203,6 @@ export default function MarketPricePage() {
             </AppShell>
         );
     }
-
-    const calcBasePrice = latest ? (latest as any)[calc.index] || 0 : 0;
-    const calcRecommended = calcBasePrice + calc.baseAdjust + calc.freight;
 
     return (
         <AppShell>
@@ -254,45 +299,80 @@ export default function MarketPricePage() {
                 </div>
 
                 {/* Formula Calculator Section */}
-                <div className="card-elevated p-5 md:p-6 animate-slide-up delay-1 border border-border/50">
-                    <div className="flex items-start justify-between mb-4">
-                        <div>
-                            <h3 className="text-base font-bold flex items-center gap-2 text-violet-500"><Calculator className="w-5 h-5" /> Live Formula Calculator</h3>
-                            <p className="text-xs text-muted-foreground mt-1">Determine the recommended buying/selling price based on real-time market indices and adjustments.</p>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
+                    {/* Standard Formula Calculator */}
+                    <div className="card-elevated p-5 md:p-6 border border-border/50">
+                        <div className="flex items-start justify-between mb-4">
+                            <div>
+                                <h3 className="text-base font-bold flex items-center gap-2 text-violet-500"><Calculator className="w-5 h-5" /> Standard Index Calculator</h3>
+                                <p className="text-xs text-muted-foreground mt-1">Determine buying/selling price based on real-time market indices.</p>
+                            </div>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Base Index</label>
+                                    <select value={calc.index} onChange={(e) => setCalc({ ...calc, index: e.target.value })} className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-background border border-border text-sm font-medium outline-none focus:border-violet-500/50 pr-8">
+                                        <option value="ici_1">ICI 1 (6500) - ${safeFmt(latest?.ici_1)}</option>
+                                        <option value="ici_2">ICI 2 (5800) - ${safeFmt(latest?.ici_2)}</option>
+                                        <option value="ici_3">ICI 3 (5000) - ${safeFmt(latest?.ici_3)}</option>
+                                        <option value="ici_4">ICI 4 (4200) - ${safeFmt(latest?.ici_4)}</option>
+                                        <option value="ici_5">ICI 5 (3400) - ${safeFmt(latest?.ici_5)}</option>
+                                        <option value="newcastle">Newcastle - ${safeFmt(latest?.newcastle)}</option>
+                                        <option value="hba">HBA (6322) - ${safeFmt(latest?.hba)}</option>
+                                        <option value="hba_1">HBA I (5300) - ${safeFmt(latest?.hba_1)}</option>
+                                        <option value="hba_2">HBA II (4100) - ${safeFmt(latest?.hba_2)}</option>
+                                        <option value="hba_3">HBA III (3400) - ${safeFmt(latest?.hba_3)}</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Premium / Discount (USD)</label>
+                                    <div className="relative mt-1.5">
+                                        <input type="number" step="0.5" value={calc.baseAdjust || ""} onChange={(e) => setCalc({ ...calc, baseAdjust: +e.target.value })} placeholder="e.g. -2.5" className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-sm outline-none focus:border-violet-500/50 pl-8" />
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-mono">$</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="pt-4 border-t border-border/50">
+                                <div className="p-4 rounded-xl bg-violet-500/10 border border-violet-500/20 flex flex-col items-center justify-center">
+                                    <p className="text-[10px] font-bold text-violet-500 uppercase tracking-wider">Final Estimated Price</p>
+                                    <p className="text-3xl font-bold mt-1 text-foreground">${safeFmt((latest?.[calc.index as keyof typeof latest] as number || 0) + (calc.baseAdjust || 0))}</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                        <div className="md:col-span-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+                    {/* HPB Estimation Calculator */}
+                    <div className="card-elevated p-5 md:p-6 border border-border/50">
+                        <div className="flex items-start justify-between mb-4">
                             <div>
-                                <label className="text-[10px] font-semibold text-muted-foreground uppercase">Base Index</label>
-                                <select value={calc.index} onChange={(e) => setCalc({ ...calc, index: e.target.value })} className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-background border border-border text-sm font-medium outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50 pr-8">
-                                    <option value="ici_1">ICI 1 (6500) - ${safeFmt(latest?.ici_1)}</option>
-                                    <option value="ici_2">ICI 2 (5800) - ${safeFmt(latest?.ici_2)}</option>
-                                    <option value="ici_3">ICI 3 (5000) - ${safeFmt(latest?.ici_3)}</option>
-                                    <option value="ici_4">ICI 4 (4200) - ${safeFmt(latest?.ici_4)}</option>
-                                    <option value="ici_5">ICI 5 (3400) - ${safeFmt(latest?.ici_5)}</option>
-                                    <option value="newcastle">Newcastle - ${safeFmt(latest?.newcastle)}</option>
-                                    <option value="hba">HBA - ${safeFmt(latest?.hba)}</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-semibold text-muted-foreground uppercase">Premium / Discount (USD)</label>
-                                <div className="relative mt-1.5">
-                                    <input type="number" step="0.5" value={calc.baseAdjust || ""} onChange={(e) => setCalc({ ...calc, baseAdjust: +e.target.value })} placeholder="e.g. -2.5" className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-sm outline-none focus:border-violet-500/50 pl-8" />
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-mono">$</span>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-semibold text-muted-foreground uppercase">Freight Adjustment (USD)</label>
-                                <div className="relative mt-1.5">
-                                    <input type="number" step="0.5" value={calc.freight || ""} onChange={(e) => setCalc({ ...calc, freight: +e.target.value })} placeholder="e.g. 5.0" className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-sm outline-none focus:border-violet-500/50 pl-8" />
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-mono">$</span>
-                                </div>
+                                <h3 className="text-base font-bold flex items-center gap-2 text-rose-500"><Calculator className="w-5 h-5" /> HPB Estimation</h3>
+                                <p className="text-xs text-muted-foreground mt-1">Estimate HPB price based on actual coal spec quality.</p>
                             </div>
                         </div>
-                        <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-4 flex flex-col justify-center text-center">
-                            <p className="text-[10px] font-bold text-violet-600 uppercase tracking-wider mb-2">Recommended Price</p>
-                            <p className="text-3xl font-bold text-violet-700 font-mono">${calcRecommended.toFixed(2)}</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div>
+                                <label className="text-[10px] font-semibold text-muted-foreground uppercase">GAR</label>
+                                <input type="number" value={hpbCalc.gar} onChange={(e) => setHpbCalc({ ...hpbCalc, gar: +e.target.value })} className="w-full mt-1.5 px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-rose-500/50" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-semibold text-muted-foreground uppercase">TM (%)</label>
+                                <input type="number" step="0.1" value={hpbCalc.tm} onChange={(e) => setHpbCalc({ ...hpbCalc, tm: +e.target.value })} className="w-full mt-1.5 px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-rose-500/50" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-semibold text-muted-foreground uppercase">TS (%)</label>
+                                <input type="number" step="0.01" value={hpbCalc.ts} onChange={(e) => setHpbCalc({ ...hpbCalc, ts: +e.target.value })} className="w-full mt-1.5 px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-rose-500/50" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-semibold text-muted-foreground uppercase">ASH (%)</label>
+                                <input type="number" step="0.1" value={hpbCalc.ash} onChange={(e) => setHpbCalc({ ...hpbCalc, ash: +e.target.value })} className="w-full mt-1.5 px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-rose-500/50" />
+                            </div>
+                        </div>
+                        <div className="pt-4 mt-4 border-t border-border/50">
+                            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 flex flex-col items-center justify-center">
+                                <p className="text-[10px] font-bold text-rose-500 uppercase tracking-wider">Estimated HPB Value</p>
+                                <p className="text-3xl font-bold mt-1 text-foreground">${safeFmt(calculateHpbEstimate())}</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -329,7 +409,7 @@ export default function MarketPricePage() {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                             <div><label className="text-[10px] font-semibold text-muted-foreground uppercase">Date</label>
                                 <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-accent/50 border border-border text-sm outline-none focus:border-primary/50" /></div>
-                            {[["ICI 1", "ici_1"], ["ICI 2", "ici_2"], ["ICI 3", "ici_3"], ["ICI 4", "ici_4"], ["ICI 5", "ici_5"], ["Newcastle", "newcastle"], ["HBA", "hba"]].map(([label, key]) => (
+                            {[["ICI 1", "ici_1"], ["ICI 2", "ici_2"], ["ICI 3", "ici_3"], ["ICI 4", "ici_4"], ["ICI 5", "ici_5"], ["Newcastle", "newcastle"], ["HBA", "hba"], ["HBA I", "hba_1"], ["HBA II", "hba_2"], ["HBA III", "hba_3"]].map(([label, key]) => (
                                 <div key={key}><label className="text-[10px] font-semibold text-muted-foreground uppercase">{label} (USD)</label>
                                     <input type="number" step="0.01" value={(form as any)[key] || ""} onChange={(e) => setForm({ ...form, [key]: +e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-accent/50 border border-border text-sm outline-none focus:border-primary/50" /></div>
                             ))}
@@ -356,7 +436,7 @@ export default function MarketPricePage() {
                 <div className="card-elevated overflow-hidden animate-slide-up delay-3">
                     <table className="w-full text-sm">
                         <thead><tr className="border-b border-border bg-accent/30">
-                            {["Date", "ICI 1", "ICI 2", "ICI 3", "ICI 4", "ICI 5", "Newcastle", "HBA"].map((h) => (
+                            {["Date", "ICI 1", "ICI 2", "ICI 3", "ICI 4", "ICI 5", "Newcastle", "HBA", "HBA I", "HBA II", "HBA III"].map((h) => (
                                 <th key={h} className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase first:text-left">{h}</th>
                             ))}
                         </tr></thead>
@@ -370,7 +450,10 @@ export default function MarketPricePage() {
                                     <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_4)}</td>
                                     <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_5)}</td>
                                     <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.newcastle)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono font-bold">${safeFmt(p.hba)}</td>
+                                    <td className="px-4 py-2.5 text-xs text-right font-mono font-bold text-emerald-500">${safeFmt(p.hba)}</td>
+                                    <td className="px-4 py-2.5 text-xs text-right font-mono text-teal-500">${safeFmt(p.hba_1)}</td>
+                                    <td className="px-4 py-2.5 text-xs text-right font-mono text-cyan-500">${safeFmt(p.hba_2)}</td>
+                                    <td className="px-4 py-2.5 text-xs text-right font-mono text-sky-500">${safeFmt(p.hba_3)}</td>
                                 </tr>
                             ))}
                         </tbody>
