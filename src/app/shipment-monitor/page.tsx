@@ -3,6 +3,7 @@
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
+import { useDailyDeliveryStore } from "@/store/daily-delivery-store";
 import { SHIPMENT_STATUSES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { ShipmentDetail, ShipmentStatus } from "@/types";
@@ -21,11 +22,13 @@ const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(
 
 export default function ShipmentMonitorPage() {
     const { shipments, syncFromMemory, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
+    const { dailyDeliveries, syncDeliveries, addDelivery, updateDelivery, deleteDelivery } = useDailyDeliveryStore();
 
     React.useEffect(() => {
         syncFromMemory();
-    }, [syncFromMemory]);
-    const [mainTab, setMainTab] = React.useState<"Shipments" | "Route Optimizer" | "Import Data" | "Analytics" | "Risk Assessment">("Shipments");
+        syncDeliveries();
+    }, [syncFromMemory, syncDeliveries]);
+    const [mainTab, setMainTab] = React.useState<"MV Barge" | "Daily Delivery" | "Route Optimizer" | "Analytics" | "Risk Assessment">("MV Barge");
     const [activeTab, setActiveTab] = React.useState<ShipmentStatus | "all">("all");
     const [activeView, setActiveView] = React.useState<"list" | "card" | "map">("list");
     const [detailShipment, setDetailShipment] = React.useState<ShipmentDetail | null>(null);
@@ -37,6 +40,51 @@ export default function ShipmentMonitorPage() {
     const [showReportModal, setShowReportModal] = React.useState(false);
 
     // Interactive Modal States
+    const [showDailyForm, setShowDailyForm] = React.useState(false);
+    const [editDailyData, setEditDailyData] = React.useState<any>(null);
+    const [dailyForm, setDailyForm] = React.useState<Partial<any>>({ report_type: "domestic", year: 2026, buyer: "", mv_barge_nomination: "", bl_quantity: 0, issue: "" });
+
+    const handleOpenDailyForm = (data?: any) => {
+        if (data) {
+            setEditDailyData(data);
+            setDailyForm({ ...data });
+        } else {
+            setEditDailyData(null);
+            setDailyForm({ report_type: "domestic", year: 2026, buyer: "", mv_barge_nomination: "", bl_quantity: 0, issue: "" });
+        }
+        setShowDailyForm(true);
+    };
+
+    const handleSaveDaily = async () => {
+        setIsSaving(true);
+        try {
+            if (editDailyData) {
+                await updateDelivery(editDailyData.id, dailyForm);
+                setToast({ message: "Daily log updated", type: "success" });
+            } else {
+                await addDelivery(dailyForm as any);
+                setToast({ message: "Daily log added", type: "success" });
+            }
+            setShowDailyForm(false);
+        } catch(e) {
+            setToast({ message: "Failed to save daily log", type: "error" });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleDeleteDaily = async (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!confirm("Delete this daily log?")) return;
+        try {
+            await deleteDelivery(id);
+            setToast({ message: "Daily log deleted", type: "success" });
+        } catch(e) {
+            setToast({ message: "Failed to delete log", type: "error" });
+        }
+    };
+
+
     const [editBlendingMode, setEditBlendingMode] = React.useState(false);
     const [blendingForm, setBlendingForm] = React.useState({ gar: 0, ts: 0, ash: 0, tm: 0 });
     const [aiRiskInsight, setAiRiskInsight] = React.useState<string>("");
@@ -121,7 +169,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
         if (!matchesTab) return false;
         if (searchQuery) {
             const q = searchQuery.toLowerCase();
-            return s.shipment_number.toLowerCase().includes(q) || s.buyer.toLowerCase().includes(q) || s.vessel_name?.toLowerCase().includes(q);
+            return (s.mv_project_name || s.shipment_number || "").toLowerCase().includes(q) || (s.source || s.buyer || "").toLowerCase().includes(q) || (s.nomination || s.vessel_name || "").toLowerCase().includes(q);
         }
         return true;
     });
@@ -141,9 +189,9 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
         loading: shipments.filter(s => s.status === "loading" || s.status === "waiting_loading").length,
         intransit: shipments.filter(s => s.status === "in_transit" || s.status === "anchorage" || s.status === "discharging").length,
         completed: shipments.filter(s => s.status === "completed").length,
-        revenue: shipments.reduce((sum, s) => sum + (safeNum(s.quantity_loaded) * safeNum(s.sales_price)), 0),
-        gp: shipments.reduce((sum, s) => sum + (safeNum(s.quantity_loaded) * safeNum(s.margin_mt)), 0),
-        volume: shipments.reduce((sum, s) => sum + safeNum(s.quantity_loaded), 0)
+        revenue: shipments.reduce((sum, s) => sum + (safeNum(s.qty_plan || s.quantity_loaded) * safeNum(s.harga_actual_fob_mv || s.sales_price)), 0),
+        gp: shipments.reduce((sum, s) => sum + (safeNum(s.qty_plan || s.quantity_loaded) * safeNum(s.margin_mt)), 0),
+        volume: shipments.reduce((sum, s) => sum + safeNum(s.qty_plan || s.quantity_loaded), 0)
     };
 
     return (
@@ -193,7 +241,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
 
                 {/* Sub-Navigation Tabs */}
                 <div className="flex items-center gap-6 border-b border-border text-sm font-medium overflow-x-auto hide-scrollbar">
-                    {(["Shipments", "Route Optimizer", "Import Data", "Analytics", "Risk Assessment"] as const).map((tab) => (
+                    {(["MV Barge", "Daily Delivery", "Route Optimizer", "Analytics", "Risk Assessment"] as const).map((tab) => (
                         <button key={tab} onClick={() => setMainTab(tab)} className={cn("pb-3 border-b-2 whitespace-nowrap transition-colors", mainTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>
                             {tab}
                         </button>
@@ -239,7 +287,97 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                     </div>
                 </div>
 
-                {activeView === "map" ? (
+                {mainTab === "Daily Delivery" ? (
+                    <div className="card-elevated animate-fade-in overflow-hidden">
+                        <div className="p-4 border-b border-border flex justify-between items-center bg-accent/20">
+                            <div>
+                                <h3 className="text-sm font-bold text-foreground">Daily Delivery Logs</h3>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">Track precise daily loading/discharging progress</p>
+                            </div>
+                            <button onClick={() => handleOpenDailyForm()} className="btn-primary py-1.5 px-3 text-xs">+ Add Daily Log</button>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left whitespace-nowrap">
+                                <thead className="text-[10px] text-muted-foreground uppercase bg-muted/50 border-b border-border">
+                                    <tr>
+                                        <th className="px-6 py-4 font-semibold">Report Type</th>
+                                        <th className="px-6 py-4 font-semibold">Tahun</th>
+                                        <th className="px-6 py-4 font-semibold">Buyer</th>
+                                        <th className="px-6 py-4 font-semibold">MV/Barge Nom.</th>
+                                        <th className="px-6 py-4 font-semibold">BL Quantity</th>
+                                        <th className="px-6 py-4 font-semibold">Issue</th>
+                                        <th className="px-6 py-4 font-semibold text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border/50 bg-card">
+                                    {dailyDeliveries.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={6} className="px-6 py-8 text-center text-xs text-muted-foreground">
+                                                No daily delivery data fetched for current filter.
+                                            </td>
+                                        </tr>
+                                    ) : dailyDeliveries.map(d => (
+                                        <tr key={d.id} className="hover:bg-accent/40 transition-colors">
+                                            <td className="px-6 py-4"><span className="px-2 py-1 bg-accent rounded text-[10px] font-bold uppercase">{d.report_type}</span></td>
+                                            <td className="px-6 py-4 text-xs font-semibold">{d.year}</td>
+                                            <td className="px-6 py-4 text-xs font-bold text-foreground">{d.buyer || "-"}</td>
+                                            <td className="px-6 py-4 text-xs font-semibold">{d.mv_barge_nomination || "-"}</td>
+                                            <td className="px-6 py-4 text-xs font-bold text-blue-500">{d.bl_quantity ? `${d.bl_quantity.toLocaleString()} MT` : "-"}</td>
+                                            <td className="px-6 py-4 text-[10px] text-muted-foreground truncate max-w-[200px]">{d.issue || "No Issues"}</td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="flex items-center justify-end gap-1">
+                                                    <button onClick={(e) => { e.stopPropagation(); handleOpenDailyForm(d); }} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground"><Edit className="w-3.5 h-3.5" /></button>
+                                                    <button onClick={(e) => handleDeleteDaily(d.id, e)} className="p-1.5 rounded-lg hover:bg-rose-500/20 text-rose-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Daily Form Modal */}
+                        {showDailyForm && (
+                            <div className="modal-overlay z-50 fixed inset-0 flex items-center justify-center p-4">
+                                <div className="modal-backdrop absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setShowDailyForm(false)} />
+                                <div className="modal-content relative bg-card border border-border w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl animate-scale-in p-6 z-[60]">
+                                    <div className="flex items-center justify-between mb-6">
+                                        <h2 className="text-lg font-bold">{editDailyData ? "Edit" : "New"} Daily Log</h2>
+                                        <button onClick={() => setShowDailyForm(false)} className="p-2 hover:bg-accent rounded-lg transition-colors"><X className="w-4 h-4" /></button>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Report Type</label>
+                                            <select value={dailyForm.report_type} onChange={e => setDailyForm({ ...dailyForm, report_type: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50">
+                                                <option value="domestic">Domestic</option>
+                                                <option value="export">Export</option>
+                                            </select>
+                                        </div>
+                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Tahun</label>
+                                            <input type="number" value={dailyForm.year} onChange={e => setDailyForm({ ...dailyForm, year: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Buyer</label>
+                                            <input value={dailyForm.buyer} onChange={e => setDailyForm({ ...dailyForm, buyer: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">MV/Barge Nomination</label>
+                                            <input value={dailyForm.mv_barge_nomination} onChange={e => setDailyForm({ ...dailyForm, mv_barge_nomination: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">BL Quantity (MT)</label>
+                                            <input type="number" value={dailyForm.bl_quantity} onChange={e => setDailyForm({ ...dailyForm, bl_quantity: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Issue/Notes</label>
+                                            <input value={dailyForm.issue} onChange={e => setDailyForm({ ...dailyForm, issue: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Shipment Status</label>
+                                            <input value={dailyForm.shipment_status || ""} onChange={e => setDailyForm({ ...dailyForm, shipment_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">POD</label>
+                                            <input value={dailyForm.pod || ""} onChange={e => setDailyForm({ ...dailyForm, pod: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>    
+                                    </div>
+                                    <div className="mt-6 flex justify-end gap-2">
+                                        <button onClick={() => setShowDailyForm(false)} className="px-4 py-2 hover:bg-accent rounded-lg text-sm transition-colors text-muted-foreground" disabled={isSaving}>Cancel</button>
+                                        <button onClick={handleSaveDaily} className="btn-primary" disabled={isSaving}>
+                                            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : "Save Record"}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                ) : activeView === "map" ? (
                     <div className="card-elevated h-[600px] bg-accent/10 border border-border animate-fade-in relative overflow-hidden rounded-xl">
                         {/* Interactive OpenStreetMap iframe of Indonesia */}
                         <iframe
@@ -308,10 +446,10 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                             <button onClick={() => setActiveTab("all")} className={cn("filter-chip text-white", activeTab === "all" ? "filter-chip-active text-white border-transparent" : "filter-chip-inactive bg-white/10")}>
                                 all ({stats.total})
                             </button>
-                            {["Draft", "Confirmed", "Loading", "In Transit", "Completed"].map((s) => {
-                                const val = s.toLowerCase() === "in transit" ? "in_transit" : s.toLowerCase();
-                                const count = s === "Draft" ? shipments.filter(sh => sh.status === "draft").length :
-                                    s === "Confirmed" ? shipments.filter(sh => sh.status === "waiting_loading").length :
+                            {["Done Shipment", "Upcoming", "Loading", "In Transit", "Completed"].map((s) => {
+                                const val = s.toLowerCase() === "in transit" ? "in_transit" : s === "Done Shipment" ? "done_shipment" : s.toLowerCase();
+                                const count = s === "Done Shipment" ? shipments.filter(sh => sh.status === "done_shipment").length :
+                                    s === "Upcoming" ? shipments.filter(sh => sh.status === "upcoming").length :
                                         s === "Loading" ? shipments.filter(sh => sh.status === "loading").length :
                                             s === "In Transit" ? shipments.filter(sh => sh.status === "in_transit").length :
                                                 shipments.filter(sh => sh.status === "completed").length;
@@ -332,8 +470,8 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                             <div>
                                                 <div className="flex justify-between items-start mb-3">
                                                     <div>
-                                                        <h3 className="font-bold text-lg text-primary group-hover:underline decoration-primary/50 underline-offset-4">{sh.shipment_number}</h3>
-                                                        <p className="text-xs text-muted-foreground">{sh.buyer}</p>
+                                                        <h3 className="font-bold text-lg text-primary group-hover:underline decoration-primary/50 underline-offset-4">{sh.mv_project_name || sh.shipment_number || `#${sh.no}`}</h3>
+                                                        <p className="text-xs text-muted-foreground">{sh.source || sh.buyer} • {sh.origin || ""}</p>
                                                     </div>
                                                     <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
                                                         {stCfg?.label}
@@ -341,25 +479,25 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs mb-4">
                                                     <div>
-                                                        <p className="text-muted-foreground text-[10px] uppercase">Vessel</p>
-                                                        <p className="font-medium truncate">{sh.vessel_name || sh.barge_name || "-"}</p>
+                                                        <p className="text-muted-foreground text-[10px] uppercase">MV/Nomination</p>
+                                                        <p className="font-medium truncate">{sh.nomination || sh.vessel_name || sh.barge_name || "-"}</p>
                                                     </div>
                                                     <div>
-                                                        <p className="text-muted-foreground text-[10px] uppercase">Volume</p>
-                                                        <p className="font-medium">{sh.quantity_loaded ? `${sh.quantity_loaded.toLocaleString()} MT` : "-"}</p>
+                                                        <p className="text-muted-foreground text-[10px] uppercase">Qty Plan</p>
+                                                        <p className="font-medium">{(sh.qty_plan || sh.quantity_loaded) ? `${(sh.qty_plan || sh.quantity_loaded)!.toLocaleString()} MT` : "-"}</p>
                                                     </div>
                                                     <div>
-                                                        <p className="text-muted-foreground text-[10px] uppercase">Destination</p>
-                                                        <p className="font-medium truncate">{sh.discharge_port || "-"}</p>
+                                                        <p className="text-muted-foreground text-[10px] uppercase">Jetty/Port</p>
+                                                        <p className="font-medium truncate">{sh.jetty_loading_port || sh.loading_port || "-"}</p>
                                                     </div>
                                                     <div>
-                                                        <p className="text-muted-foreground text-[10px] uppercase">Margin</p>
-                                                        <p className="font-medium text-emerald-500 font-mono">{sh.margin_mt ? `$${safeFmt(sh.margin_mt)}` : "-"}</p>
+                                                        <p className="text-muted-foreground text-[10px] uppercase">Harga FOB MV</p>
+                                                        <p className="font-medium text-emerald-500 font-mono">{sh.harga_actual_fob_mv ? `$${safeFmt(sh.harga_actual_fob_mv)}` : (sh.sales_price ? `$${safeFmt(sh.sales_price)}` : "-")}</p>
                                                     </div>
                                                 </div>
                                             </div>
                                             <div className="pt-3 border-t border-border/50 flex justify-between items-center text-xs text-muted-foreground">
-                                                <span className="flex items-center gap-1"><Anchor className="w-3.5 h-3.5" /> {sh.bl_date || "Pending BL"}</span>
+                                                <span className="flex items-center gap-1"><Anchor className="w-3.5 h-3.5" /> {sh.laycan || sh.bl_date || "Pending"}</span>
                                                 <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button onClick={(e) => { e.stopPropagation(); openEdit(sh); }} className="p-1 hover:text-foreground"><Edit className="w-3.5 h-3.5" /></button>
                                                 </div>
@@ -377,14 +515,15 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                         <thead>
                                             <tr className="border-b border-border bg-accent/30">
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase w-8"></th>
-                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Shipment ID</th>
-                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Buyer</th>
-                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Destination</th>
-                                                <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Volume (MT)</th>
-                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Vessel</th>
+                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">NO</th>
+                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">EXP/DMO</th>
+                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">MV / Project</th>
+                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Source</th>
+                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Nomination</th>
+                                                <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Qty Plan</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Laycan</th>
-                                                <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Sales Price</th>
-                                                <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Margin/MT</th>
+                                                <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">FOB MV</th>
+                                                <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">HPB</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Status</th>
                                                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase w-16">Actions</th>
                                             </tr>
@@ -402,14 +541,15 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                                     {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
                                                                 </button>
                                                             </td>
-                                                            <td className="px-4 py-3 font-medium text-xs text-primary">{sh.shipment_number}</td>
-                                                            <td className="px-4 py-3 text-xs">{sh.buyer}</td>
-                                                            <td className="px-4 py-3 text-xs text-muted-foreground">{sh.discharge_port || "-"}</td>
-                                                            <td className="px-4 py-3 text-right text-xs font-semibold">{sh.quantity_loaded ? safeNum(sh.quantity_loaded).toLocaleString() : "-"}</td>
-                                                            <td className="px-4 py-3 text-xs">{sh.vessel_name || sh.barge_name || "-"}</td>
-                                                            <td className="px-4 py-3 text-[10px] text-muted-foreground">{sh.bl_date || "-"}</td>
-                                                            <td className="px-4 py-3 text-right text-xs font-mono">{sh.sales_price ? `$${safeFmt(sh.sales_price)}` : "-"}</td>
-                                                            <td className="px-4 py-3 text-right text-xs font-mono font-medium text-emerald-500">{sh.margin_mt ? `$${safeFmt(sh.margin_mt)}` : "-"}</td>
+                                                            <td className="px-4 py-3 font-medium text-xs text-primary">{sh.no || "-"}</td>
+                                                            <td className="px-4 py-3 text-xs">{sh.export_dmo || "-"}</td>
+                                                            <td className="px-4 py-3 text-xs font-semibold">{sh.mv_project_name || sh.shipment_number || "-"}</td>
+                                                            <td className="px-4 py-3 text-xs text-muted-foreground">{sh.source || sh.supplier || "-"}</td>
+                                                            <td className="px-4 py-3 text-xs">{sh.nomination || sh.vessel_name || sh.barge_name || "-"}</td>
+                                                            <td className="px-4 py-3 text-right text-xs font-semibold">{(sh.qty_plan || sh.quantity_loaded) ? safeNum(sh.qty_plan || sh.quantity_loaded).toLocaleString() : "-"}</td>
+                                                            <td className="px-4 py-3 text-[10px] text-muted-foreground">{sh.laycan || sh.bl_date || "-"}</td>
+                                                            <td className="px-4 py-3 text-right text-xs font-mono">{(sh.harga_actual_fob_mv || sh.sales_price) ? `$${safeFmt(sh.harga_actual_fob_mv || sh.sales_price)}` : "-"}</td>
+                                                            <td className="px-4 py-3 text-right text-xs font-mono font-medium text-emerald-500">{sh.hpb ? `$${safeFmt(sh.hpb)}` : (sh.margin_mt ? `$${safeFmt(sh.margin_mt)}` : "-")}</td>
                                                             <td className="px-4 py-3">
                                                                 <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
                                                                     {stCfg?.label}
@@ -430,7 +570,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                         {/* Expanded Detail Row */}
                                                         {isExpanded && (
                                                             <tr className="bg-accent/5 border-b border-border/30">
-                                                                <td colSpan={11} className="px-6 py-4">
+                                                                <td colSpan={13} className="px-6 py-4">
                                                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                                                         {/* Shipping Details */}
                                                                         <div className="space-y-2">
@@ -438,10 +578,10 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                                                 <Anchor className="w-3 h-3" /> Shipping Details
                                                                             </h4>
                                                                             <div className="space-y-1.5 text-xs bg-background/50 p-3 rounded-lg border border-border/50">
-                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Supplier:</span><span className="font-medium text-right">{sh.supplier}</span></div>
-                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Loading Port:</span><span className="font-medium text-right">{sh.loading_port || "-"}</span></div>
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Source:</span><span className="font-medium text-right">{sh.source || sh.supplier}</span></div>
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Jetty/Port:</span><span className="font-medium text-right">{sh.jetty_loading_port || sh.loading_port || "-"}</span></div>
                                                                                 <div className="flex justify-between"><span className="text-muted-foreground">IUP/OP:</span><span className="font-medium text-right">{sh.iup_op || "-"}</span></div>
-                                                                                <div className="flex justify-between"><span className="text-muted-foreground">ETA:</span><span className="font-medium text-right">{sh.eta ? new Date(sh.eta).toLocaleDateString("en", { day: "2-digit", month: "short", year: "numeric" }) : "-"}</span></div>
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Shipment Flow:</span><span className="font-medium text-right">{sh.shipment_flow || "-"}</span></div>
                                                                             </div>
                                                                         </div>
 
@@ -1015,14 +1155,14 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                             <div className="flex items-center justify-between mb-4 border-b border-border/30 pb-3">
                                 <div>
                                     <h2 className="text-xl font-bold text-foreground">Edit Shipment</h2>
-                                    <p className="text-xs text-muted-foreground mt-0.5">{editShipment?.shipment_number}</p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">{editShipment?.mv_project_name || editShipment?.shipment_number}</p>
                                 </div>
                                 <button onClick={() => setEditShipment(null)} className="p-1.5 rounded-lg hover:bg-accent bg-accent/50 text-muted-foreground"><X className="w-4 h-4" /></button>
                             </div>
-                            <div className="grid grid-cols-2 gap-4 text-sm mt-4">
+                            <div className="grid grid-cols-2 gap-4 text-sm mt-4 max-h-[60vh] overflow-y-auto pr-2">
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Shipment ID</label>
-                                    <input type="text" value={editForm.shipment_number || ""} onChange={(e) => setEditForm({ ...editForm, shipment_number: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs font-bold text-primary" />
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">MV / Project Name</label>
+                                    <input type="text" value={editForm.mv_project_name || ""} onChange={(e) => setEditForm({ ...editForm, mv_project_name: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs font-bold text-primary" />
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Status</label>
@@ -1031,62 +1171,68 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                     </select>
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Buyer</label>
-                                    <input type="text" value={editForm.buyer || ""} onChange={(e) => setEditForm({ ...editForm, buyer: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Export / DMO</label>
+                                    <select value={editForm.export_dmo || ""} onChange={(e) => setEditForm({ ...editForm, export_dmo: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs">
+                                        <option value="EXPORT">EXPORT</option><option value="DMO">DMO</option>
+                                    </select>
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Supplier</label>
-                                    <input type="text" value={editForm.supplier || ""} onChange={(e) => setEditForm({ ...editForm, supplier: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                </div>
-                                <div className="col-span-2 grid grid-cols-3 gap-4 border-t border-b border-border/30 py-3 my-1">
-                                    <div className="space-y-1.5">
-                                        <label className="text-[10px] font-semibold text-muted-foreground uppercase">GAR (Actual)</label>
-                                        <input type="number" value={editForm.spec_actual?.gar || ""} onChange={(e) => setEditForm({ ...editForm, spec_actual: { ...(editForm.spec_actual as any), gar: Number(e.target.value) } })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label className="text-[10px] font-semibold text-muted-foreground uppercase">TS (%)</label>
-                                        <input type="number" step="0.1" value={editForm.spec_actual?.ts || ""} onChange={(e) => setEditForm({ ...editForm, spec_actual: { ...(editForm.spec_actual as any), ts: Number(e.target.value) } })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label className="text-[10px] font-semibold text-muted-foreground uppercase">ASH (%)</label>
-                                        <input type="number" step="0.1" value={editForm.spec_actual?.ash || ""} onChange={(e) => setEditForm({ ...editForm, spec_actual: { ...(editForm.spec_actual as any), ash: Number(e.target.value) } })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                    </div>
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Origin</label>
+                                    <input type="text" value={editForm.origin || ""} onChange={(e) => setEditForm({ ...editForm, origin: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" placeholder="KALSEL, KALTIM, SUMSEL" />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Sales Price (USD/MT)</label>
-                                    <input type="number" value={editForm.sales_price || ""} onChange={(e) => setEditForm({ ...editForm, sales_price: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Margin/MT (USD/MT)</label>
-                                    <input type="number" value={editForm.margin_mt || ""} onChange={(e) => setEditForm({ ...editForm, margin_mt: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Vessel Name</label>
-                                    <input type="text" value={editForm.vessel_name || ""} onChange={(e) => setEditForm({ ...editForm, vessel_name: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Barge Name</label>
-                                    <input type="text" value={editForm.barge_name || ""} onChange={(e) => setEditForm({ ...editForm, barge_name: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Qty Loaded (MT)</label>
-                                    <input type="number" value={editForm.quantity_loaded || ""} onChange={(e) => setEditForm({ ...editForm, quantity_loaded: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Loading Port</label>
-                                    <input type="text" value={editForm.loading_port || ""} onChange={(e) => setEditForm({ ...editForm, loading_port: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Discharge Port</label>
-                                    <input type="text" value={editForm.discharge_port || ""} onChange={(e) => setEditForm({ ...editForm, discharge_port: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">ETA</label>
-                                    <input type="date" value={editForm.eta ? editForm.eta.split("T")[0] : ""} onChange={(e) => setEditForm({ ...editForm, eta: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Source Code</label>
+                                    <input type="text" value={editForm.source || ""} onChange={(e) => setEditForm({ ...editForm, source: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" placeholder="BME, GAT01, etc." />
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">IUP / OP</label>
                                     <input type="text" value={editForm.iup_op || ""} onChange={(e) => setEditForm({ ...editForm, iup_op: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Jetty / Loading Port</label>
+                                    <input type="text" value={editForm.jetty_loading_port || ""} onChange={(e) => setEditForm({ ...editForm, jetty_loading_port: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Laycan</label>
+                                    <input type="text" value={editForm.laycan || ""} onChange={(e) => setEditForm({ ...editForm, laycan: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" placeholder="20-24 JAN" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Nomination (Barge)</label>
+                                    <input type="text" value={editForm.nomination || ""} onChange={(e) => setEditForm({ ...editForm, nomination: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Qty Plan (MT)</label>
+                                    <input type="number" value={editForm.qty_plan || ""} onChange={(e) => setEditForm({ ...editForm, qty_plan: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="col-span-2 grid grid-cols-3 gap-4 border-t border-b border-border/30 py-3 my-1">
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-semibold text-muted-foreground uppercase">Harga FOB Barge</label>
+                                        <input type="number" value={editForm.harga_actual_fob || ""} onChange={(e) => setEditForm({ ...editForm, harga_actual_fob: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-semibold text-muted-foreground uppercase">Harga FOB MV</label>
+                                        <input type="number" value={editForm.harga_actual_fob_mv || ""} onChange={(e) => setEditForm({ ...editForm, harga_actual_fob_mv: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-semibold text-muted-foreground uppercase">HPB</label>
+                                        <input type="number" value={editForm.hpb || ""} onChange={(e) => setEditForm({ ...editForm, hpb: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Result GAR</label>
+                                    <input type="number" value={editForm.result_gar || ""} onChange={(e) => setEditForm({ ...editForm, result_gar: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">PIC</label>
+                                    <input type="text" value={editForm.pic || ""} onChange={(e) => setEditForm({ ...editForm, pic: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Shipping Term</label>
+                                    <input type="text" value={editForm.shipping_term || ""} onChange={(e) => setEditForm({ ...editForm, shipping_term: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="space-y-1.5 col-span-2">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Remarks</label>
+                                    <input type="text" value={editForm.remarks || ""} onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
                                 </div>
                             </div>
 

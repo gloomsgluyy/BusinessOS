@@ -49,8 +49,8 @@ export default function TransshipmentPage() {
     };
 
     const handleAddShipment = async () => {
-        if (!addForm.shipment_number) {
-            alert("Shipment Number is required");
+        if (!addForm.mv_project_name && !addForm.shipment_number) {
+            alert("MV/Project Name or Shipment Number is required");
             return;
         }
         await addShipment(addForm as any);
@@ -97,9 +97,9 @@ Give a 3-sentence mitigation recommendation focusing on route weather, bunker pr
     // Filter shipments
     const filtered = shipments.filter(s =>
         searchQuery ?
-            s.shipment_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            s.buyer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (s.vessel_name || "").toLowerCase().includes(searchQuery.toLowerCase())
+            (s.mv_project_name || s.shipment_number || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (s.source || s.buyer || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (s.nomination || s.vessel_name || "").toLowerCase().includes(searchQuery.toLowerCase())
             : true
     ).slice(0, 100); // Limit rendered items based on view
 

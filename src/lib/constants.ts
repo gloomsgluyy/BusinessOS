@@ -19,7 +19,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
         "move_to_done", "chatbot", "view_restricted_finance",
         "sales_monitor", "shipment_monitor", "source_management",
         "quality", "blending_simulation", "market_price", "market_price_edit",
-        "meetings", "transshipment",
+        "meetings", "transshipment", "outstanding_payment",
     ],
     director: [
         "dashboard", "approval_inbox", "my_tasks", "all_tasks",
@@ -29,7 +29,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
         "move_to_done", "chatbot", "view_restricted_finance",
         "sales_monitor", "shipment_monitor", "source_management",
         "quality", "blending_simulation", "market_price", "market_price_edit",
-        "meetings", "transshipment",
+        "meetings", "transshipment", "outstanding_payment",
     ],
     marketing: [
         "my_tasks", "all_tasks",
@@ -100,15 +100,12 @@ export const SALES_DEAL_STATUSES: { value: SalesDealStatus; label: string; color
     { value: "forecast", label: "Forecast", color: "#3b82f6" },
 ];
 
-// ── Shipment Statuses ─────────────────────────────────────────
+// ── Shipment Statuses (MV Barge) ──────────────────────────────
 export const SHIPMENT_STATUSES: { value: ShipmentStatus; label: string; color: string }[] = [
-    { value: "draft", label: "Draft", color: "#6b7280" },
-    { value: "confirmed", label: "Confirmed", color: "#10b981" },
-    { value: "waiting_loading", label: "Waiting for Loading", color: "#f59e0b" },
+    { value: "upcoming", label: "Upcoming", color: "#f59e0b" },
+    { value: "done_shipment", label: "Done Shipment", color: "#10b981" },
     { value: "loading", label: "Loading", color: "#3b82f6" },
     { value: "in_transit", label: "In Transit", color: "#6366f1" },
-    { value: "anchorage", label: "Anchorage", color: "#8b5cf6" },
-    { value: "discharging", label: "Discharging", color: "#ec4899" },
     { value: "completed", label: "Completed", color: "#10b981" },
     { value: "cancelled", label: "Cancelled", color: "#ef4444" },
 ];
@@ -200,6 +197,7 @@ export const NAV_SECTIONS: NavSection[] = [
             { href: "/meetings", label: "Meeting", icon: "Calendar", permission: "meetings" },
             { href: "/my-tasks", label: "Tasks", icon: "ClipboardList", permission: "my_tasks" },
             { href: "/pl-forecast", label: "P&L", icon: "DollarSign", permission: "profit_loss" },
+            { href: "/outstanding-payment", label: "Outstanding Payment", icon: "Wallet", permission: "outstanding_payment" },
             { href: "/purchase-requests", label: "Expenses", icon: "Receipt", permission: "purchase_requests" },
         ],
     },

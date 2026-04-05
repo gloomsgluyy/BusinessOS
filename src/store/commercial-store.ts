@@ -38,26 +38,43 @@ const DEMO_DEALS: SalesDeal[] = [
 const DEMO_SHIPMENTS: ShipmentDetail[] = [
     {
         id: "sh-001",
-        shipment_number: "SH-202602-0001",
-        deal_id: "sd-001",
+        no: 1,
+        export_dmo: "EXPORT",
         status: "loading",
+        origin: "KALTIM",
+        mv_project_name: "MV Bulk Prosperity",
+        source: "BME",
+        iup_op: "PT Indo Mining",
+        shipment_flow: "BME-MSE",
+        jetty_loading_port: "Samarinda",
+        laycan: "20-25 FEB",
+        nomination: "BG Sejahtera 1",
+        qty_plan: 25000,
+        qty_cob: 24800,
+        harga_actual_fob: 59.20,
+        harga_actual_fob_mv: 61.45,
+        hpb: 58.50,
+        status_hpb: "DONE",
+        shipment_status: "Loading",
+        bl_date: "2026-02-25",
+        pic: "Dimas Pratama",
+        result_gar: 4180,
+        year: 2026,
+        // Legacy compat
+        shipment_number: "SH-202602-0001",
         buyer: "KEPCO (Korea)",
         supplier: "PT Indo Mining",
-        is_blending: false,
         vessel_name: "MV Bulk Prosperity",
         barge_name: "BG Sejahtera 1",
-        loading_port: "Samarinda", discharge_port: "Pohang, South Korea",
+        loading_port: "Samarinda",
+        discharge_port: "Pohang, South Korea",
         quantity_loaded: 25000,
-        bl_date: "2026-02-25",
-        eta: "2026-03-05",
-        spec_actual: { gar: 4180, ts: 0.82, ash: 5.1, tm: 30.5 },
-        sales_price: 61.45, margin_mt: 2.25,
-        pic_id: "usr-005", pic_name: "Dimas Pratama",
-        created_at: "2026-02-20T08:00:00Z", updated_at: "2026-02-25T08:00:00Z",
-        buyer_country: "South Korea",
+        sales_price: 61.45,
+        margin_mt: 2.25,
         type: "export",
-        region: "Kalimantan Timur"
-    } as any
+        created_at: "2026-02-20T08:00:00Z",
+        updated_at: "2026-02-25T08:00:00Z",
+    }
 ];
 
 const DEMO_SOURCES: SourceSupplier[] = [
@@ -249,46 +266,43 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     _rawShipments: [],
     shipments: [],
     addShipment: async (s) => {
-        const body = {
-            shipmentNumber: s.shipment_number,
-            dealId: s.deal_id,
-            status: s.status,
-            buyer: s.buyer,
-            supplier: s.supplier,
-            isBlending: s.is_blending,
-            iupOp: s.iup_op,
-            vesselName: s.vessel_name,
-            bargeName: s.barge_name,
-            loadingPort: s.loading_port,
-            dischargePort: s.discharge_port,
-            quantityLoaded: s.quantity_loaded,
-            blDate: s.bl_date,
-            eta: s.eta,
-            salesPrice: s.sales_price,
-            marginMt: s.margin_mt,
-            picName: s.pic_name,
-            milestones: s.milestones,
-            // Quality Spec Mapping
-            gar: s.spec_actual?.gar,
-            ts: s.spec_actual?.ts,
-            ash: s.spec_actual?.ash,
-            tm: s.spec_actual?.tm
+        const body: any = {
+            no: s.no, exportDmo: s.export_dmo, status: s.status || "upcoming",
+            origin: s.origin, mvProjectName: s.mv_project_name, source: s.source,
+            iupOp: s.iup_op, shipmentFlow: s.shipment_flow, jettyLoadingPort: s.jetty_loading_port,
+            laycan: s.laycan, nomination: s.nomination, qtyPlan: s.qty_plan, qtyCob: s.qty_cob,
+            remarks: s.remarks, hargaActualFob: s.harga_actual_fob, hargaActualFobMv: s.harga_actual_fob_mv,
+            hpb: s.hpb, statusHpb: s.status_hpb, shipmentStatus: s.shipment_status,
+            issueNotes: s.issue_notes, blDate: s.bl_date, pic: s.pic,
+            kuotaExport: s.kuota_export, surveyorLhv: s.surveyor_lhv,
+            completelyLoaded: s.completely_loaded, lhvTerbit: s.lhv_terbit,
+            lossGainCargo: s.loss_gain_cargo, sp: s.sp, deadfreight: s.deadfreight,
+            jarak: s.jarak, shippingTerm: s.shipping_term, shippingRate: s.shipping_rate,
+            priceFreight: s.price_freight, allowance: s.allowance, demm: s.demm,
+            noSpal: s.no_spal, noSi: s.no_si, coaDate: s.coa_date, resultGar: s.result_gar,
+            year: s.year || new Date().getFullYear(),
         };
         const res = await fetch("/api/memory/shipments", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
         });
         if (res.ok) {
             const data = await res.json();
             const ship = data.shipment;
             const mapped: ShipmentDetail = {
-                id: ship.id, shipment_number: ship.shipmentNumber, deal_id: ship.dealId, status: ship.status as ShipmentStatus,
-                buyer: ship.buyer, supplier: ship.supplier, is_blending: ship.isBlending, iup_op: ship.iupOp, vessel_name: ship.vesselName,
-                barge_name: ship.bargeName, loading_port: ship.loadingPort, discharge_port: ship.dischargePort, quantity_loaded: ship.quantityLoaded,
-                bl_date: ship.blDate, eta: ship.eta, sales_price: ship.salesPrice, margin_mt: ship.marginMt, pic_name: ship.picName,
-                milestones: ship.milestones ? JSON.parse(ship.milestones) : [],
-                created_at: ship.createdAt, updated_at: ship.updatedAt
+                id: ship.id, no: ship.no, export_dmo: ship.exportDmo, status: ship.status,
+                origin: ship.origin, mv_project_name: ship.mvProjectName, source: ship.source,
+                iup_op: ship.iupOp, shipment_flow: ship.shipmentFlow, jetty_loading_port: ship.jettyLoadingPort,
+                laycan: ship.laycan, nomination: ship.nomination, qty_plan: ship.qtyPlan, qty_cob: ship.qtyCob,
+                remarks: ship.remarks, harga_actual_fob: ship.hargaActualFob, harga_actual_fob_mv: ship.hargaActualFobMv,
+                hpb: ship.hpb, status_hpb: ship.statusHpb, shipment_status: ship.shipmentStatus,
+                issue_notes: ship.issueNotes, bl_date: ship.blDate, pic: ship.pic,
+                kuota_export: ship.kuotaExport, surveyor_lhv: ship.surveyorLhv,
+                completely_loaded: ship.completelyLoaded, lhv_terbit: ship.lhvTerbit,
+                loss_gain_cargo: ship.lossGainCargo, sp: ship.sp, deadfreight: ship.deadfreight,
+                jarak: ship.jarak, shipping_term: ship.shippingTerm, shipping_rate: ship.shippingRate,
+                price_freight: ship.priceFreight, allowance: ship.allowance, demm: ship.demm,
+                no_spal: ship.noSpal, no_si: ship.noSi, coa_date: ship.coaDate, result_gar: ship.resultGar,
+                year: ship.year, created_at: ship.createdAt, updated_at: ship.updatedAt
             };
             set((state) => {
                 const raw = [mapped, ...state._rawShipments];
@@ -298,27 +312,32 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     },
     updateShipment: async (id, u) => {
         const body: any = { id };
+        // Map snake_case to camelCase for API
         if (u.status) body.status = u.status;
-        if (u.buyer) body.buyer = u.buyer;
-        if (u.supplier) body.supplier = u.supplier;
-        if (u.is_blending !== undefined) body.isBlending = u.is_blending;
+        if (u.origin) body.origin = u.origin;
+        if (u.mv_project_name) body.mvProjectName = u.mv_project_name;
+        if (u.source) body.source = u.source;
         if (u.iup_op) body.iupOp = u.iup_op;
-        if (u.vessel_name) body.vesselName = u.vessel_name;
-        if (u.barge_name) body.bargeName = u.barge_name;
-        if (u.loading_port) body.loadingPort = u.loading_port;
-        if (u.discharge_port) body.dischargePort = u.discharge_port;
-        if (u.quantity_loaded !== undefined) body.quantityLoaded = u.quantity_loaded;
+        if (u.shipment_flow) body.shipmentFlow = u.shipment_flow;
+        if (u.jetty_loading_port) body.jettyLoadingPort = u.jetty_loading_port;
+        if (u.laycan) body.laycan = u.laycan;
+        if (u.nomination) body.nomination = u.nomination;
+        if (u.qty_plan !== undefined) body.qtyPlan = u.qty_plan;
+        if (u.qty_cob !== undefined) body.qtyCob = u.qty_cob;
+        if (u.remarks) body.remarks = u.remarks;
+        if (u.harga_actual_fob !== undefined) body.hargaActualFob = u.harga_actual_fob;
+        if (u.harga_actual_fob_mv !== undefined) body.hargaActualFobMv = u.harga_actual_fob_mv;
+        if (u.hpb !== undefined) body.hpb = u.hpb;
+        if (u.status_hpb) body.statusHpb = u.status_hpb;
+        if (u.shipment_status) body.shipmentStatus = u.shipment_status;
+        if (u.issue_notes) body.issueNotes = u.issue_notes;
         if (u.bl_date) body.blDate = u.bl_date;
-        if (u.eta) body.eta = u.eta;
-        if (u.sales_price !== undefined) body.salesPrice = u.sales_price;
-        if (u.margin_mt !== undefined) body.marginMt = u.margin_mt;
-        if (u.pic_name) body.picName = u.pic_name;
-        if (u.milestones) body.milestones = u.milestones;
+        if (u.pic) body.pic = u.pic;
+        if (u.shipping_term) body.shippingTerm = u.shipping_term;
+        if (u.year) body.year = u.year;
 
         await fetch("/api/memory/shipments", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
+            method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
         });
         set((s) => {
             const raw = s._rawShipments.map((ship) => ship.id === id ? { ...ship, ...u, updated_at: new Date().toISOString() } : ship);
@@ -523,6 +542,9 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 ici_5: mp.ici5 !== undefined && mp.ici5 !== null ? mp.ici5 : (mp.ici_5 || 0),
                 newcastle: mp.newcastle !== undefined && mp.newcastle !== null ? mp.newcastle : 0,
                 hba: mp.hba !== undefined && mp.hba !== null ? mp.hba : 0,
+                hba_1: mp.hbaI !== undefined && mp.hbaI !== null ? mp.hbaI : (mp.hba_1 || 0),
+                hba_2: mp.hbaII !== undefined && mp.hbaII !== null ? mp.hbaII : (mp.hba_2 || 0),
+                hba_3: mp.hbaIII !== undefined && mp.hbaIII !== null ? mp.hbaIII : (mp.hba_3 || 0),
                 source: mp.source
             };
             set((s) => {
@@ -899,13 +921,20 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 // Shipments merge
                 if (shipRes.success && shipRes.shipments) {
                     const mappedShipments: ShipmentDetail[] = shipRes.shipments.map((s: any) => ({
-                        id: s.id, shipment_number: s.shipmentNumber, deal_id: s.dealId, status: s.status as ShipmentStatus,
-                        buyer: s.buyer, supplier: s.supplier, is_blending: s.isBlending, iup_op: s.iupOp, vessel_name: s.vesselName,
-                        barge_name: s.bargeName, loading_port: s.loadingPort, discharge_port: s.dischargePort, quantity_loaded: s.quantityLoaded,
-                        bl_date: s.blDate, eta: s.eta, sales_price: s.salesPrice, margin_mt: s.marginMt, pic_name: s.picName,
-                        type: s.type || "export",
-                        milestones: Array.isArray(s.milestones) ? s.milestones : [],
-                        created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
+                        id: s.id, no: s.no, export_dmo: s.exportDmo, status: s.status,
+                        origin: s.origin, mv_project_name: s.mvProjectName, source: s.source,
+                        iup_op: s.iupOp, shipment_flow: s.shipmentFlow, jetty_loading_port: s.jettyLoadingPort,
+                        laycan: s.laycan, nomination: s.nomination, qty_plan: s.qtyPlan, qty_cob: s.qtyCob,
+                        remarks: s.remarks, harga_actual_fob: s.hargaActualFob, harga_actual_fob_mv: s.hargaActualFobMv,
+                        hpb: s.hpb, status_hpb: s.statusHpb, shipment_status: s.shipmentStatus,
+                        issue_notes: s.issueNotes, bl_date: s.blDate, pic: s.pic,
+                        kuota_export: s.kuotaExport, surveyor_lhv: s.surveyorLhv,
+                        completely_loaded: s.completelyLoaded, lhv_terbit: s.lhvTerbit,
+                        loss_gain_cargo: s.lossGainCargo, sp: s.sp, deadfreight: s.deadfreight,
+                        jarak: s.jarak, shipping_term: s.shippingTerm, shipping_rate: s.shippingRate,
+                        price_freight: s.priceFreight, allowance: s.allowance, demm: s.demm,
+                        no_spal: s.noSpal, no_si: s.noSi, coa_date: s.coaDate, result_gar: s.resultGar,
+                        year: s.year, created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
                     }));
                     updates._rawShipments = mappedShipments;
                     updates.shipments = mappedShipments.filter(x => !x.is_deleted);
@@ -952,6 +981,9 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         ici_5: m.ici5 !== undefined ? m.ici5 : (m.ici_5 || 0),
                         newcastle: m.newcastle || 0,
                         hba: m.hba || 0,
+                        hba_1: m.hbaI !== undefined ? m.hbaI : (m.hba_1 || 0),
+                        hba_2: m.hbaII !== undefined ? m.hbaII : (m.hba_2 || 0),
+                        hba_3: m.hbaIII !== undefined ? m.hbaIII : (m.hba_3 || 0),
                         source: m.source || "-",
                         updated_at: m.updatedAt || new Date().toISOString(),
                         is_deleted: m.isDeleted

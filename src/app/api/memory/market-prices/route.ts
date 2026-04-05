@@ -54,6 +54,9 @@ export async function POST(req: Request) {
             ici5: data.ici5 ?? data.ici_5 ?? 0,
             newcastle: data.newcastle ?? 0,
             hba: data.hba ?? 0,
+            hbaI: data.hba1 ?? data.hba_1 ?? 0,
+            hbaII: data.hba2 ?? data.hba_2 ?? 0,
+            hbaIII: data.hba3 ?? data.hba_3 ?? 0,
             source: data.source || "Manual Entry"
         };
         
@@ -112,6 +115,9 @@ export async function PUT(req: Request) {
                     ici5: data.ici5 ?? data.ici_5 ?? 0,
                     newcastle: data.newcastle ?? 0,
                     hba: data.hba ?? 0,
+                    hbaI: data.hba1 ?? data.hba_1 ?? 0,
+                    hbaII: data.hba2 ?? data.hba_2 ?? 0,
+                    hbaIII: data.hba3 ?? data.hba_3 ?? 0,
                     source: data.source
                 }
             });

@@ -13,3 +13,4 @@ test_*.js
 *.db
 *.db-journal
 .vercel
+gen-lang-client*.json
