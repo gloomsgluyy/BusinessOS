@@ -9,7 +9,7 @@ import { MeetingItem } from "@/types";
 import {
     Calendar, Plus, Users, MapPin, FileText, Download, X, Play,
     Mic, Upload, Wand2, Search, Filter, Loader2, FileAudio,
-    CheckCircle2, ListTodo, Sparkles, ChevronRight,
+    CheckCircle2, ListTodo, Sparkles, ChevronRight, Video,
 } from "lucide-react";
 import { useTaskStore } from "@/store/task-store";
 import { AIAgent } from "@/lib/ai-agent";
@@ -18,13 +18,42 @@ import { Toast } from "@/components/shared/toast";
 
 // ─── Type for extracted task ──────────────────────────────────────
 interface ExtractedTask {
-    title: string;
-    assignee_hint?: string;
-    due_date_hint?: string;
-    priority?: "low" | "medium" | "high";
-    confirmed?: boolean;
-    due_date?: string;
+  title: string;
+  assignee_hint?: string;
+  due_date_hint?: string;
+  priority?: "low" | "medium" | "high";
+  confirmed?: boolean;
+  due_date?: string;
+  description?: string;
 }
+
+// ─── Video MOM API types ──────────────────────────────────────────
+interface VideoJobResult {
+  transcription?: string;
+  mom_markdown?: string;
+  extracted_tasks?: ExtractedTask[];
+  pdf_file_name?: string;
+  pdf_file_path?: string;
+  pdf_url?: string;
+}
+
+interface VideoJob {
+  id: string;
+  video_file_name?: string;
+  status:
+    | "pending"
+    | "extracting_audio"
+    | "transcribing"
+    | "generating_mom"
+    | "creating_pdf"
+    | "completed"
+    | "failed";
+  progress: number;
+  error?: string;
+  result?: VideoJobResult;
+}
+
+const MOM_API_BASE = "http://localhost:8080/api/v1";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 function stripMarkdown(md: string): string {
@@ -85,10 +114,20 @@ export default function MeetingsPage() {
 
     // ── File upload ───────────────────────────────────────────────
     const fileInputRef = React.useRef<HTMLInputElement>(null);
+    const videoInputRef = React.useRef<HTMLInputElement>(null);
     const [uploadedFile, setUploadedFile] = React.useState<File | null>(null);
 
     // ── Task extraction ───────────────────────────────────────────
     const [extractedTasks, setExtractedTasks] = React.useState<ExtractedTask[]>([]);
+
+    // ── Video MOM Processing State ────────────────────────────────
+    const [videoUploading, setVideoUploading] = React.useState(false);
+    const [videoProcessing, setVideoProcessing] = React.useState(false);
+    const [videoJobId, setVideoJobId] = React.useState<string | null>(null);
+    const [videoProgress, setVideoProgress] = React.useState(0);
+    const [videoStatus, setVideoStatus] = React.useState("");
+    const [videoPdfUrl, setVideoPdfUrl] = React.useState<string | null>(null);
+    const pollingIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
     // ─── Open meeting modal ───────────────────────────────────────
     const openMeeting = (m: MeetingItem) => {
@@ -98,6 +137,13 @@ export default function MeetingsPage() {
         setUploadedFile(null);
         setExtractedTasks([]);
         setModalTab("mom");
+        // Reset video processing state
+        setVideoUploading(false);
+        setVideoProcessing(false);
+        setVideoJobId(null);
+        setVideoProgress(0);
+        setVideoStatus("");
+        setVideoPdfUrl(null);
     };
 
     const closeModal = () => {
@@ -106,6 +152,14 @@ export default function MeetingsPage() {
         setAiSummary("");
         setUploadedFile(null);
         setExtractedTasks([]);
+        // Clean up video processing state
+        if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+        setVideoUploading(false);
+        setVideoProcessing(false);
+        setVideoJobId(null);
+        setVideoProgress(0);
+        setVideoStatus("");
+        setVideoPdfUrl(null);
     };
 
     // ─── Create meeting ───────────────────────────────────────────
@@ -219,6 +273,128 @@ export default function MeetingsPage() {
     };
 
     const formatSeconds = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+    // ─── Video MOM Processing (Go API) ─────────────────────────────
+    const getVideoStatusText = (status: string): string => {
+        const statusMap: Record<string, string> = {
+            pending: "Waiting in queue...",
+            extracting_audio: "Extracting audio from video...",
+            transcribing: "Transcribing audio with AI...",
+            generating_mom: "Generating meeting minutes...",
+            creating_pdf: "Creating PDF document...",
+            completed: "Processing complete!",
+            failed: "Processing failed",
+        };
+        return statusMap[status] || status;
+    };
+
+    const pollVideoJobStatus = (jobId: string) => {
+        pollingIntervalRef.current = setInterval(async () => {
+            try {
+                const res = await fetch(`${MOM_API_BASE}/mom/jobs/${jobId}`);
+                if (!res.ok) throw new Error("Failed to check job status");
+                
+                const data = await res.json();
+                const job: VideoJob = data.job;
+
+                setVideoProgress(job.progress);
+                setVideoStatus(getVideoStatusText(job.status));
+
+                if (job.status === "completed" && job.result) {
+                    if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+                    setVideoProcessing(false);
+
+                    // Update MOM text with transcription
+                    if (job.result.transcription) {
+                        setMomText((prev) => prev ? prev + "\n\n" + job.result!.transcription : job.result!.transcription || "");
+                    }
+
+                    // Update AI summary with MOM markdown
+                    if (job.result.mom_markdown) {
+                        setAiSummary(job.result.mom_markdown);
+                    }
+
+                    // Extract tasks
+                    if (job.result.extracted_tasks && job.result.extracted_tasks.length > 0) {
+                        setExtractedTasks(
+                            job.result.extracted_tasks.map((t) => ({
+                                ...t,
+                                due_date: new Date().toISOString().split("T")[0],
+                                confirmed: false,
+                            }))
+                        );
+                    }
+
+                    // Store PDF URL
+                    if (job.result.pdf_url) {
+                        setVideoPdfUrl(job.result.pdf_url);
+                    }
+
+                    setToast({ message: "Video MOM generated successfully!", type: "success" });
+                    setModalTab("mom");
+                } else if (job.status === "failed") {
+                    if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+                    setVideoProcessing(false);
+                    setVideoStatus(`Failed: ${job.error || "Unknown error"}`);
+                    setToast({ message: job.error || "Video processing failed", type: "error" });
+                }
+            } catch (error: any) {
+                if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+                setVideoProcessing(false);
+                setVideoStatus("Status check failed");
+                setToast({ message: "Failed to check processing status", type: "error" });
+            }
+        }, 3000);
+    };
+
+    const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !selectedMeeting) return;
+
+        // Validate file extension
+        const validExtensions = [".mp4", ".mov", ".avi", ".mkv", ".webm"];
+        const fileExt = file.name.toLowerCase().substring(file.name.lastIndexOf("."));
+        if (!validExtensions.includes(fileExt)) {
+            setToast({ message: "Invalid format. Allowed: mp4, mov, avi, mkv, webm", type: "error" });
+            return;
+        }
+
+        setUploadedFile(file);
+        setVideoUploading(true);
+        setVideoStatus("Uploading video...");
+        setVideoProgress(0);
+
+        try {
+            const formData = new FormData();
+            formData.append("video", file);
+
+            const res = await fetch(`${MOM_API_BASE}/mom/upload-video`, {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({}));
+                throw new Error(errorData.error || "Upload failed");
+            }
+
+            const data = await res.json();
+            setVideoJobId(data.job_id);
+            setVideoUploading(false);
+            setVideoProcessing(true);
+            setVideoStatus("Processing started...");
+
+            // Start polling for job status
+            pollVideoJobStatus(data.job_id);
+
+        } catch (error: any) {
+            setVideoUploading(false);
+            setVideoProcessing(false);
+            setVideoStatus("");
+            setToast({ message: error.message || "Video upload failed", type: "error" });
+            setUploadedFile(null);
+        }
+    };
 
     // ─── Transcribe audio → plain text MOM ────────────────────────
     const handleTranscribe = async () => {
@@ -407,7 +583,7 @@ Be concise and professional.`;
 
     const upcomingCount = userMeetings.filter((m) => parseDatePart(m.date) >= todayStr && m.status === "scheduled").length;
     const todayCount = userMeetings.filter((m) => parseDatePart(m.date) === todayStr).length;
-    const buyerCount = userMeetings.filter((m) => m.title.toLowerCase().includes("buyer") || m.title.toLowerCase().includes("client")).length;
+    const buyerCount = userMeetings.filter((m) => (m.title || "").toLowerCase().includes("buyer") || (m.title || "").toLowerCase().includes("client")).length;
     const aiMOMCount = userMeetings.filter((m) => m.ai_summary).length;
 
     const filtered = userMeetings.filter((m) => {
@@ -416,7 +592,7 @@ Be concise and professional.`;
         if (activeTab === "past") return dp < todayStr || m.status === "completed";
         return true;
     }).filter((m) => search
-        ? m.title.toLowerCase().includes(search.toLowerCase()) || m.attendees.join(" ").toLowerCase().includes(search.toLowerCase())
+        ? (m.title || "").toLowerCase().includes(search.toLowerCase()) || m.attendees.join(" ").toLowerCase().includes(search.toLowerCase())
         : true
     );
 
@@ -625,22 +801,72 @@ Be concise and professional.`;
                                         <div className="grid grid-cols-1 gap-2">
                                             <button onClick={() => isRecording ? stopRecording() : startRecording()}
                                                 className={cn("w-full flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-medium transition-colors",
-                                                    isRecording ? "bg-red-500/10 border-red-500/30 text-red-500" : "bg-card border-border hover:border-blue-500/50 hover:bg-blue-500/5 text-muted-foreground hover:text-foreground")}>
+                                                    isRecording ? "bg-red-500/10 border-red-500/30 text-red-500" : "bg-card border-border hover:border-blue-500/50 hover:bg-blue-500/5 text-muted-foreground hover:text-foreground")}
+                                                disabled={videoUploading || videoProcessing}>
                                                 <Mic className={cn("w-4 h-4", isRecording ? "animate-pulse" : "")} />
                                                 {isRecording ? `Stop · ${formatSeconds(recordingSeconds)}` : "Start Live Record"}
                                             </button>
-                                            <input type="file" ref={fileInputRef} className="hidden" accept="audio/*,video/*" onChange={handleFileUpload} />
+                                            <input type="file" ref={fileInputRef} className="hidden" accept="audio/*" onChange={handleFileUpload} />
                                             <button onClick={() => fileInputRef.current?.click()}
                                                 className={cn("w-full flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-medium transition-colors",
-                                                    selectedMeeting.voice_note_url || uploadedFile ? "bg-emerald-500/5 border-emerald-500/30 text-emerald-600" : "bg-card border-border hover:border-blue-500/50 hover:bg-blue-500/5 text-muted-foreground hover:text-foreground")}>
+                                                    selectedMeeting.voice_note_url || uploadedFile ? "bg-emerald-500/5 border-emerald-500/30 text-emerald-600" : "bg-card border-border hover:border-blue-500/50 hover:bg-blue-500/5 text-muted-foreground hover:text-foreground")}
+                                                disabled={videoUploading || videoProcessing}>
                                                 <Upload className="w-4 h-4" />
-                                                {selectedMeeting.voice_note_url || uploadedFile ? "Change File" : "Upload Audio/Video"}
+                                                {selectedMeeting.voice_note_url || (uploadedFile && !uploadedFile.type.startsWith("video/")) ? "Change Audio" : "Upload Audio"}
                                             </button>
                                         </div>
-                                        {uploadedFile && <p className="text-[10px] text-muted-foreground truncate text-center">{uploadedFile.name}</p>}
 
-                                        {/* Transcribe Button */}
-                                        {(selectedMeeting.voice_note_url || uploadedFile) && (
+                                        {/* Video MOM Section */}
+                                        <div className="pt-3 border-t border-border space-y-2">
+                                            <h4 className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-1.5">
+                                                <Video className="w-3 h-3" /> Video MOM (AI)
+                                            </h4>
+                                            <p className="text-[9px] text-muted-foreground leading-relaxed">
+                                                Upload video meeting untuk auto-generate MOM dengan AI. Supported: mp4, mov, avi, mkv, webm.
+                                            </p>
+                                            <input type="file" ref={videoInputRef} className="hidden" accept=".mp4,.mov,.avi,.mkv,.webm,video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm" onChange={handleVideoUpload} />
+                                            <button onClick={() => videoInputRef.current?.click()}
+                                                className={cn("w-full flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-medium transition-colors",
+                                                    videoJobId ? "bg-violet-500/10 border-violet-500/30 text-violet-600" : "bg-card border-border hover:border-violet-500/50 hover:bg-violet-500/5 text-muted-foreground hover:text-foreground")}
+                                                disabled={videoUploading || videoProcessing || isRecording}>
+                                                <Video className="w-4 h-4" />
+                                                {videoUploading ? "Uploading..." : videoProcessing ? "Processing..." : "Upload Video Meeting"}
+                                            </button>
+
+                                            {/* Uploaded video file name */}
+                                            {uploadedFile && uploadedFile.type.startsWith("video/") && (
+                                                <p className="text-[10px] text-violet-500 truncate text-center font-medium">{uploadedFile.name}</p>
+                                            )}
+
+                                            {/* Video Processing Progress */}
+                                            {(videoUploading || videoProcessing) && (
+                                                <div className="space-y-2 p-3 bg-violet-500/5 rounded-xl border border-violet-500/20">
+                                                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                                        <div
+                                                            className="bg-violet-600 h-2 rounded-full transition-all duration-500"
+                                                            style={{ width: `${videoProgress}%` }}
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-center justify-between text-[10px]">
+                                                        <span className="text-violet-600 font-medium">{videoStatus}</span>
+                                                        <span className="text-muted-foreground font-mono">{videoProgress}%</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Video PDF Download */}
+                                            {videoPdfUrl && !videoProcessing && (
+                                                <a href={videoPdfUrl} target="_blank" rel="noopener noreferrer"
+                                                    className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-all">
+                                                    <Download className="w-3.5 h-3.5" />Download API Generated PDF
+                                                </a>
+                                            )}
+                                        </div>
+
+                                        {uploadedFile && !uploadedFile.type.startsWith("video/") && <p className="text-[10px] text-muted-foreground truncate text-center">{uploadedFile.name}</p>}
+
+                                        {/* Transcribe Button (for audio only) */}
+                                        {(selectedMeeting.voice_note_url || (uploadedFile && !uploadedFile.type.startsWith("video/"))) && !videoProcessing && (
                                             <button onClick={handleTranscribe} disabled={isTranscribing}
                                                 className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 transition-all disabled:opacity-50">
                                                 {isTranscribing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Transcribing...</>
