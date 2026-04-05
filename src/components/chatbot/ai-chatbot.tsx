@@ -82,7 +82,18 @@ const ACTION_LABEL: Record<string, string> = {
 };
 
 const fc = (n: number) => `$${n.toLocaleString("en-US")}`;
-const fd = (d: string) => { try { return new Date(d).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" }); } catch { return "-"; } };
+const fd = (d: string | Date | undefined | null) => {
+  if (!d) return "-";
+  try {
+    return new Date(d).toLocaleDateString("id-ID", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return "-";
+  }
+};
 
 export function AIChatbot() {
     const { data: session } = useSession();
