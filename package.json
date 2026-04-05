@@ -7,7 +7,8 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
-    "sync": "node sync-manager.cjs",
+    "sync": "echo 'DATABASE-FIRST MODE: Auto-sync disabled. Database is now the source of truth. Use npm run export-to-sheets for manual export.' && node sync-manager.cjs",
+    "export-to-sheets": "echo 'Exporting database to Sheets...' && curl -X GET http://localhost:3000/api/maintenance/sync -H \"Authorization: Bearer ${MAINTENANCE_SYNC_SECRET:-your-secret-here}\"",
     "fix-roles": "node fix-roles-lowercase.js"
   },
   "prisma": {

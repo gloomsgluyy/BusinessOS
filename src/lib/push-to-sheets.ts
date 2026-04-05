@@ -74,9 +74,23 @@ export class PushService {
     private static debounceTimer: NodeJS.Timeout | null = null;
 
     /**
+     * DATABASE-FIRST MODE: Check if Sheets sync is enabled
+     */
+    private static isSheetsEnabled(): boolean {
+        return process.env.ENABLE_SHEETS_SYNC === 'true';
+    }
+
+    /**
      * Debounced push: collects model names and executes a combined push after 5 seconds of inactivity.
+     * DATABASE-FIRST: This is now disabled by default unless ENABLE_SHEETS_SYNC=true
      */
     static async debouncedPush(model: string) {
+        // DATABASE-FIRST: Skip push to Sheets unless explicitly enabled
+        if (!this.isSheetsEnabled()) {
+            console.log(`[PushService] 📊 DB-First Mode: Skipping Sheets push for ${model}`);
+            return;
+        }
+
         this.pendingModels.add(model);
         console.log(`[PushService] Queued ${model} for debounced push. Current queue: ${Array.from(this.pendingModels).join(', ')}`);
 
@@ -99,6 +113,12 @@ export class PushService {
     }
 
     static async pushModelToSheets(model: string) {
+        // DATABASE-FIRST: Skip if Sheets sync is disabled
+        if (!this.isSheetsEnabled()) {
+            console.log(`[PushService] 📊 DB-First Mode: Sheets sync disabled for ${model}`);
+            return;
+        }
+
         console.log(`[PushService] Processing push for model: ${model}`);
         const sheets = await getSheets();
         const sid = process.env.GOOGLE_SHEETS_ID;
@@ -302,6 +322,12 @@ export class PushService {
     }
 
     static async pushAllToSheets() {
+        // DATABASE-FIRST: Skip if Sheets sync is disabled
+        if (!this.isSheetsEnabled()) {
+            console.log("📊 DB-First Mode: Manual export to Sheets is disabled. Set ENABLE_SHEETS_SYNC=true to enable.");
+            return;
+        }
+
         console.log("Memory B: Pushing ALL data to Google Sheets (Safe Mode)...");
         const models = [
             'marketPrice', 'taskItem', 'shipmentDetail', 'salesOrder',

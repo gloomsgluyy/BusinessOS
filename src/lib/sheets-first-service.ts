@@ -76,6 +76,13 @@ export class SheetsFirstService {
     private static readonly SPREADSHEET_ID = process.env.GOOGLE_SHEETS_ID;
 
     /**
+     * DATABASE-FIRST MODE: Check if Sheets sync is enabled
+     */
+    private static isSheetsEnabled(): boolean {
+        return process.env.ENABLE_SHEETS_SYNC === 'true';
+    }
+
+    /**
      * Find row index of a record by ID in the sheet
      */
     private static async findRowByIdInSheet(sheets: any, id: string): Promise<number | null> {
@@ -100,50 +107,59 @@ export class SheetsFirstService {
     }
 
     /**
-     * Create new P&L Forecast - Sheets First
+     * Create new P&L Forecast - DATABASE FIRST (Sheets optional)
      */
     static async createPLForecast(data: Omit<PLForecastData, 'id' | 'createdAt' | 'updatedAt'>): Promise<PLForecastData> {
-        console.log('[SheetsFirstService] CREATE - Starting Sheets-first write...');
-        
-        if (!this.SPREADSHEET_ID) {
-            throw new Error("GOOGLE_SHEETS_ID not configured");
-        }
-
-        const sheets = await getSheets();
         const id = `plf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const now = new Date().toISOString();
 
-        // Step 1: Write to Sheets FIRST
-        try {
-            const row = [
-                id,                          // ID
-                data.buyer || 'Unknown',     // Project / Buyer
-                data.quantity || 0,          // Quantity
-                data.sellingPrice || 0,      // Selling Price
-                data.buyingPrice || 0,       // Buying Price
-                data.freightCost || 0,       // Freight Cost
-                data.otherCost || 0,         // Other Cost
-                data.grossProfitMt || 0,     // Gross Profit / MT
-                data.totalGrossProfit || 0,  // Total Gross Profit
-                now                          // Updated At
-            ];
-
-            await sheets.spreadsheets.values.append({
-                spreadsheetId: this.SPREADSHEET_ID,
-                range: `${this.SHEET_NAME}!A:J`,
-                valueInputOption: 'USER_ENTERED',
-                requestBody: {
-                    values: [row]
-                }
-            });
-
-            console.log('[SheetsFirstService] ✅ Sheet write successful, ID:', id);
-        } catch (sheetError: any) {
-            console.error('[SheetsFirstService] ❌ Sheet write FAILED:', sheetError.message);
-            throw new Error(`Failed to write to Sheets: ${sheetError.message}`);
+        // DATABASE-FIRST: Write to DB first, Sheets is optional
+        const sheetsEnabled = this.isSheetsEnabled();
+        
+        if (sheetsEnabled) {
+            console.log('[SheetsFirstService] CREATE - Sheets sync enabled, writing to Sheets first...');
+        } else {
+            console.log('[SheetsFirstService] CREATE - DB-First Mode: Writing to database only');
+        }
+        
+        if (!this.SPREADSHEET_ID && sheetsEnabled) {
+            console.warn("GOOGLE_SHEETS_ID not configured but ENABLE_SHEETS_SYNC=true");
         }
 
-        // Step 2: Write to Database as cache
+        // Step 1: Write to Sheets FIRST (if enabled)
+        if (sheetsEnabled && this.SPREADSHEET_ID) {
+            try {
+                const sheets = await getSheets();
+                const row = [
+                    id,                          // ID
+                    data.buyer || 'Unknown',     // Project / Buyer
+                    data.quantity || 0,          // Quantity
+                    data.sellingPrice || 0,      // Selling Price
+                    data.buyingPrice || 0,       // Buying Price
+                    data.freightCost || 0,       // Freight Cost
+                    data.otherCost || 0,         // Other Cost
+                    data.grossProfitMt || 0,     // Gross Profit / MT
+                    data.totalGrossProfit || 0,  // Total Gross Profit
+                    now                          // Updated At
+                ];
+
+                await sheets.spreadsheets.values.append({
+                    spreadsheetId: this.SPREADSHEET_ID,
+                    range: `${this.SHEET_NAME}!A:J`,
+                    valueInputOption: 'USER_ENTERED',
+                    requestBody: {
+                        values: [row]
+                    }
+                });
+
+                console.log('[SheetsFirstService] ✅ Sheet write successful, ID:', id);
+            } catch (sheetError: any) {
+                console.error('[SheetsFirstService] ⚠️ Sheet write FAILED (continuing with DB-only):', sheetError.message);
+                // In DB-first mode, Sheet failure is not critical - continue with DB write
+            }
+        }
+
+        // Step 2: Write to Database (always happens in DB-first mode)
         try {
             const dbRecord = await prisma.pLForecast.create({
                 data: {

@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { syncTasksFromSheet } from "@/app/actions/sheet-actions";
-import { appendRow, upsertRow, deleteRow, findRowIndex } from "@/lib/google-sheets";
+import { PushService } from "@/lib/push-to-sheets";
+
+// DATABASE-FIRST: Optional push to Sheets for backup/export
+async function triggerPush() {
+    PushService.debouncedPush("taskItem").catch(err => console.error("Optional Sheet push failed:", err));
+}
 
 export const dynamic = "force-dynamic";
 
@@ -12,77 +16,7 @@ export async function GET() {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        // 1. PULL DARI GOOGLE SHEETS DULU (Primary Source of Truth)
-        try {
-            const sheetData = await syncTasksFromSheet();
-            if (sheetData.success && sheetData.tasks) {
-                // Upsert ke lokal DB sbg backup dlm db
-                const upsertPromises = sheetData.tasks.map(t =>
-                    prisma.taskItem.upsert({
-                        where: { id: t.id },
-                        update: {
-                            title: t.title,
-                            description: t.description,
-                            status: t.status,
-                            priority: t.priority,
-                            assigneeName: t.assignee_id,
-                            dueDate: t.due_date ? new Date(t.due_date) : null,
-                        },
-                        create: {
-                            id: t.id || "",
-                            title: t.title || "Untitled Task",
-                            description: t.description,
-                            status: t.status || "todo",
-                            priority: t.priority || "medium",
-                            assigneeName: t.assignee_id,
-                            dueDate: t.due_date ? new Date(t.due_date) : null,
-                            createdBy: "system"
-                        }
-                    })
-                );
-                await Promise.allSettled(upsertPromises);
-
-                // --- REKONSILIASI PENGHAPUSAN (DELETION) ---
-                const remoteIds = new Set(sheetData.tasks.map(t => t.id));
-                const localRecords = await prisma.taskItem.findMany({
-                    where: { isDeleted: false },
-                    select: { id: true }
-                });
-
-                const deletePromises = localRecords
-                    .filter(loc => !remoteIds.has(loc.id))
-                    .map(loc =>
-                        prisma.taskItem.update({
-                            where: { id: loc.id },
-                            data: { isDeleted: true }
-                        })
-                    );
-
-                if (deletePromises.length > 0) {
-                    await Promise.allSettled(deletePromises);
-                    console.log(`[Sync] Menghapus ${deletePromises.length} local tasks karena tidak ditemukan di Google Sheets.`);
-                }
-
-                // --- KEMBALIKAN DATA LANGSUNG DARI GOOGLE SHEETS UNTUK UI ---
-                const formattedRemote = sheetData.tasks.map(t => ({
-                    id: t.id,
-                    title: t.title,
-                    description: t.description,
-                    status: t.status,
-                    priority: t.priority,
-                    assigneeId: t.assignee_id, // Map for UI if needed, usually we just need assigneeName
-                    assigneeName: t.assignee_id,
-                    dueDate: t.due_date ? new Date(t.due_date) : null,
-                    createdAt: new Date(),
-                    updatedAt: t.updated_at ? new Date(t.updated_at) : new Date()
-                }));
-
-                return NextResponse.json({ success: true, tasks: formattedRemote });
-            }
-        } catch (e) {
-            console.error("Failed to pull tasks from sheets", e);
-        }
-
+        // DATABASE-FIRST: Read directly from database
         const tasks = await prisma.taskItem.findMany({
             where: { isDeleted: false },
             orderBy: { createdAt: "desc" }
@@ -102,7 +36,7 @@ export async function POST(req: Request) {
 
         const data = await req.json();
 
-        // CREATE IN DATABASE (Capture DB)
+        // DATABASE-FIRST: Write to database as primary source
         const task = await prisma.$transaction(async (tx) => {
             const newTask = await tx.taskItem.create({
                 data: {
@@ -131,27 +65,8 @@ export async function POST(req: Request) {
             return newTask;
         });
 
-        // WRITE DIRECTLY TO SPREADSHEET (Primary Source of truth)
-        try {
-            const dateStr = task.dueDate ? task.dueDate.toISOString().split('T')[0] : "";
-            const updatedStr = task.updatedAt ? task.updatedAt.toISOString() : new Date().toISOString();
-
-            const rowValues = [
-                task.id,
-                task.title,
-                task.description || "-",
-                task.status,
-                task.priority,
-                task.assigneeName || "-",
-                dateStr,
-                `=IMAGE("https://picsum.photos/seed/${task.id}/200/200")`,
-                updatedStr
-            ];
-
-            await appendRow("Tasks", rowValues);
-        } catch (sheetErr) {
-            console.error("Failed writing to Google Sheets in POST /tasks", sheetErr);
-        }
+        // Optional push to Sheets for backup/export
+        await triggerPush();
 
         return NextResponse.json({ success: true, task });
     } catch (error) {
@@ -175,7 +90,7 @@ export async function PUT(req: Request) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
-        // UPDATE IN DATABASE (Capture DB)
+        // DATABASE-FIRST: Update database as primary source
         const task = await prisma.$transaction(async (tx) => {
             const updatedTask = await tx.taskItem.update({
                 where: { id: data.id },
@@ -204,27 +119,8 @@ export async function PUT(req: Request) {
             return updatedTask;
         });
 
-        // UPDATE DIRECTLY TO SPREADSHEET (Primary Source of truth)
-        try {
-            const dateStr = task.dueDate ? task.dueDate.toISOString().split('T')[0] : "";
-            const updatedStr = task.updatedAt ? task.updatedAt.toISOString() : new Date().toISOString();
-
-            const rowValues = [
-                task.id,
-                task.title,
-                task.description || "-",
-                task.status,
-                task.priority,
-                task.assigneeName || "-",
-                dateStr,
-                `=IMAGE("https://picsum.photos/seed/${task.id}/200/200")`,
-                updatedStr
-            ];
-
-            await upsertRow("Tasks", 0, task.id, rowValues);
-        } catch (sheetErr) {
-            console.error("Failed modifying Google Sheets in PUT /tasks", sheetErr);
-        }
+        // Optional push to Sheets for backup/export
+        await triggerPush();
 
         return NextResponse.json({ success: true, task });
     } catch (error) {
@@ -249,7 +145,7 @@ export async function DELETE(req: Request) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
-        // DEL IN DATABASE (Capture DB)
+        // DATABASE-FIRST: Delete from database as primary source
         await prisma.$transaction(async (tx) => {
             await tx.taskItem.update({
                 where: { id },
@@ -268,15 +164,8 @@ export async function DELETE(req: Request) {
             });
         });
 
-        // DEL FROM SPREADSHEETS DIRECTLY (Primary Source of truth)
-        try {
-            const rowIndex = await findRowIndex("Tasks", 0, id);
-            if (rowIndex > 0) {
-                await deleteRow("Tasks", rowIndex);
-            }
-        } catch (sheetErr) {
-            console.error("Failed deleting from Google Sheets in DELETE /tasks", sheetErr);
-        }
+        // Optional push to Sheets for backup/export
+        await triggerPush();
 
         return NextResponse.json({ success: true });
     } catch (error) {

@@ -2,135 +2,20 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { syncShipmentsFromSheet } from "@/app/actions/sheet-actions";
-import { appendRow, upsertRow, deleteRow, findRowIndex } from "@/lib/google-sheets";
+import { PushService } from "@/lib/push-to-sheets";
 
 export const dynamic = "force-dynamic";
+
+async function triggerPush() {
+    PushService.debouncedPush("shipmentDetail").catch(err => console.error("Optional Sheet push failed:", err));
+}
 
 export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        // 1. PULL DARI GOOGLE SHEETS DULU (Primary Source of Truth)
-        try {
-            const sheetData = await syncShipmentsFromSheet();
-            if (sheetData.success && sheetData.shipments) {
-                // Upsert ke lokal DB sbg backup dlm db
-                const upsertPromises = sheetData.shipments.map(s =>
-                    prisma.shipmentDetail.upsert({
-                        where: { id: s.id },
-                        update: {
-                            shipmentNumber: s.shipment_number,
-                            dealId: s.deal_id,
-                            status: s.status,
-                            buyer: s.buyer,
-                            supplier: s.supplier,
-                            isBlending: s.is_blending,
-                            iupOp: s.iup_op,
-                            vesselName: s.vessel_name,
-                            bargeName: s.barge_name,
-                            loadingPort: s.loading_port,
-                            dischargePort: s.discharge_port,
-                            quantityLoaded: s.quantity_loaded,
-                            blDate: s.bl_date ? new Date(s.bl_date) : null,
-                            eta: s.eta ? new Date(s.eta) : null,
-                            salesPrice: s.sales_price,
-                            marginMt: s.margin_mt,
-                            picName: s.pic_name,
-                            type: s.type,
-                            milestones: s.milestones ? (typeof s.milestones === 'string' ? s.milestones : JSON.stringify(s.milestones)) : null
-                        },
-                        create: {
-                            id: s.id || "",
-                            shipmentNumber: s.shipment_number || `SH-${Date.now()}`,
-                            dealId: s.deal_id,
-                            status: s.status || "draft",
-                            buyer: s.buyer || "-",
-                            supplier: s.supplier,
-                            isBlending: s.is_blending || false,
-                            iupOp: s.iup_op,
-                            vesselName: s.vessel_name,
-                            bargeName: s.barge_name,
-                            loadingPort: s.loading_port,
-                            dischargePort: s.discharge_port,
-                            quantityLoaded: s.quantity_loaded,
-                            blDate: s.bl_date ? new Date(s.bl_date) : null,
-                            eta: s.eta ? new Date(s.eta) : null,
-                            salesPrice: s.sales_price,
-                            marginMt: s.margin_mt,
-                            picName: s.pic_name,
-                            type: s.type || "export",
-                            milestones: s.milestones ? (typeof s.milestones === 'string' ? s.milestones : JSON.stringify(s.milestones)) : null
-                        }
-                    })
-                );
-                await Promise.allSettled(upsertPromises);
-
-                // --- REKONSILIASI PENGHAPUSAN (DELETION) ---
-                const remoteIds = new Set(sheetData.shipments.map(s => s.id));
-                const localRecords = await prisma.shipmentDetail.findMany({
-                    where: { isDeleted: false },
-                    select: { id: true }
-                });
-
-                const deletePromises = localRecords
-                    .filter(loc => !remoteIds.has(loc.id))
-                    .map(loc =>
-                        prisma.shipmentDetail.update({
-                            where: { id: loc.id },
-                            data: { isDeleted: true }
-                        })
-                    );
-
-                if (deletePromises.length > 0) {
-                    await Promise.allSettled(deletePromises);
-                    console.log(`[Sync] Menghapus ${deletePromises.length} local shipments karena tidak ditemukan di Google Sheets.`);
-                }
-
-                // --- KEMBALIKAN DATA LANGSUNG DARI GOOGLE SHEETS UNTUK UI ---
-                const formattedRemote = sheetData.shipments.map(s => {
-                    let parsedMilestones: any[] = [];
-                    if (s.milestones) {
-                        try {
-                            parsedMilestones = typeof s.milestones === 'string' ? JSON.parse(s.milestones) : s.milestones;
-                        } catch {
-                            parsedMilestones = [];
-                        }
-                    }
-
-                    return {
-                        id: s.id,
-                        shipmentNumber: s.shipment_number,
-                        dealId: s.deal_id,
-                        status: s.status,
-                        buyer: s.buyer,
-                        supplier: s.supplier,
-                        isBlending: s.is_blending,
-                        iupOp: s.iup_op,
-                        vesselName: s.vessel_name,
-                        bargeName: s.barge_name,
-                        loadingPort: s.loading_port,
-                        dischargePort: s.discharge_port,
-                        quantityLoaded: s.quantity_loaded,
-                        blDate: s.bl_date ? new Date(s.bl_date) : null,
-                        eta: s.eta ? new Date(s.eta) : null,
-                        salesPrice: s.sales_price,
-                        marginMt: s.margin_mt,
-                        picName: s.pic_name,
-                        type: s.type,
-                        milestones: parsedMilestones,
-                        createdAt: s.created_at ? new Date(s.created_at) : new Date(),
-                        updatedAt: s.updated_at ? new Date(s.updated_at) : new Date()
-                    };
-                });
-
-                return NextResponse.json({ success: true, shipments: formattedRemote });
-            }
-        } catch (e) {
-            console.error("Failed to pull shipments from sheets", e);
-        }
-
+        // DATABASE-FIRST: Read directly from database
         const shipments = await prisma.shipmentDetail.findMany({
             where: { isDeleted: false },
             orderBy: { createdAt: "desc" }
@@ -158,7 +43,7 @@ export async function POST(req: Request) {
 
         const data = await req.json();
 
-        // CREATE IN DATABASE (Capture DB)
+        // DATABASE-FIRST: Write to database as primary source
         const shipment = await prisma.$transaction(async (tx) => {
             const newShipment = await tx.shipmentDetail.create({
                 data: {
@@ -198,37 +83,8 @@ export async function POST(req: Request) {
             return newShipment;
         });
 
-        // WRITE DIRECTLY TO SPREADSHEET (Primary Source of truth)
-        try {
-            const rowValues = [
-                shipment.id,
-                shipment.shipmentNumber || "",
-                shipment.dealId || "",
-                shipment.status || "draft",
-                shipment.buyer || "-",
-                shipment.supplier || "-",
-                shipment.isBlending ? "Yes" : "No",
-                shipment.iupOp || "-",
-                shipment.vesselName || "-",
-                shipment.bargeName || "-",
-                shipment.loadingPort || "-",
-                shipment.dischargePort || "-",
-                shipment.quantityLoaded || 0,
-                shipment.blDate ? shipment.blDate.toISOString().split('T')[0] : "-",
-                shipment.eta ? shipment.eta.toISOString().split('T')[0] : "-",
-                shipment.salesPrice || 0,
-                shipment.marginMt || 0,
-                shipment.picName || "-",
-                shipment.type || "export",
-                shipment.milestones ? shipment.milestones : "",
-                shipment.createdAt ? shipment.createdAt.toISOString() : new Date().toISOString(),
-                shipment.updatedAt ? shipment.updatedAt.toISOString() : new Date().toISOString()
-            ];
-
-            await appendRow("Shipments", rowValues);
-        } catch (sheetErr) {
-            console.error("Failed writing to Google Sheets in POST /shipments", sheetErr);
-        }
+        // Optional push to Sheets for backup/export
+        await triggerPush();
 
         return NextResponse.json({ success: true, shipment });
     } catch (error) {
@@ -252,7 +108,7 @@ export async function PUT(req: Request) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
-        // UPDATE IN DATABASE (Capture DB)
+        // DATABASE-FIRST: Update database as primary source
         const shipment = await prisma.$transaction(async (tx) => {
             const updatedShipment = await tx.shipmentDetail.update({
                 where: { id: data.id },
@@ -291,37 +147,8 @@ export async function PUT(req: Request) {
             return updatedShipment;
         });
 
-        // UPDATE DIRECTLY TO SPREADSHEET (Primary Source of truth)
-        try {
-            const rowValues = [
-                shipment.id,
-                shipment.shipmentNumber || "",
-                shipment.dealId || "",
-                shipment.status || "draft",
-                shipment.buyer || "-",
-                shipment.supplier || "-",
-                shipment.isBlending ? "Yes" : "No",
-                shipment.iupOp || "-",
-                shipment.vesselName || "-",
-                shipment.bargeName || "-",
-                shipment.loadingPort || "-",
-                shipment.dischargePort || "-",
-                shipment.quantityLoaded || 0,
-                shipment.blDate ? shipment.blDate.toISOString().split('T')[0] : "-",
-                shipment.eta ? shipment.eta.toISOString().split('T')[0] : "-",
-                shipment.salesPrice || 0,
-                shipment.marginMt || 0,
-                shipment.picName || "-",
-                shipment.type || "export",
-                shipment.milestones ? shipment.milestones : "",
-                shipment.createdAt ? shipment.createdAt.toISOString() : new Date().toISOString(),
-                shipment.updatedAt ? shipment.updatedAt.toISOString() : new Date().toISOString()
-            ];
-
-            await upsertRow("Shipments", 0, shipment.id, rowValues);
-        } catch (sheetErr) {
-            console.error("Failed modifying Google Sheets in PUT /shipments", sheetErr);
-        }
+        // Optional push to Sheets for backup/export
+        await triggerPush();
 
         return NextResponse.json({ success: true, shipment });
     } catch (error) {
@@ -346,7 +173,7 @@ export async function DELETE(req: Request) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
-        // DEL IN DATABASE (Capture DB)
+        // DATABASE-FIRST: Delete from database as primary source
         await prisma.$transaction(async (tx) => {
             await tx.shipmentDetail.update({
                 where: { id },
@@ -365,15 +192,8 @@ export async function DELETE(req: Request) {
             });
         });
 
-        // DEL FROM SPREADSHEETS DIRECTLY
-        try {
-            const rowIndex = await findRowIndex("Shipments", 0, id);
-            if (rowIndex > 0) {
-                await deleteRow("Shipments", rowIndex);
-            }
-        } catch (sheetErr) {
-            console.error("Failed deleting from Google Sheets in DELETE /shipments", sheetErr);
-        }
+        // Optional push to Sheets for backup/export
+        await triggerPush();
 
         return NextResponse.json({ success: true });
     } catch (error) {
