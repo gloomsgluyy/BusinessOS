@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { cn } from "@/lib/utils";
@@ -14,10 +15,12 @@ const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function TransshipmentPage() {
+    const [isInitializing, setIsInitializing] = React.useState(true);
+
     const { shipments, syncFromMemory, updateShipment, addShipment } = useCommercialStore();
 
     React.useEffect(() => {
-        syncFromMemory();
+        syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
 
     const [activeView, setActiveView] = React.useState<"card" | "list">("card");
@@ -112,6 +115,8 @@ Give a 3-sentence mitigation recommendation focusing on route weather, bunker pr
         gp: shipments.reduce((sum, s) => sum + ((s.quantity_loaded || 0) * (s.margin_mt || 0)), 0),
         volume: shipments.reduce((sum, s) => sum + (s.quantity_loaded || 0), 0)
     };
+
+    if (isInitializing) return <GlobalLoading />;
 
     return (
         <AppShell>

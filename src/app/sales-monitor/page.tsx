@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
@@ -19,10 +20,12 @@ const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function SalesMonitorPage() {
+    const [isInitializing, setIsInitializing] = React.useState(true);
+
     const { deals, syncFromMemory, addDeal, confirmDeal, shipments } = useCommercialStore();
 
     React.useEffect(() => {
-        syncFromMemory();
+        syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
     const { currentUser } = useAuthStore();
     const [activeTab, setActiveTab] = React.useState<SalesDealStatus | "all">("all");
@@ -105,6 +108,8 @@ export default function SalesMonitorPage() {
             setIsSaving(false);
         }
     };
+
+    if (isInitializing) return <GlobalLoading />;
 
     return (
         <AppShell>

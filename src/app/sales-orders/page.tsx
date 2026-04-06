@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import GlobalLoading from "@/app/loading";
 import { Plus, Search, Filter, Trash2, Send, CheckCircle2, XCircle, ArrowUpDown, Shield, MessageSquare } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuthStore } from "@/store/auth-store";
@@ -11,6 +12,8 @@ import { sendWhatsAppInvoice } from "@/lib/whatsapp-client";
 import { ImageUpload } from "@/components/ui/image-upload";
 
 export default function SalesOrdersPage() {
+    const [isInitializing, setIsInitializing] = React.useState(true);
+
     const { currentUser, hasPermission } = useAuthStore();
     const orders = useSalesStore((s) => s.orders);
     const syncFromMemory = useSalesStore((s) => s.syncFromMemory);
@@ -21,7 +24,7 @@ export default function SalesOrdersPage() {
     const rejectOrder = useSalesStore((s) => s.rejectOrder);
 
     React.useEffect(() => {
-        syncFromMemory();
+        syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
 
     const [filterStatus, setFilterStatus] = React.useState("all");
@@ -40,6 +43,7 @@ export default function SalesOrdersPage() {
     const [selectedOrder, setSelectedOrder] = React.useState<any>(null);
 
     if (!hasPermission("sales_orders")) {
+        if (isInitializing) return <GlobalLoading />;
         return (
             <AppShell><div className="flex items-center justify-center h-full animate-fade-in"><div className="text-center space-y-2"><Shield className="w-10 h-10 text-muted-foreground/30 mx-auto" /><p className="text-sm text-muted-foreground">Access Restricted</p></div></div></AppShell>
         );

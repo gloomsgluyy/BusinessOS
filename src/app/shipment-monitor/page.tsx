@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useDailyDeliveryStore } from "@/store/daily-delivery-store";
@@ -21,11 +22,13 @@ const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function ShipmentMonitorPage() {
+    const [isInitializing, setIsInitializing] = React.useState(true);
+
     const { shipments, syncFromMemory, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
     const { dailyDeliveries, syncDeliveries, addDelivery, updateDelivery, deleteDelivery } = useDailyDeliveryStore();
 
     React.useEffect(() => {
-        syncFromMemory();
+        syncFromMemory().finally(() => setIsInitializing(false));
         syncDeliveries();
     }, [syncFromMemory, syncDeliveries]);
     const [mainTab, setMainTab] = React.useState<"MV Barge" | "Daily Delivery" | "Route Optimizer" | "Analytics" | "Risk Assessment">("MV Barge");
@@ -193,6 +196,8 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
         gp: shipments.reduce((sum, s) => sum + (safeNum(s.qty_plan || s.quantity_loaded) * safeNum(s.margin_mt)), 0),
         volume: shipments.reduce((sum, s) => sum + safeNum(s.qty_plan || s.quantity_loaded), 0)
     };
+
+    if (isInitializing) return <GlobalLoading />;
 
     return (
         <AppShell>

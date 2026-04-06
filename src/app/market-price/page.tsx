@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
@@ -28,10 +29,12 @@ const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function MarketPricePage() {
+    const [isInitializing, setIsInitializing] = React.useState(true);
+
     const { marketPrices, syncFromMemory, addMarketPrice } = useCommercialStore();
 
     React.useEffect(() => {
-        syncFromMemory();
+        syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
     const { hasPermission } = useAuthStore();
     const canEdit = hasPermission("market_price_edit");
@@ -208,6 +211,7 @@ export default function MarketPricePage() {
     };
 
     if (!mounted) {
+        if (isInitializing) return <GlobalLoading />;
         return (
             <AppShell>
                 <div className="flex items-center justify-center p-12 text-muted-foreground animate-pulse">Loading market data...</div>

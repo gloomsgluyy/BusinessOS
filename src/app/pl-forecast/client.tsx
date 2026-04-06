@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useSession } from "next-auth/react";
 import { useCommercialStore } from "@/store/commercial-store";
@@ -16,6 +17,8 @@ const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(
 const formatCurrency = (n: number) => `$${safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
 export default function PLForecastClient() {
+    const [isInitializing, setIsInitializing] = React.useState(true);
+
     const { data: session, status } = useSession();
     const router = useRouter();
     const { plForecasts, addPLForecast, updatePLForecast, deletePLForecast, deals, syncFromMemory } = useCommercialStore();
@@ -26,10 +29,9 @@ export default function PLForecastClient() {
     const isHighLevel = ["ceo", "director"].includes(userRole);
 
     React.useEffect(() => {
-        syncFromMemory();
-        if (status === "authenticated" && !hasAccess) {
-            router.push("/");
-        }
+        Promise.all([
+            syncFromMemory()
+        ]).finally(() => setIsInitializing(false));
     }, [hasAccess, router, syncFromMemory, status]);
 
     const [showForm, setShowForm] = React.useState(false);
@@ -151,6 +153,7 @@ export default function PLForecastClient() {
 
     // Show loading while checking authentication
     if (status === "loading") {
+        if (isInitializing) return <GlobalLoading />;
         return (
             <AppShell>
                 <div className="p-8 flex items-center justify-center">

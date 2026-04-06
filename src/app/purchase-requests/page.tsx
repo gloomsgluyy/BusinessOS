@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import GlobalLoading from "@/app/loading";
 import { Plus, Search, Trash2, Send, CheckCircle2, XCircle, Shield, BrainCircuit, AlertTriangle, ScanLine, FileText } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuthStore } from "@/store/auth-store";
@@ -10,6 +11,8 @@ import { PURCHASE_STATUSES } from "@/lib/constants";
 import { ImageUpload } from "@/components/ui/image-upload";
 
 export default function PurchaseRequestsPage() {
+    const [isInitializing, setIsInitializing] = React.useState(true);
+
     const { currentUser, hasPermission } = useAuthStore();
     const purchases = usePurchaseStore((s) => s.purchases);
     const syncFromMemory = usePurchaseStore((s) => s.syncFromMemory);
@@ -21,7 +24,7 @@ export default function PurchaseRequestsPage() {
     const rejectPurchase = usePurchaseStore((s) => s.rejectPurchase);
 
     React.useEffect(() => {
-        syncFromMemory();
+        syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
 
     const [filterStatus, setFilterStatus] = React.useState("all");
@@ -42,6 +45,7 @@ export default function PurchaseRequestsPage() {
     const [selectedPurchase, setSelectedPurchase] = React.useState<any>(null);
 
     if (!hasPermission("purchase_requests")) {
+        if (isInitializing) return <GlobalLoading />;
         return (
             <AppShell><div className="flex items-center justify-center h-full animate-fade-in"><div className="text-center space-y-2"><Shield className="w-10 h-10 text-muted-foreground/30 mx-auto" /><p className="text-sm text-muted-foreground">Access Restricted</p></div></div></AppShell>
         );

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { KYC_STATUSES, PSI_STATUSES } from "@/lib/constants";
@@ -30,10 +31,12 @@ const emptySource: Partial<SourceSupplier> = {
 };
 
 export default function SourcesPage() {
+    const [isInitializing, setIsInitializing] = React.useState(true);
+
     const { sources, syncFromMemory, addSource, updateSource, deleteSource } = useCommercialStore();
 
     React.useEffect(() => {
-        syncFromMemory();
+        syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
     const [activeTab, setActiveTab] = React.useState<"sources" | "alerts" | "performance">("sources");
     const [viewMode, setViewMode] = React.useState<"card" | "table">("table");
@@ -113,6 +116,8 @@ export default function SourcesPage() {
         acc[curr.region].totalStock += curr.stock_available;
         return acc;
     }, {} as Record<string, { count: number, totalStock: number }>);
+
+    if (isInitializing) return <GlobalLoading />;
 
     return (
         <AppShell>

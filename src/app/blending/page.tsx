@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
@@ -16,6 +17,8 @@ interface BlendInput {
 }
 
 export default function BlendingPage() {
+    const [isInitializing, setIsInitializing] = React.useState(true);
+
     const { simulateBlend, blendingHistory, sources, syncFromMemory } = useCommercialStore();
     const { currentUser } = useAuthStore();
     const [inputs, setInputs] = React.useState<BlendInput[]>([
@@ -27,7 +30,7 @@ export default function BlendingPage() {
     const [isSimulating, setIsSimulating] = React.useState(false);
 
     React.useEffect(() => {
-        syncFromMemory();
+        syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
 
     const addRow = () => setInputs([...inputs, { name: `Cargo ${String.fromCharCode(65 + inputs.length)}`, quantity: 0, gar: 4200, ts: 0.8, ash: 5.0, tm: 30 }]);
@@ -62,6 +65,8 @@ export default function BlendingPage() {
         ash: Math.round(inputs.reduce((s, inp) => s + inp.ash * inp.quantity, 0) / totalQty * 100) / 100,
         tm: Math.round(inputs.reduce((s, inp) => s + inp.tm * inp.quantity, 0) / totalQty * 100) / 100,
     } : { gar: 0, ts: 0, ash: 0, tm: 0 };
+
+    if (isInitializing) return <GlobalLoading />;
 
     return (
         <AppShell>
