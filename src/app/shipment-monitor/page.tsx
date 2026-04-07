@@ -11,7 +11,7 @@ import { ShipmentDetail, ShipmentStatus } from "@/types";
 import {
     Ship, Calendar, Plus, ExternalLink, Activity, Anchor, FileText, CheckCircle2,
     AlertTriangle, Package, DollarSign, TrendingUp, Filter, Search, Edit, Trash2, X, Download, Truck, Droplets, Flame, Beaker, Clock, ShieldCheck, CloudLightning, Leaf, Loader2, Wand2,
-    Map as MapIcon, ChevronUp, ChevronDown, Eye, List
+    Map as MapIcon, ChevronUp, ChevronDown, Eye, List, Info, CreditCard
 } from "lucide-react";
 import { AIAgent } from "@/lib/ai-agent";
 import { ReportModal } from "@/components/shared/report-modal";
@@ -47,14 +47,21 @@ export default function ShipmentMonitorPage() {
     const [editDailyData, setEditDailyData] = React.useState<any>(null);
     const [dailyForm, setDailyForm] = React.useState<Partial<any>>({ report_type: "domestic", year: 2026, buyer: "", mv_barge_nomination: "", bl_quantity: 0, issue: "" });
 
+    const [activeDailyTab, setActiveDailyTab] = React.useState<"general" | "logistics" | "quality" | "commercial">("general");
+
     const handleOpenDailyForm = (data?: any) => {
         if (data) {
             setEditDailyData(data);
             setDailyForm({ ...data });
         } else {
             setEditDailyData(null);
-            setDailyForm({ report_type: "domestic", year: 2026, buyer: "", mv_barge_nomination: "", bl_quantity: 0, issue: "" });
+            setDailyForm({ 
+                report_type: "domestic", year: 2026, buyer: "", mv_barge_nomination: "", 
+                bl_quantity: 0, issue: "", shipment_status: "upcoming", pod: "", 
+                shipping_term: "FOB", pol: "", area: "", supplier: "", project: "", flow: "" 
+            });
         }
+        setActiveDailyTab("general");
         setShowDailyForm(true);
     };
 
@@ -341,41 +348,134 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                             </table>
                         </div>
 
-                        {/* Daily Form Modal */}
+                        {/* Daily Form Modal - Expanded with Tabs */}
                         {showDailyForm && (
                             <div className="modal-overlay z-50 fixed inset-0 flex items-center justify-center p-4">
                                 <div className="modal-backdrop absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setShowDailyForm(false)} />
-                                <div className="modal-content relative bg-card border border-border w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl animate-scale-in p-6 z-[60]">
-                                    <div className="flex items-center justify-between mb-6">
-                                        <h2 className="text-lg font-bold">{editDailyData ? "Edit" : "New"} Daily Log</h2>
+                                <div className="modal-content relative bg-card border border-border w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-xl shadow-2xl animate-scale-in flex flex-col z-[60]">
+                                    <div className="flex items-center justify-between p-6 border-b border-border">
+                                        <div>
+                                            <h2 className="text-lg font-bold">{editDailyData ? "Edit" : "New"} Daily Log</h2>
+                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Unified Delivery Recap System</p>
+                                        </div>
                                         <button onClick={() => setShowDailyForm(false)} className="p-2 hover:bg-accent rounded-lg transition-colors"><X className="w-4 h-4" /></button>
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Report Type</label>
-                                            <select value={dailyForm.report_type} onChange={e => setDailyForm({ ...dailyForm, report_type: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50">
-                                                <option value="domestic">Domestic</option>
-                                                <option value="export">Export</option>
-                                            </select>
-                                        </div>
-                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Tahun</label>
-                                            <input type="number" value={dailyForm.year} onChange={e => setDailyForm({ ...dailyForm, year: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
-                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Buyer</label>
-                                            <input value={dailyForm.buyer} onChange={e => setDailyForm({ ...dailyForm, buyer: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
-                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">MV/Barge Nomination</label>
-                                            <input value={dailyForm.mv_barge_nomination} onChange={e => setDailyForm({ ...dailyForm, mv_barge_nomination: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
-                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">BL Quantity (MT)</label>
-                                            <input type="number" value={dailyForm.bl_quantity} onChange={e => setDailyForm({ ...dailyForm, bl_quantity: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
-                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Issue/Notes</label>
-                                            <input value={dailyForm.issue} onChange={e => setDailyForm({ ...dailyForm, issue: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
-                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Shipment Status</label>
-                                            <input value={dailyForm.shipment_status || ""} onChange={e => setDailyForm({ ...dailyForm, shipment_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
-                                        <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">POD</label>
-                                            <input value={dailyForm.pod || ""} onChange={e => setDailyForm({ ...dailyForm, pod: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>    
+
+                                    {/* Tabs Header */}
+                                    <div className="flex items-center px-6 border-b border-border bg-accent/10">
+                                        {[
+                                            { id: "general", label: "General Info", icon: Info },
+                                            { id: "logistics", label: "Logistics & Tracking", icon: Anchor },
+                                            { id: "quality", label: "Surveyor & Quality", icon: Beaker },
+                                            { id: "commercial", label: "Commercial & Finance", icon: CreditCard },
+                                        ].map((t) => (
+                                            <button
+                                                key={t.id}
+                                                onClick={() => setActiveDailyTab(t.id as any)}
+                                                className={cn(
+                                                    "flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all",
+                                                    activeDailyTab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                                                )}
+                                            >
+                                                <t.icon className="w-3.5 h-3.5" /> {t.label}
+                                            </button>
+                                        ))}
                                     </div>
-                                    <div className="mt-6 flex justify-end gap-2">
-                                        <button onClick={() => setShowDailyForm(false)} className="px-4 py-2 hover:bg-accent rounded-lg text-sm transition-colors text-muted-foreground" disabled={isSaving}>Cancel</button>
+
+                                    <div className="p-6 overflow-y-auto flex-1">
+                                        {activeDailyTab === "general" && (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in">
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Report Type</label>
+                                                    <select value={dailyForm.report_type} onChange={e => setDailyForm({ ...dailyForm, report_type: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50">
+                                                        <option value="domestic">Domestic</option><option value="export">Export</option>
+                                                    </select>
+                                                </div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Year</label>
+                                                    <input type="number" value={dailyForm.year} onChange={e => setDailyForm({ ...dailyForm, year: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Project</label>
+                                                    <input value={dailyForm.project || ""} onChange={e => setDailyForm({ ...dailyForm, project: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" placeholder="e.g. 11GAWE-01" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Buyer</label>
+                                                    <input value={dailyForm.buyer} onChange={e => setDailyForm({ ...dailyForm, buyer: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Supplier</label>
+                                                    <input value={dailyForm.supplier || ""} onChange={e => setDailyForm({ ...dailyForm, supplier: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Area</label>
+                                                    <input value={dailyForm.area || ""} onChange={e => setDailyForm({ ...dailyForm, area: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Shipment Status</label>
+                                                    <input value={dailyForm.shipment_status || ""} onChange={e => setDailyForm({ ...dailyForm, shipment_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" placeholder="e.g. LOADING, COMPLETED" /></div>
+                                                <div className="space-y-1 md:col-span-2"><label className="text-[10px] font-bold text-muted-foreground uppercase">Issue / Remarks</label>
+                                                    <input value={dailyForm.issue} onChange={e => setDailyForm({ ...dailyForm, issue: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                            </div>
+                                        )}
+
+                                        {activeDailyTab === "logistics" && (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in">
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">MV/Barge Nomination</label>
+                                                    <input value={dailyForm.mv_barge_nomination} onChange={e => setDailyForm({ ...dailyForm, mv_barge_nomination: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">POL</label>
+                                                    <input value={dailyForm.pol || ""} onChange={e => setDailyForm({ ...dailyForm, pol: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">POD</label>
+                                                    <input value={dailyForm.pod || ""} onChange={e => setDailyForm({ ...dailyForm, pod: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Flow</label>
+                                                    <input value={dailyForm.flow || ""} onChange={e => setDailyForm({ ...dailyForm, flow: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" placeholder="e.g. MV TO BARGE" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">BL Date</label>
+                                                    <input type="date" value={dailyForm.bl_date ? new Date(dailyForm.bl_date).toISOString().split('T')[0] : ""} onChange={e => setDailyForm({ ...dailyForm, bl_date: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Arrive at POL</label>
+                                                    <input type="date" value={dailyForm.arrive_at_pol ? new Date(dailyForm.arrive_at_pol).toISOString().split('T')[0] : ""} onChange={e => setDailyForm({ ...dailyForm, arrive_at_pol: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Commence Loading</label>
+                                                    <input type="date" value={dailyForm.commence_loading ? new Date(dailyForm.commence_loading).toISOString().split('T')[0] : ""} onChange={e => setDailyForm({ ...dailyForm, commence_loading: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Complete Loading</label>
+                                                    <input type="date" value={dailyForm.complete_loading ? new Date(dailyForm.complete_loading).toISOString().split('T')[0] : ""} onChange={e => setDailyForm({ ...dailyForm, complete_loading: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Arrive at POD</label>
+                                                    <input type="date" value={dailyForm.arrive_at_pod ? new Date(dailyForm.arrive_at_pod).toISOString().split('T')[0] : ""} onChange={e => setDailyForm({ ...dailyForm, arrive_at_pod: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                            </div>
+                                        )}
+
+                                        {activeDailyTab === "quality" && (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in">
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Surveyor POL</label>
+                                                    <input value={dailyForm.surveyor_pol || ""} onChange={e => setDailyForm({ ...dailyForm, surveyor_pol: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Surveyor POD</label>
+                                                    <input value={dailyForm.surveyor_pod || ""} onChange={e => setDailyForm({ ...dailyForm, surveyor_pod: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Analysis Method</label>
+                                                    <input value={dailyForm.analysis_method || ""} onChange={e => setDailyForm({ ...dailyForm, analysis_method: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" placeholder="e.g. ASTM, ISO" /></div>
+                                                <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl md:col-span-3 grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                                    <div className="space-y-1"><label className="text-[10px] font-bold text-primary uppercase text-center block">Actual GCV (GAR)</label>
+                                                        <input type="number" value={dailyForm.actual_gcv_gar} onChange={e => setDailyForm({ ...dailyForm, actual_gcv_gar: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-background border border-primary/30 text-sm font-bold text-center" /></div>
+                                                    <div className="space-y-1"><label className="text-[10px] font-bold text-primary uppercase text-center block">Actual TS (%)</label>
+                                                        <input type="number" step="0.01" value={dailyForm.actual_ts} onChange={e => setDailyForm({ ...dailyForm, actual_ts: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-background border border-primary/30 text-sm font-bold text-center" /></div>
+                                                    <div className="space-y-1"><label className="text-[10px] font-bold text-primary uppercase text-center block">Actual ASH (%)</label>
+                                                        <input type="number" step="0.01" value={dailyForm.actual_ash} onChange={e => setDailyForm({ ...dailyForm, actual_ash: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-background border border-primary/30 text-sm font-bold text-center" /></div>
+                                                    <div className="space-y-1"><label className="text-[10px] font-bold text-primary uppercase text-center block">Actual TM (%)</label>
+                                                        <input type="number" step="0.01" value={dailyForm.actual_tm} onChange={e => setDailyForm({ ...dailyForm, actual_tm: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-background border border-primary/30 text-sm font-bold text-center" /></div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {activeDailyTab === "commercial" && (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in">
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">BL Quantity (MT)</label>
+                                                    <input type="number" value={dailyForm.bl_quantity} onChange={e => setDailyForm({ ...dailyForm, bl_quantity: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">POD Quantity (MT)</label>
+                                                    <input type="number" value={dailyForm.pod_quantity || 0} onChange={e => setDailyForm({ ...dailyForm, pod_quantity: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">PO Number</label>
+                                                    <input value={dailyForm.po_no || ""} onChange={e => setDailyForm({ ...dailyForm, po_no: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Base Price</label>
+                                                    <input type="number" value={dailyForm.base_price || 0} onChange={e => setDailyForm({ ...dailyForm, base_price: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Invoice Price</label>
+                                                    <input type="number" value={dailyForm.invoice_price || 0} onChange={e => setDailyForm({ ...dailyForm, invoice_price: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Payment Status</label>
+                                                    <select value={dailyForm.payment_status || "UNPAID"} onChange={e => setDailyForm({ ...dailyForm, payment_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50">
+                                                        <option value="UNPAID">Unpaid</option><option value="PARTIAL">Partial</option><option value="PAID">Paid</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="p-6 border-t border-border bg-accent/5 flex justify-end gap-3">
+                                        <button onClick={() => setShowDailyForm(false)} className="px-4 py-2 hover:bg-accent rounded-lg text-sm font-semibold transition-colors text-muted-foreground" disabled={isSaving}>Cancel</button>
                                         <button onClick={handleSaveDaily} className="btn-primary" disabled={isSaving}>
-                                            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : "Save Record"}
+                                            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : (editDailyData ? "Update Record" : "Create Record")}
                                         </button>
                                     </div>
                                 </div>
@@ -948,49 +1048,79 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
 
                             <div className="overflow-y-auto pr-2 pb-4 space-y-4">
                                 {detailModalTab === "overview" && (
-                                    <>
+                                    <div className="space-y-6 animate-fade-in">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                            {/* Unified Shipment Identity */}
+                                            <div className="border border-border/60 rounded-xl p-5 bg-background/50 flex flex-col shadow-sm">
+                                                <h4 className="text-xs font-bold flex items-center gap-2 mb-4 text-primary uppercase tracking-wider">
+                                                    <Package className="w-4 h-4" /> Logistics Identity
+                                                </h4>
+                                                <div className="space-y-3 text-[11px] mt-auto">
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Project:</span><span className="font-bold text-foreground">{detailShipment.mv_project_name || "-"}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Vessel:</span><span className="font-semibold text-foreground">{detailShipment.vessel_name || detailShipment.nomination || "-"}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Barge:</span><span className="font-semibold text-foreground">{detailShipment.barge_name || "-"}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Source:</span><span className="font-bold text-primary">{detailShipment.source || "-"}</span></div>
+                                                </div>
+                                            </div>
+
+                                            {/* Port & Period Details */}
+                                            <div className="border border-border/60 rounded-xl p-5 bg-background/50 flex flex-col shadow-sm">
+                                                <h4 className="text-xs font-bold flex items-center gap-2 mb-4 text-primary uppercase tracking-wider">
+                                                    <Anchor className="w-4 h-4" /> Port & Timeline
+                                                </h4>
+                                                <div className="space-y-3 text-[11px] mt-auto">
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Loading Port:</span><span className="font-semibold text-foreground">{detailShipment.jetty_loading_port || detailShipment.loading_port || "-"}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Discharge Port:</span><span className="font-semibold text-foreground">{detailShipment.discharge_port || "-"}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Laycan:</span><span className="font-bold text-foreground">{detailShipment.laycan || "-"}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Region:</span><span className="font-semibold text-muted-foreground">{detailShipment.origin || "-"}</span></div>
+                                                </div>
+                                            </div>
+
+                                            {/* Financial & Quantities */}
+                                            <div className="border border-border/60 rounded-xl p-5 bg-emerald-500/5 border-emerald-500/20 flex flex-col shadow-sm">
+                                                <h4 className="text-xs font-bold flex items-center gap-2 mb-4 text-emerald-600 uppercase tracking-wider">
+                                                    <DollarSign className="w-4 h-4" /> Commercials
+                                                </h4>
+                                                <div className="space-y-3 text-[11px] mt-auto">
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Qty Loaded:</span><span className="font-black text-foreground">{detailShipment.quantity_loaded?.toLocaleString() || "0"} MT</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Sales Price:</span><span className="font-bold text-emerald-600">${safeNum(detailShipment.sales_price || detailShipment.sp)}/MT</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Margin:</span><span className="font-bold text-blue-600">${safeNum(detailShipment.margin_mt)}/MT</span></div>
+                                                    <div className="flex justify-between items-center border-t border-emerald-500/10 pt-2"><span className="text-muted-foreground uppercase">Est. Revenue:</span><span className="font-black text-emerald-700">${((detailShipment.quantity_loaded || 0) * safeNum(detailShipment.sales_price || detailShipment.sp)).toLocaleString()}</span></div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Bottom Extended Info */}
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div className="border border-border/60 rounded-xl p-5 bg-background/50 flex flex-col">
-                                                <h4 className="text-sm font-bold flex items-center gap-2 mb-4 text-foreground">
-                                                    <Package className="w-4 h-4 text-muted-foreground" /> Shipment Details
-                                                </h4>
-                                                <div className="space-y-4 text-sm mt-auto">
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Type:</span><span className="font-semibold text-foreground text-right">Export</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Volume:</span><span className="font-bold text-foreground text-right">{detailShipment.quantity_loaded?.toLocaleString() || "0"} MT</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Trade Basis:</span><span className="font-semibold text-foreground text-right">FOB MV</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Vessel Type:</span><span className="font-semibold text-foreground text-right">{detailShipment.vessel_name || "TBA"}</span></div>
+                                            <div className="p-4 bg-accent/20 rounded-xl border border-border/50">
+                                                <h5 className="text-[10px] font-bold text-muted-foreground uppercase mb-3 flex items-center gap-1.5"><Beaker className="w-3 h-3" /> Technical Specs</h5>
+                                                <div className="grid grid-cols-3 gap-4 text-sm">
+                                                    <div className="text-center p-2 bg-background rounded-lg border border-border/30">
+                                                        <p className="text-[9px] text-muted-foreground uppercase">GAR</p>
+                                                        <p className="font-black text-primary">{detailShipment.result_gar || detailShipment.spec_actual?.gar || "-"}</p>
+                                                    </div>
+                                                    <div className="text-center p-2 bg-background rounded-lg border border-border/30">
+                                                        <p className="text-[9px] text-muted-foreground uppercase">Export/DMO</p>
+                                                        <p className="font-black text-foreground">{detailShipment.export_dmo || "EXPORT"}</p>
+                                                    </div>
+                                                    <div className="text-center p-2 bg-background rounded-lg border border-border/30">
+                                                        <p className="text-[9px] text-muted-foreground uppercase">Term</p>
+                                                        <p className="font-bold text-foreground">{detailShipment.shipping_term || "FOB"}</p>
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <div className="border border-border/60 rounded-xl p-5 bg-background/50 flex flex-col">
-                                                <h4 className="text-sm font-bold flex items-center gap-2 mb-4 text-foreground">
-                                                    <DollarSign className="w-4 h-4 text-muted-foreground" /> Financial
-                                                </h4>
-                                                <div className="space-y-4 text-sm mt-auto">
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Sales Price:</span><span className="font-semibold text-blue-500 text-right">${safeNum(detailShipment.sales_price) || "0"}/MT</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Cost:</span><span className="font-semibold text-foreground text-right">${safeFmt(safeNum(detailShipment.sales_price) - safeNum(detailShipment.margin_mt))}/MT</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Margin:</span><span className="font-bold text-emerald-500 text-right">${safeNum(detailShipment.margin_mt) || "0"}/MT</span></div>
-                                                    <div className="flex justify-between items-center mt-2 pt-3 border-t border-border/40"><span className="text-muted-foreground">Total Revenue:</span><span className="font-bold text-foreground text-right text-base">${(safeNum(detailShipment.sales_price) * safeNum(detailShipment.quantity_loaded)).toLocaleString()}</span></div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="border border-border/60 rounded-xl p-5 bg-background/50">
-                                            <h4 className="text-sm font-bold flex items-center gap-2 mb-4 text-foreground">
-                                                <Calendar className="w-4 h-4 text-muted-foreground" /> LAYCAN & Dates
-                                            </h4>
-                                            <div className="grid grid-cols-2 gap-4 text-sm mt-2">
-                                                <div>
-                                                    <span className="text-muted-foreground block mb-1">LAYCAN Period</span>
-                                                    <span className="font-semibold text-foreground">{detailShipment.bl_date || "-"}</span>
-                                                </div>
-                                                <div>
-                                                    <span className="text-muted-foreground block mb-1">Loading Date</span>
-                                                    <span className="font-semibold text-foreground">{detailShipment.bl_date || "-"}</span>
+                                            <div className="p-4 bg-accent/20 rounded-xl border border-border/50">
+                                                <h5 className="text-[10px] font-bold text-muted-foreground uppercase mb-3 flex items-center gap-1.5"><Info className="w-3 h-3" /> Operational Info</h5>
+                                                <div className="space-y-2 text-[11px]">
+                                                    <div className="flex justify-between"><span className="text-muted-foreground">PIC:</span><span className="font-medium">{detailShipment.pic || "-"}</span></div>
+                                                    <div className="flex justify-between"><span className="text-muted-foreground">Internal No:</span><span className="font-mono text-muted-foreground">#{detailShipment.no || "NEW"}</span></div>
+                                                    <div className="mt-2 text-muted-foreground italic border-t border-border/30 pt-2">
+                                                        {detailShipment.remarks || "No additional operational remarks for this shipment."}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
-
-                                    </>
+                                    </div>
                                 )}
 
                                 {detailModalTab === "blending" && (
@@ -1164,7 +1294,11 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                 </div>
                                 <button onClick={() => setEditShipment(null)} className="p-1.5 rounded-lg hover:bg-accent bg-accent/50 text-muted-foreground"><X className="w-4 h-4" /></button>
                             </div>
-                            <div className="grid grid-cols-2 gap-4 text-sm mt-4 max-h-[60vh] overflow-y-auto pr-2">
+                            <div className="grid grid-cols-2 gap-4 text-sm mt-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                                {/* Core Identity Section */}
+                                <div className="col-span-2 border-b border-border/30 pb-2 mb-1">
+                                    <h3 className="text-[10px] font-bold text-primary uppercase flex items-center gap-1.5"><Package className="w-3 h-3" /> Shipment Identity</h3>
+                                </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">MV / Project Name</label>
                                     <input type="text" value={editForm.mv_project_name || ""} onChange={(e) => setEditForm({ ...editForm, mv_project_name: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs font-bold text-primary" />
@@ -1176,68 +1310,80 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                     </select>
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Export / DMO</label>
-                                    <select value={editForm.export_dmo || ""} onChange={(e) => setEditForm({ ...editForm, export_dmo: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs">
-                                        <option value="EXPORT">EXPORT</option><option value="DMO">DMO</option>
-                                    </select>
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Buyer (End User)</label>
+                                    <input type="text" value={editForm.buyer || ""} onChange={(e) => setEditForm({ ...editForm, buyer: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Origin</label>
-                                    <input type="text" value={editForm.origin || ""} onChange={(e) => setEditForm({ ...editForm, origin: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" placeholder="KALSEL, KALTIM, SUMSEL" />
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Source (Supplier)</label>
+                                    <input type="text" value={editForm.source || ""} onChange={(e) => setEditForm({ ...editForm, source: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+
+                                {/* Logistics Section */}
+                                <div className="col-span-2 border-b border-border/30 pb-2 mb-1 mt-3">
+                                    <h3 className="text-[10px] font-bold text-primary uppercase flex items-center gap-1.5"><Anchor className="w-3 h-3" /> Logistics & Vessel Tracking</h3>
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Source Code</label>
-                                    <input type="text" value={editForm.source || ""} onChange={(e) => setEditForm({ ...editForm, source: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" placeholder="BME, GAT01, etc." />
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Vessel Name</label>
+                                    <input type="text" value={editForm.vessel_name || ""} onChange={(e) => setEditForm({ ...editForm, vessel_name: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">IUP / OP</label>
-                                    <input type="text" value={editForm.iup_op || ""} onChange={(e) => setEditForm({ ...editForm, iup_op: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Barge Name</label>
+                                    <input type="text" value={editForm.barge_name || ""} onChange={(e) => setEditForm({ ...editForm, barge_name: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Jetty / Loading Port</label>
-                                    <input type="text" value={editForm.jetty_loading_port || ""} onChange={(e) => setEditForm({ ...editForm, jetty_loading_port: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Loading Port</label>
+                                    <input type="text" value={editForm.loading_port || ""} onChange={(e) => setEditForm({ ...editForm, loading_port: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Discharge Port</label>
+                                    <input type="text" value={editForm.discharge_port || ""} onChange={(e) => setEditForm({ ...editForm, discharge_port: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Laycan</label>
-                                    <input type="text" value={editForm.laycan || ""} onChange={(e) => setEditForm({ ...editForm, laycan: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" placeholder="20-24 JAN" />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Nomination (Barge)</label>
-                                    <input type="text" value={editForm.nomination || ""} onChange={(e) => setEditForm({ ...editForm, nomination: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Qty Plan (MT)</label>
-                                    <input type="number" value={editForm.qty_plan || ""} onChange={(e) => setEditForm({ ...editForm, qty_plan: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                </div>
-                                <div className="col-span-2 grid grid-cols-3 gap-4 border-t border-b border-border/30 py-3 my-1">
-                                    <div className="space-y-1.5">
-                                        <label className="text-[10px] font-semibold text-muted-foreground uppercase">Harga FOB Barge</label>
-                                        <input type="number" value={editForm.harga_actual_fob || ""} onChange={(e) => setEditForm({ ...editForm, harga_actual_fob: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label className="text-[10px] font-semibold text-muted-foreground uppercase">Harga FOB MV</label>
-                                        <input type="number" value={editForm.harga_actual_fob_mv || ""} onChange={(e) => setEditForm({ ...editForm, harga_actual_fob_mv: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label className="text-[10px] font-semibold text-muted-foreground uppercase">HPB</label>
-                                        <input type="number" value={editForm.hpb || ""} onChange={(e) => setEditForm({ ...editForm, hpb: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                    </div>
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Result GAR</label>
-                                    <input type="number" value={editForm.result_gar || ""} onChange={(e) => setEditForm({ ...editForm, result_gar: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">PIC</label>
-                                    <input type="text" value={editForm.pic || ""} onChange={(e) => setEditForm({ ...editForm, pic: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                    <input type="text" value={editForm.laycan || ""} onChange={(e) => setEditForm({ ...editForm, laycan: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Shipping Term</label>
                                     <input type="text" value={editForm.shipping_term || ""} onChange={(e) => setEditForm({ ...editForm, shipping_term: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
                                 </div>
-                                <div className="space-y-1.5 col-span-2">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Remarks</label>
-                                    <input type="text" value={editForm.remarks || ""} onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+
+                                {/* Financial section */}
+                                <div className="col-span-2 border-b border-border/30 pb-2 mb-1 mt-3">
+                                    <h3 className="text-[10px] font-bold text-emerald-500 uppercase flex items-center gap-1.5"><DollarSign className="w-3 h-3" /> Commercials & P&L</h3>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-emerald-500 uppercase">Sales Price (USD/MT)</label>
+                                    <input type="number" step="0.01" value={editForm.sales_price || 0} onChange={(e) => setEditForm({ ...editForm, sales_price: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-xs font-bold text-emerald-600" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-blue-500 uppercase">Margin (USD/MT)</label>
+                                    <input type="number" step="0.01" value={editForm.margin_mt || 0} onChange={(e) => setEditForm({ ...editForm, margin_mt: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs font-bold text-blue-600" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Qty Plan (MT)</label>
+                                    <input type="number" value={editForm.qty_plan || 0} onChange={(e) => setEditForm({ ...editForm, qty_plan: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Qty Actual / Loaded (MT)</label>
+                                    <input type="number" value={editForm.quantity_loaded || 0} onChange={(e) => setEditForm({ ...editForm, quantity_loaded: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs font-bold text-primary" />
+                                </div>
+
+                                {/* Quality Section */}
+                                <div className="col-span-2 border-b border-border/30 pb-2 mb-1 mt-3">
+                                    <h3 className="text-[10px] font-bold text-amber-500 uppercase flex items-center gap-1.5"><Beaker className="w-3 h-3" /> Quality Parameters</h3>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Result GAR</label>
+                                    <input type="number" value={editForm.result_gar || 0} onChange={(e) => setEditForm({ ...editForm, result_gar: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Origin (Region)</label>
+                                    <input type="text" value={editForm.origin || ""} onChange={(e) => setEditForm({ ...editForm, origin: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+
+                                <div className="space-y-1.5 col-span-2 mt-2">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">General Remarks</label>
+                                    <input type="text" value={editForm.remarks || ""} onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
                                 </div>
                             </div>
 

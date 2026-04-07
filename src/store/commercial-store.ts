@@ -211,9 +211,10 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
             const mapped: SalesDeal = {
                 id: deal.id, deal_number: deal.dealNumber, status: deal.status as SalesDealStatus, buyer: deal.buyer, buyer_country: deal.buyerCountry,
                 type: deal.type, shipping_terms: deal.shippingTerms, quantity: deal.quantity, price_per_mt: deal.pricePerMt, total_value: deal.totalValue,
-                laycan_start: deal.laycanStart, laycan_end: deal.laycanEnd, vessel_name: deal.vesselName, spec: { gar: deal.gar || 0, ts: deal.ts || 0, ash: deal.ash || 0, tm: deal.tm || 0 },
+                laycan_start: deal.laycanStart, laycan_end: deal.laycanEnd, vessel_name: deal.vesselName, 
+                spec: { gar: deal.gar || 0, ts: deal.ts || 0, ash: deal.ash || 0, tm: deal.tm || 0 },
                 project_id: deal.projectId, pic_id: deal.picId, pic_name: deal.picName, created_by: deal.createdBy, created_by_name: deal.createdByName,
-                created_at: deal.createdAt, updated_at: deal.updatedAt
+                created_at: deal.createdAt, updated_at: deal.updatedAt, is_deleted: deal.isDeleted
             };
             set((s) => {
                 const raw = [mapped, ...s._rawDeals];
@@ -223,20 +224,28 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     },
     updateDeal: async (id, u) => {
         const body: any = { id };
-        if (u.deal_number) body.dealNumber = u.deal_number;
-        if (u.buyer) body.buyer = u.buyer;
-        if (u.buyer_country) body.buyerCountry = u.buyer_country;
-        if (u.type) body.type = u.type;
-        if (u.status) body.status = u.status;
-        if (u.shipping_terms) body.shippingTerms = u.shipping_terms;
+        if (u.deal_number !== undefined) body.dealNumber = u.deal_number;
+        if (u.buyer !== undefined) body.buyer = u.buyer;
+        if (u.buyer_country !== undefined) body.buyerCountry = u.buyer_country;
+        if (u.type !== undefined) body.type = u.type;
+        if (u.status !== undefined) body.status = u.status;
+        if (u.shipping_terms !== undefined) body.shippingTerms = u.shipping_terms;
         if (u.quantity !== undefined) body.quantity = u.quantity;
         if (u.price_per_mt !== undefined) body.pricePerMt = u.price_per_mt;
         if (u.total_value !== undefined) body.totalValue = u.total_value;
-        if (u.laycan_start) body.laycanStart = u.laycan_start;
-        if (u.laycan_end) body.laycanEnd = u.laycan_end;
-        if (u.vessel_name) body.vesselName = u.vessel_name;
-        if (u.project_id) body.projectId = u.project_id;
-        if (u.pic_name) body.picName = u.pic_name;
+        if (u.laycan_start !== undefined) body.laycanStart = u.laycan_start;
+        if (u.laycan_end !== undefined) body.laycanEnd = u.laycan_end;
+        if (u.vessel_name !== undefined) body.vesselName = u.vessel_name;
+        if (u.project_id !== undefined) body.projectId = u.project_id;
+        if (u.pic_name !== undefined) body.picName = u.pic_name;
+        
+        // Handle nested spec fields
+        if (u.spec) {
+            if (u.spec.gar !== undefined) body.gar = u.spec.gar;
+            if (u.spec.ts !== undefined) body.ts = u.spec.ts;
+            if (u.spec.ash !== undefined) body.ash = u.spec.ash;
+            if (u.spec.tm !== undefined) body.tm = u.spec.tm;
+        }
 
         await fetch("/api/memory/sales-deals", {
             method: "PUT",
@@ -934,6 +943,15 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         jarak: s.jarak, shipping_term: s.shippingTerm, shipping_rate: s.shippingRate,
                         price_freight: s.priceFreight, allowance: s.allowance, demm: s.demm,
                         no_spal: s.noSpal, no_si: s.noSi, coa_date: s.coaDate, result_gar: s.resultGar,
+                        // Fix missing fields for dashboard accuracy
+                        quantity_loaded: s.quantityLoaded || 0,
+                        sales_price: s.salesPrice || 0,
+                        margin_mt: s.marginMt || 0,
+                        buyer: s.buyer,
+                        vessel_name: s.vesselName,
+                        barge_name: s.bargeName,
+                        loading_port: s.loadingPort,
+                        discharge_port: s.discharge_port,
                         year: s.year, created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
                     }));
                     updates._rawShipments = mappedShipments;

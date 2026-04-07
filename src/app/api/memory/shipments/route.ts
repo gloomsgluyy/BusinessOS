@@ -91,6 +91,15 @@ export async function POST(req: Request) {
                     coaDate: parseDate(data.coaDate),
                     resultGar: parseNum(data.resultGar),
                     year: data.year || new Date().getFullYear(),
+                    // Detailed/Unified fields
+                    quantityLoaded: parseNum(data.quantity_loaded),
+                    salesPrice: parseNum(data.sales_price),
+                    marginMt: parseNum(data.margin_mt),
+                    buyer: data.buyer,
+                    vesselName: data.vessel_name,
+                    bargeName: data.barge_name,
+                    loadingPort: data.loading_port,
+                    dischargePort: data.discharge_port,
                 }
             });
 
@@ -159,6 +168,15 @@ export async function PUT(req: Request) {
                     coaDate: data.coaDate !== undefined ? parseDate(data.coaDate) : undefined,
                     resultGar: data.resultGar !== undefined ? parseNum(data.resultGar) : undefined,
                     year: data.year,
+                    // Detailed/Unified fields
+                    quantityLoaded: data.quantity_loaded !== undefined ? parseNum(data.quantity_loaded) : undefined,
+                    salesPrice: data.sales_price !== undefined ? parseNum(data.sales_price) : undefined,
+                    marginMt: data.margin_mt !== undefined ? parseNum(data.margin_mt) : undefined,
+                    buyer: data.buyer,
+                    vesselName: data.vessel_name,
+                    bargeName: data.barge_name,
+                    loadingPort: data.loading_port,
+                    dischargePort: data.discharge_port,
                 }
             });
 
