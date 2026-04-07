@@ -83,16 +83,16 @@ const ACTION_LABEL: Record<string, string> = {
 
 const fc = (n: number) => `$${n.toLocaleString("en-US")}`;
 const fd = (d: string | Date | undefined | null) => {
-  if (!d) return "-";
-  try {
-    return new Date(d).toLocaleDateString("id-ID", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return "-";
-  }
+    if (!d) return "-";
+    try {
+        return new Date(d).toLocaleDateString("id-ID", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+        });
+    } catch {
+        return "-";
+    }
 };
 
 export function AIChatbot() {
@@ -591,9 +591,8 @@ ${marketPrices[0] ? `- ICI 4 (4200): $${marketPrices[0].ici_4}\n- Newcastle: $${
         <>
             {!open && (
                 <button onClick={() => setOpen(true)}
-                    className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-50 rounded-xl bg-primary border border-primary/20 text-primary-foreground flex items-center justify-center shadow-md hover:bg-primary/90 transition-all duration-300 group overflow-hidden px-4 py-2.5 gap-2">
-                    <MessageSquare className="w-4 h-4" />
-                    <span className="text-sm font-semibold tracking-wide">Asisten Pintar</span>
+                    className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-50 rounded-full bg-primary border border-primary/20 text-primary-foreground flex items-center justify-center shadow-lg hover:bg-primary/90 hover:scale-105 transition-all duration-300 w-12 h-12 md:w-14 md:h-14">
+                    <MessageSquare className="w-5 h-5 md:w-6 md:h-6" />
                 </button>
             )}
 

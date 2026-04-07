@@ -49,6 +49,7 @@ export default function MarketPricePage() {
     const [isScraping, setIsScraping] = React.useState(false);
     const [scrapeLogs, setScrapeLogs] = React.useState<string[]>([]);
     const [scrapeInterval, setScrapeInterval] = React.useState("21600000");
+    const [chartRange, setChartRange] = React.useState<"2W" | "4W" | "All">("4W");
 
     const addLog = (msg: string) => setScrapeLogs(prev => [...prev.slice(-20), `[${new Date().toLocaleTimeString()}] ${msg}`]);
 
@@ -129,20 +130,21 @@ export default function MarketPricePage() {
         };
     });
 
+    const chartData = chartRange === "2W" ? data.slice(-14) : chartRange === "4W" ? data.slice(-28) : data;
     const latest = marketPrices.length > 0 ? marketPrices[marketPrices.length - 1] : null;
     const prev = marketPrices.length > 1 ? marketPrices[marketPrices.length - 2] : null;
 
     const calculateHpbEstimate = () => {
         if (!latest) return 0;
         const { gar, tm, ts, ash } = hpbCalc;
-        
+
         const tiers = [
             { hba: latest.hba, gar: 6322, tm: 8, ts: 0.8, ash: 15 },
             { hba: latest.hba_1, gar: 5300, tm: 21.32, ts: 0.75, ash: 6 },
             { hba: latest.hba_2, gar: 4100, tm: 35.73, ts: 0.23, ash: 9 },
             { hba: latest.hba_3, gar: 3400, tm: 44.3, ts: 0.20, ash: 27.5 },
         ];
-        
+
         let closestTier = tiers[0];
         let minDiff = Math.abs(gar - tiers[0].gar);
         for (let i = 1; i < tiers.length; i++) {
@@ -152,17 +154,17 @@ export default function MarketPricePage() {
                 closestTier = tiers[i];
             }
         }
-        
+
         let basePrice = (gar / closestTier.gar) * (closestTier.hba || 0);
-        
+
         const tmDiff = tm - closestTier.tm;
         const ashDiff = ash - closestTier.ash;
         const tsDiff = ts - closestTier.ts;
-        
+
         const tmAdj = (tmDiff * -0.01) * basePrice;
         const ashAdj = (ashDiff * -0.005) * basePrice;
         const tsAdj = (tsDiff * 10 * -0.01) * basePrice;
-        
+
         return Math.max(0, basePrice + tmAdj + ashAdj + tsAdj);
     };
 
@@ -233,8 +235,14 @@ export default function MarketPricePage() {
                         <p className="text-sm text-muted-foreground">ICI, Newcastle &amp; HBA coal price tracking</p>
                     </div>
                     <div className="flex items-center gap-2">
-                        {canEdit && <button onClick={() => setShowScrapeSettings(true)} className="btn-outline w-fit"><Settings2 className="w-4 h-4 mr-1.5" /> Scraping Settings</button>}
-                        {canEdit && <button onClick={() => setShowForm(!showForm)} className="btn-primary w-fit"><Plus className="w-4 h-4 mr-1.5" /> Input Price</button>}
+                        {canEdit && <button onClick={() => setShowScrapeSettings(true)} className="btn-outline w-fit">
+                            <Settings2 className="w-4 h-4 md:mr-1.5" />
+                            <span className="hidden md:inline">Scraping Settings</span>
+                        </button>}
+                        {canEdit && <button onClick={() => setShowForm(!showForm)} className="btn-primary w-fit">
+                            <Plus className="w-4 h-4 md:mr-1.5" />
+                            <span className="hidden md:inline">Input Price</span>
+                        </button>}
                     </div>
                 </div>
 
@@ -313,11 +321,11 @@ export default function MarketPricePage() {
                 )}
 
                 {/* Price Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-10 gap-2 md:gap-3">
                     {changes.map((c) => (
-                        <div key={c.label} className="card-elevated p-4 animate-slide-up">
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase">{c.label}</p>
-                            <p className="text-lg font-bold mt-1" style={{ color: c.color }}>${safeFmt(c.val)}</p>
+                        <div key={c.label} className="card-elevated p-3 md:p-4 animate-slide-up">
+                            <p className="text-[9px] md:text-[10px] font-semibold text-muted-foreground uppercase leading-tight">{c.label}</p>
+                            <p className="text-base md:text-lg font-bold mt-1" style={{ color: c.color }}>${safeFmt(c.val)}</p>
                             <div className={cn("flex items-center gap-1 text-[10px] mt-0.5", c.diff >= 0 ? "text-emerald-500" : "text-red-500")}>
                                 {c.diff >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                                 {c.diff >= 0 ? "+" : ""}{safeFmt(c.diff)}
@@ -407,11 +415,29 @@ export default function MarketPricePage() {
 
                 {/* Chart */}
                 <div className="card-elevated p-5 animate-slide-up delay-2">
-                    <h3 className="text-sm font-semibold mb-4">Price Trend</h3>
-                    <div className="h-[350px]">
+                    <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
+                        <h3 className="text-sm font-semibold">Price Trend</h3>
+                        <div className="flex items-center gap-1 bg-accent/40 p-0.5 rounded-lg border border-border/50">
+                            {(["2W", "4W", "All"] as const).map((r) => (
+                                <button
+                                    key={r}
+                                    onClick={() => setChartRange(r)}
+                                    className={cn(
+                                        "px-3 py-1 text-xs font-semibold rounded-md transition-colors",
+                                        chartRange === r
+                                            ? "bg-primary text-primary-foreground shadow"
+                                            : "text-muted-foreground hover:text-foreground"
+                                    )}
+                                >
+                                    {r === "2W" ? "2 Minggu" : r === "4W" ? "4 Minggu" : "Semua"}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="h-[280px] md:h-[350px]">
                         {mounted && (
                             <ResponsiveContainer width="100%" height="100%">
-                                <ComposedChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                                <ComposedChart data={chartRange === "2W" ? data.slice(-14) : chartRange === "4W" ? data.slice(-28) : data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(128,128,128,0.1)" />
                                     <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
                                     <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
@@ -434,7 +460,7 @@ export default function MarketPricePage() {
                 {showForm && (
                     <div className="card-elevated p-5 space-y-4 animate-scale-in">
                         <h3 className="text-sm font-semibold">Input New Price Data</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                             <div><label className="text-[10px] font-semibold text-muted-foreground uppercase">Date</label>
                                 <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-accent/50 border border-border text-sm outline-none focus:border-primary/50" /></div>
                             {[["ICI 1", "ici_1"], ["ICI 2", "ici_2"], ["ICI 3", "ici_3"], ["ICI 4", "ici_4"], ["ICI 5", "ici_5"], ["Newcastle", "newcastle"], ["HBA", "hba"], ["HBA I", "hba_1"], ["HBA II", "hba_2"], ["HBA III", "hba_3"]].map(([label, key]) => (
@@ -462,30 +488,32 @@ export default function MarketPricePage() {
 
                 {/* Price Table */}
                 <div className="card-elevated overflow-hidden animate-slide-up delay-3">
-                    <table className="w-full text-sm">
-                        <thead><tr className="border-b border-border bg-accent/30">
-                            {["Date", "ICI 1", "ICI 2", "ICI 3", "ICI 4", "ICI 5", "Newcastle", "HBA", "HBA I", "HBA II", "HBA III"].map((h) => (
-                                <th key={h} className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase first:text-left">{h}</th>
-                            ))}
-                        </tr></thead>
-                        <tbody>
-                            {marketPrices.map((p) => (
-                                <tr key={p.id} className="border-b border-border/50 hover:bg-accent/20">
-                                    <td className="px-4 py-2.5 text-xs">{new Date(p.date).toLocaleDateString("en", { day: "2-digit", month: "short", year: "2-digit" })}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_1)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_2)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_3)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_4)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_5)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.newcastle)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono font-bold text-emerald-500">${safeFmt(p.hba)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono text-teal-500">${safeFmt(p.hba_1)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono text-cyan-500">${safeFmt(p.hba_2)}</td>
-                                    <td className="px-4 py-2.5 text-xs text-right font-mono text-sky-500">${safeFmt(p.hba_3)}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm min-w-[700px]">
+                            <thead><tr className="border-b border-border bg-accent/30">
+                                {["Date", "ICI 1", "ICI 2", "ICI 3", "ICI 4", "ICI 5", "Newcastle", "HBA", "HBA I", "HBA II", "HBA III"].map((h) => (
+                                    <th key={h} className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase first:text-left">{h}</th>
+                                ))}
+                            </tr></thead>
+                            <tbody>
+                                {marketPrices.map((p) => (
+                                    <tr key={p.id} className="border-b border-border/50 hover:bg-accent/20">
+                                        <td className="px-4 py-2.5 text-xs">{new Date(p.date).toLocaleDateString("en", { day: "2-digit", month: "short", year: "2-digit" })}</td>
+                                        <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_1)}</td>
+                                        <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_2)}</td>
+                                        <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_3)}</td>
+                                        <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_4)}</td>
+                                        <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_5)}</td>
+                                        <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.newcastle)}</td>
+                                        <td className="px-4 py-2.5 text-xs text-right font-mono font-bold text-emerald-500">${safeFmt(p.hba)}</td>
+                                        <td className="px-4 py-2.5 text-xs text-right font-mono text-teal-500">${safeFmt(p.hba_1)}</td>
+                                        <td className="px-4 py-2.5 text-xs text-right font-mono text-cyan-500">${safeFmt(p.hba_2)}</td>
+                                        <td className="px-4 py-2.5 text-xs text-right font-mono text-sky-500">${safeFmt(p.hba_3)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
                 {toast && (
                     <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />

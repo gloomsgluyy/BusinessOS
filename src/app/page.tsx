@@ -143,17 +143,37 @@ function SmallStat({ label, value, color }: { label: string; value: string | num
 function MarketPriceMini() {
     const prices = useCommercialStore((s) => s.marketPrices);
     const [mounted, setMounted] = React.useState(false);
+    const [weeks, setWeeks] = React.useState(4);
+
     React.useEffect(() => setMounted(true), []);
-    const data = [...prices].reverse().map((p) => ({
+
+    // Filter to last N weeks (7 days/week)
+    // Assume prices is descending (newest first)
+    const filteredPrices = [...prices].slice(0, weeks * 7).reverse();
+
+    const data = filteredPrices.map((p) => ({
         week: new Date(p.date).toLocaleDateString("en", { month: "short", day: "numeric" }),
         ICI4: p.ici_4, Newc: p.newcastle, HBA: p.hba,
     }));
 
     return (
-        <div className="card-elevated p-5 animate-slide-up delay-5">
+        <div className="card-elevated p-5 animate-slide-up delay-5 flex flex-col">
             <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold">Market Price (4 Weeks)</h3>
-                <a href="/market-price" className="text-xs text-primary hover:underline flex items-center gap-1 group">
+                <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold whitespace-nowrap">Market Price</h3>
+                    <select
+                        value={weeks}
+                        onChange={(e) => setWeeks(Number(e.target.value))}
+                        className="px-2 py-0.5 rounded-md bg-accent/50 border border-border text-[10px] outline-none focus:border-primary/50 text-muted-foreground w-auto cursor-pointer"
+                    >
+                        <option value={1}>1 Week</option>
+                        <option value={2}>2 Weeks</option>
+                        <option value={3}>3 Weeks</option>
+                        <option value={4}>4 Weeks</option>
+                        <option value={8}>8 Weeks</option>
+                    </select>
+                </div>
+                <a href="/market-price" className="text-xs text-primary hover:underline flex items-center gap-1 group whitespace-nowrap">
                     Detail <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
                 </a>
             </div>
