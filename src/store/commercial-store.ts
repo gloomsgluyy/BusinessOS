@@ -951,7 +951,9 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         vessel_name: s.vesselName,
                         barge_name: s.bargeName,
                         loading_port: s.loadingPort,
-                        discharge_port: s.discharge_port,
+                        discharge_port: s.dischargePort,
+                        product: s.product,
+                        analysis_method: s.analysisMethod,
                         year: s.year, created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
                     }));
                     updates._rawShipments = mappedShipments;

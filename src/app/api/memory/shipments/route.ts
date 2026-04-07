@@ -100,6 +100,8 @@ export async function POST(req: Request) {
                     bargeName: data.barge_name,
                     loadingPort: data.loading_port,
                     dischargePort: data.discharge_port,
+                    product: data.product,
+                    analysisMethod: data.analysis_method,
                 }
             });
 
@@ -177,6 +179,8 @@ export async function PUT(req: Request) {
                     bargeName: data.barge_name,
                     loadingPort: data.loading_port,
                     dischargePort: data.discharge_port,
+                    product: data.product,
+                    analysisMethod: data.analysis_method,
                 }
             });
 

@@ -249,6 +249,8 @@ export interface ShipmentDetail {
     sales_price?: number;
     margin_mt?: number;
     pic_name?: string;
+    product?: string;
+    analysis_method?: string;
     type?: string;
     year?: number;
     region?: string;

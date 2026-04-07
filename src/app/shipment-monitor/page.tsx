@@ -1090,6 +1090,23 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                             </div>
                                         </div>
 
+                                        {/* Operational & Legal Details */}
+                                        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-5 shadow-sm">
+                                            <h4 className="text-xs font-bold flex items-center gap-2 mb-4 text-blue-600 uppercase tracking-wider">
+                                                <ShieldCheck className="w-4 h-4" /> Operational & Legal
+                                            </h4>
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-[11px]">
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">IUP OP:</p><p className="font-bold text-foreground">{detailShipment.iup_op || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Shipment Flow:</p><p className="font-bold text-foreground">{detailShipment.shipment_flow || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Product:</p><p className="font-bold text-foreground">{detailShipment.product || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Analysis Method:</p><p className="font-bold text-foreground">{detailShipment.analysis_method || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">DMO / Export:</p><p className="font-bold text-foreground">{detailShipment.export_dmo || "EXPORT"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">BL Date:</p><p className="font-bold text-foreground">{detailShipment.bl_date ? new Date(detailShipment.bl_date).toLocaleDateString() : "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Nomination:</p><p className="font-bold text-foreground">{detailShipment.nomination || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Buyer:</p><p className="font-bold text-foreground">{detailShipment.buyer || "-"}</p></div>
+                                            </div>
+                                        </div>
+
                                         {/* Bottom Extended Info */}
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div className="p-4 bg-accent/20 rounded-xl border border-border/50">
@@ -1384,6 +1401,43 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                 <div className="space-y-1.5 col-span-2 mt-2">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">General Remarks</label>
                                     <input type="text" value={editForm.remarks || ""} onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+
+                                {/* Operational & Legal (Historical Data) */}
+                                <div className="col-span-2 border-b border-border/30 pb-2 mb-1 mt-3">
+                                    <h3 className="text-[10px] font-bold text-blue-400 uppercase flex items-center gap-1.5"><ShieldCheck className="w-3 h-3" /> Operational & Legal</h3>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">IUP OP (Mine Source)</label>
+                                    <input type="text" value={editForm.iup_op || ""} onChange={(e) => setEditForm({ ...editForm, iup_op: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Nomination Number</label>
+                                    <input type="text" value={editForm.nomination || ""} onChange={(e) => setEditForm({ ...editForm, nomination: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Product</label>
+                                    <input type="text" value={editForm.product || ""} onChange={(e) => setEditForm({ ...editForm, product: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Analysis Method</label>
+                                    <input type="text" value={editForm.analysis_method || ""} onChange={(e) => setEditForm({ ...editForm, analysis_method: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Shipment Flow</label>
+                                    <input type="text" value={editForm.shipment_flow || ""} onChange={(e) => setEditForm({ ...editForm, shipment_flow: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">BL Date</label>
+                                    <input type="date" value={editForm.bl_date ? new Date(editForm.bl_date).toISOString().split('T')[0] : ""} onChange={(e) => setEditForm({ ...editForm, bl_date: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">DMO/Export Scope</label>
+                                    <select value={editForm.export_dmo || "EXPORT"} onChange={(e) => setEditForm({ ...editForm, export_dmo: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs">
+                                        <option value="EXPORT">EXPORT</option>
+                                        <option value="DMO">DMO</option>
+                                        <option value="LOCAL">LOCAL</option>
+                                    </select>
                                 </div>
                             </div>
 
