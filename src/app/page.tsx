@@ -488,23 +488,24 @@ export default function DashboardPage() {
             ].filter(Boolean).some((v: string) => v.toLowerCase().includes(q))) return false;
 
             // Date Range
-            if (range === "all") return true; 
+            const currentRange = range as string;
+            if (currentRange === "all") return true; 
             
             if (item.created_at) {
                 const itemDate = new Date(item.created_at);
-                if (range === "30d") {
+                if (currentRange === "30d") {
                     const diffTime = now.getTime() - itemDate.getTime();
                     if (diffTime / (1000 * 3600 * 24) > 30) return false;
-                } else if (range === "90d") {
+                } else if (currentRange === "90d") {
                     const diffTime = now.getTime() - itemDate.getTime();
                     if (diffTime / (1000 * 3600 * 24) > 90) return false;
-                } else if (range === "ytd") {
+                } else if (currentRange === "ytd") {
                     if (itemDate.getFullYear() !== now.getFullYear()) return false;
-                } else if (range === "custom") {
+                } else if (currentRange === "custom") {
                     if (customFrom && new Date(customFrom) > itemDate) return false;
                     if (customTo && new Date(customTo) < itemDate) return false;
                 }
-            } else if (range !== "all") {
+            } else {
                 // If range is specific but no date, hide it
                 return false;
             }
