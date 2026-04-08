@@ -450,7 +450,7 @@ export default function DashboardPage() {
     const tasks = useTaskStore((s) => s.tasks);
     const salesOrders = useSalesStore((s) => s.orders);
     const purchaseRequests = usePurchaseStore((s) => s.purchases);
-    const [range, setRange] = React.useState<"30d" | "90d" | "ytd" | "all" | "custom">("all");
+    const [range, setRange] = React.useState<FilterRange>("all");
     const [customFrom, setCustomFrom] = React.useState("");
     const [customTo, setCustomTo] = React.useState("");
     const [region, setRegion] = React.useState("all");
@@ -623,9 +623,10 @@ export default function DashboardPage() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                             {isCeo && <MetricCardSkeleton />}
                             {isCeo && <MetricCardSkeleton />}
+                            <MetricCardSkeleton />
                             <MetricCardSkeleton />
                             <MetricCardSkeleton />
                         </div>
