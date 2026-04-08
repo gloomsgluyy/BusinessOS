@@ -302,7 +302,12 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 jarak: ship.jarak, shipping_term: ship.shippingTerm, shipping_rate: ship.shippingRate,
                 price_freight: ship.priceFreight, allowance: ship.allowance, demm: ship.demm,
                 no_spal: ship.noSpal, no_si: ship.noSi, coa_date: ship.coaDate, result_gar: ship.resultGar,
-                year: ship.year, created_at: ship.createdAt, updated_at: ship.updatedAt
+                year: ship.year, created_at: ship.createdAt, updated_at: ship.updatedAt,
+                // Legacy compat fields
+                buyer: ship.buyer, supplier: ship.supplier, vessel_name: ship.vesselName,
+                barge_name: ship.bargeName, loading_port: ship.loadingPort, discharge_port: ship.dischargePort,
+                quantity_loaded: ship.quantityLoaded, sales_price: ship.salesPrice,
+                margin_mt: ship.marginMt, pic_name: ship.picName, type: ship.type,
             };
             set((state) => {
                 const raw = [mapped, ...state._rawShipments];
@@ -689,7 +694,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
         const tempId = `temp-${Date.now()}`;
         const grossProfitMt = (p.selling_price || 0) - (p.buying_price || 0) - (p.freight_cost || 0) - (p.other_cost || 0);
         const totalGrossProfit = grossProfitMt * (p.quantity || 0);
-        
+
         const optimisticForecast: PLForecastItem = {
             id: tempId,
             deal_id: p.deal_id || "",
@@ -733,7 +738,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body)
             });
-            
+
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
                 // ROLLBACK: Remove optimistic forecast on error
@@ -743,7 +748,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 });
                 throw new Error(err.error || "Failed to create forecast");
             }
-            
+
             const data = await res.json();
             const pl = data.forecast;
             const mapped: PLForecastItem = {
@@ -765,7 +770,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 created_at: pl.createdAt || new Date().toISOString(),
                 updated_at: pl.updatedAt || new Date().toISOString()
             };
-            
+
             // REPLACE: Replace optimistic forecast with real one from server
             set((s) => {
                 const raw = s._rawPLForecasts.map(f => f.id === tempId ? mapped : f);
@@ -779,7 +784,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     updatePLForecast: async (id: string, u: Partial<PLForecastItem>) => {
         // OPTIMISTIC UPDATE: Apply changes immediately to UI
         const previousState = get()._rawPLForecasts.find(f => f.id === id);
-        
+
         set((s) => {
             const raw = s._rawPLForecasts.map((f) => {
                 if (f.id !== id) return f;
@@ -855,7 +860,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 updated_at: pl.updatedAt,
                 is_deleted: pl.isDeleted
             };
-            
+
             // CONFIRM: Replace optimistic update with server response
             set((s) => {
                 const raw = s._rawPLForecasts.map((f) => f.id === id ? mapped : f);
@@ -869,7 +874,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     deletePLForecast: async (id: string) => {
         // OPTIMISTIC UPDATE: Mark as deleted immediately in UI
         const previousState = get()._rawPLForecasts.find(f => f.id === id);
-        
+
         set((s) => ({
             _rawPLForecasts: s._rawPLForecasts.map(f => f.id === id ? { ...f, is_deleted: true, _isOptimistic: true } : f),
             plForecasts: s.plForecasts.filter(f => f.id !== id)
@@ -879,7 +884,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
             const res = await fetch(`/api/memory/pl-forecasts?id=${id}`, {
                 method: "DELETE"
             });
-            
+
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
                 // ROLLBACK: Restore if deletion failed
@@ -891,7 +896,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 }
                 throw new Error(err.error || "Failed to delete forecast");
             }
-            
+
             // CONFIRM: Deletion successful, optimistic state is already correct
         } catch (error) {
             console.error('[Store] deletePLForecast failed:', error);
@@ -934,7 +939,12 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         jarak: s.jarak, shipping_term: s.shippingTerm, shipping_rate: s.shippingRate,
                         price_freight: s.priceFreight, allowance: s.allowance, demm: s.demm,
                         no_spal: s.noSpal, no_si: s.noSi, coa_date: s.coaDate, result_gar: s.resultGar,
-                        year: s.year, created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
+                        year: s.year, created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted,
+                        // Legacy compat fields
+                        buyer: s.buyer, supplier: s.supplier, vessel_name: s.vesselName,
+                        barge_name: s.bargeName, loading_port: s.loadingPort, discharge_port: s.dischargePort,
+                        quantity_loaded: s.quantityLoaded, sales_price: s.salesPrice,
+                        margin_mt: s.marginMt, pic_name: s.picName, type: s.type,
                     }));
                     updates._rawShipments = mappedShipments;
                     updates.shipments = mappedShipments.filter(x => !x.is_deleted);

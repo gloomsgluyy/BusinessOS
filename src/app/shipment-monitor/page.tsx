@@ -908,8 +908,8 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                             <div className="flex justify-between items-start mb-4">
                                 <div>
                                     <h3 className="text-sm font-bold text-foreground mb-3">Shipment Details</h3>
-                                    <h2 className="text-3xl font-black text-foreground mb-1">{detailShipment.shipment_number}</h2>
-                                    <p className="text-sm text-muted-foreground">{detailShipment.buyer} - {detailShipment.supplier}</p>
+                                    <h2 className="text-3xl font-black text-foreground mb-1">{detailShipment.mv_project_name || detailShipment.shipment_number || `#${detailShipment.no || '-'}`}</h2>
+                                    <p className="text-sm text-muted-foreground">{detailShipment.source || detailShipment.buyer || '-'} — {detailShipment.origin || detailShipment.supplier || '-'}</p>
                                 </div>
                                 <div className="flex items-start gap-4">
                                     <div className="flex items-center gap-2 mt-8">
@@ -955,10 +955,10 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                     <Package className="w-4 h-4 text-muted-foreground" /> Shipment Details
                                                 </h4>
                                                 <div className="space-y-4 text-sm mt-auto">
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Type:</span><span className="font-semibold text-foreground text-right">Export</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Volume:</span><span className="font-bold text-foreground text-right">{detailShipment.quantity_loaded?.toLocaleString() || "0"} MT</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Trade Basis:</span><span className="font-semibold text-foreground text-right">FOB MV</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Vessel Type:</span><span className="font-semibold text-foreground text-right">{detailShipment.vessel_name || "TBA"}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Type:</span><span className="font-semibold text-foreground text-right">{detailShipment.export_dmo || detailShipment.type || 'Export'}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Volume:</span><span className="font-bold text-foreground text-right">{(detailShipment.qty_plan || detailShipment.quantity_loaded)?.toLocaleString() || "0"} MT</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Source:</span><span className="font-semibold text-foreground text-right">{detailShipment.source || detailShipment.supplier || '-'}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Vessel/Nomination:</span><span className="font-semibold text-foreground text-right">{detailShipment.nomination || detailShipment.vessel_name || "TBA"}</span></div>
                                                 </div>
                                             </div>
                                             <div className="border border-border/60 rounded-xl p-5 bg-background/50 flex flex-col">
@@ -966,10 +966,10 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                     <DollarSign className="w-4 h-4 text-muted-foreground" /> Financial
                                                 </h4>
                                                 <div className="space-y-4 text-sm mt-auto">
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Sales Price:</span><span className="font-semibold text-blue-500 text-right">${safeNum(detailShipment.sales_price) || "0"}/MT</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Cost:</span><span className="font-semibold text-foreground text-right">${safeFmt(safeNum(detailShipment.sales_price) - safeNum(detailShipment.margin_mt))}/MT</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Margin:</span><span className="font-bold text-emerald-500 text-right">${safeNum(detailShipment.margin_mt) || "0"}/MT</span></div>
-                                                    <div className="flex justify-between items-center mt-2 pt-3 border-t border-border/40"><span className="text-muted-foreground">Total Revenue:</span><span className="font-bold text-foreground text-right text-base">${(safeNum(detailShipment.sales_price) * safeNum(detailShipment.quantity_loaded)).toLocaleString()}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">FOB MV:</span><span className="font-semibold text-blue-500 text-right">{(detailShipment.harga_actual_fob_mv || detailShipment.sales_price) ? `${safeFmt(detailShipment.harga_actual_fob_mv || detailShipment.sales_price)}/MT` : "-"}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">FOB Barge:</span><span className="font-semibold text-foreground text-right">{detailShipment.harga_actual_fob ? `${safeFmt(detailShipment.harga_actual_fob)}/MT` : "-"}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">HPB:</span><span className="font-bold text-emerald-500 text-right">{(detailShipment.hpb || detailShipment.margin_mt) ? `${safeFmt(detailShipment.hpb || detailShipment.margin_mt)}/MT` : "-"}</span></div>
+                                                    <div className="flex justify-between items-center mt-2 pt-3 border-t border-border/40"><span className="text-muted-foreground">Est. Revenue:</span><span className="font-bold text-foreground text-right text-base">${(safeNum(detailShipment.harga_actual_fob_mv || detailShipment.sales_price) * safeNum(detailShipment.qty_plan || detailShipment.quantity_loaded)).toLocaleString()}</span></div>
                                                 </div>
                                             </div>
                                         </div>
@@ -981,11 +981,11 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                             <div className="grid grid-cols-2 gap-4 text-sm mt-2">
                                                 <div>
                                                     <span className="text-muted-foreground block mb-1">LAYCAN Period</span>
-                                                    <span className="font-semibold text-foreground">{detailShipment.bl_date || "-"}</span>
+                                                    <span className="font-semibold text-foreground">{detailShipment.laycan || "-"}</span>
                                                 </div>
                                                 <div>
-                                                    <span className="text-muted-foreground block mb-1">Loading Date</span>
-                                                    <span className="font-semibold text-foreground">{detailShipment.bl_date || "-"}</span>
+                                                    <span className="text-muted-foreground block mb-1">BL Date</span>
+                                                    <span className="font-semibold text-foreground">{detailShipment.bl_date ? new Date(detailShipment.bl_date).toLocaleDateString() : "-"}</span>
                                                 </div>
                                             </div>
                                         </div>
