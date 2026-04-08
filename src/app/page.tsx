@@ -305,11 +305,21 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
     const data = months.map((m, i) => {
         const monthItems = shipments.filter((sh) => {
             const dateStr = sh.bl_date || sh.created_at || sh.updated_at;
-            const d = new Date(dateStr);
-            return d.getMonth() === i;
+            if (!dateStr) return false;
+            try {
+                const d = new Date(dateStr);
+                return d.getMonth() === i;
+            } catch (e) {
+                return false;
+            }
         });
-        const domestic = monthItems.filter((sh) => (sh.type as string) === "local").reduce((s, sh) => s + (Number(sh.quantity_loaded) || 0), 0);
-        const exportVol = monthItems.filter((sh) => (sh.type as string) === "export").reduce((s, sh) => s + (Number(sh.quantity_loaded) || 0), 0);
+
+        const domestic = monthItems
+            .filter((sh) => (sh.type as string) === "local")
+            .reduce((s, sh) => s + (Number(sh.quantity_loaded) || Number(sh.qty_plan) || 0), 0);
+        const exportVol = monthItems
+            .filter((sh) => (sh.type as string) === "export")
+            .reduce((s, sh) => s + (Number(sh.quantity_loaded) || Number(sh.qty_plan) || 0), 0);
 
         return {
             month: m,
@@ -318,7 +328,7 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
         };
     });
 
-    const totalQty = shipments.reduce((s, sh) => s + (sh.quantity_loaded || 0), 0);
+    const totalQty = shipments.reduce((s, sh) => s + (Number(sh.quantity_loaded) || Number(sh.qty_plan) || 0), 0);
 
     return (
         <div className="card-elevated p-5 animate-slide-up delay-2">
@@ -340,8 +350,8 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
                             <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${safeFmt(v / 1000, 0)}K`} />
                             <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }} />
                             <Legend wrapperStyle={{ fontSize: '11px' }} />
-                            <Bar dataKey="local" name="Local" fill="#10b981" stackId="qty" radius={[0, 0, 0, 0]} />
-                            <Bar dataKey="export" name="Export" fill="#8b5cf6" stackId="qty" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="local" name="Local (Domestic)" fill="#3b82f6" stackId="qty" radius={[0, 0, 0, 0]} />
+                            <Bar dataKey="export" name="Export" fill="#10b981" stackId="qty" radius={[4, 4, 0, 0]} />
                         </BarChart>
                     </ResponsiveContainer>
                 )}
@@ -450,7 +460,7 @@ export default function DashboardPage() {
     const tasks = useTaskStore((s) => s.tasks);
     const salesOrders = useSalesStore((s) => s.orders);
     const purchaseRequests = usePurchaseStore((s) => s.purchases);
-    const [range, setRange] = React.useState<FilterRange>("all");
+    const [timeRange, setTimeRange] = React.useState<FilterRange>("all");
     const [customFrom, setCustomFrom] = React.useState("");
     const [customTo, setCustomTo] = React.useState("");
     const [region, setRegion] = React.useState("all");
@@ -488,7 +498,7 @@ export default function DashboardPage() {
             ].filter(Boolean).some((v: string) => v.toLowerCase().includes(q))) return false;
 
             // Date Range
-            const currentRange = range as string;
+            const currentRange = timeRange as string;
             if (currentRange === "all") return true; 
             
             if (item.created_at) {
@@ -652,7 +662,7 @@ export default function DashboardPage() {
                                 <p className="text-sm text-muted-foreground">Commercial Team Overview · {currentUser?.job_title || currentUser?.role || "Guest"}</p>
                             </div>
                             <DashboardFilters
-                                range={range} setRange={setRange}
+                                range={timeRange} setRange={setTimeRange}
                                 customFrom={customFrom} customTo={customTo}
                                 setCustomFrom={setCustomFrom} setCustomTo={setCustomTo}
                                 region={region} setRegion={setRegion}

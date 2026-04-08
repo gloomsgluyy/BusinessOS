@@ -944,16 +944,22 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         price_freight: s.priceFreight, allowance: s.allowance, demm: s.demm,
                         no_spal: s.noSpal, no_si: s.noSi, coa_date: s.coaDate, result_gar: s.resultGar,
                         // Fix missing fields for dashboard accuracy
-                        quantity_loaded: s.quantityLoaded || 0,
-                        sales_price: s.salesPrice || 0,
+                        quantity_load: s.quantityLoaded || s.qtyPlan || 0,
+                        quantity_loaded: s.quantityLoaded || s.qtyPlan || 0,
+                        sales_price: s.salesPrice || s.sp || 0,
                         margin_mt: s.marginMt || 0,
-                        buyer: s.buyer,
-                        vessel_name: s.vesselName,
-                        barge_name: s.bargeName,
-                        loading_port: s.loadingPort,
-                        discharge_port: s.dischargePort,
-                        product: s.product,
-                        analysis_method: s.analysisMethod,
+                        buyer: s.buyer || "-",
+                        vessel_name: s.vesselName || s.mvProjectName || "-",
+                        barge_name: s.bargeName || s.nomination || "-",
+                        loading_port: s.loadingPort || s.jettyLoadingPort || "-",
+                        discharge_port: s.dischargePort || "-",
+                        product: s.product || "-",
+                        analysis_method: s.analysisMethod || "-",
+                        type: (() => {
+                            const t = (s.type || "export").toLowerCase();
+                            if (t === "lokal" || t === "domestic") return "local";
+                            return t;
+                        })(),
                         year: s.year, created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
                     }));
                     updates._rawShipments = mappedShipments;
@@ -966,7 +972,8 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         id: s.id, name: s.name, region: s.region, calorie_range: s.calorieRange,
                         spec: { gar: s.gar, ts: s.ts, ash: s.ash, tm: s.tm, hgi: 0, adb: 0, nar: 0 },
                         jetty_port: s.jettyPort, anchorage: s.anchorage, min_stock_alert: s.minStockAlert,
-                        kyc_status: s.kycStatus, psi_status: s.psiStatus, stock_available: s.stockAvailable,
+                        kyc_status: s.kycStatus, psi_status: s.psiStatus, 
+                        stock_available: s.stockAvailable || 0,
                         fob_barge_only: s.fobBargeOnly, requires_transshipment: s.requiresTransshipment,
                         price_linked_index: s.priceLinkedIndex, fob_barge_price_idr: s.fobBargePriceIdr, fob_barge_price_usd: s.fobBargePriceUsd,
                         transshipment_costs: s.transshipmentCosts ? JSON.parse(s.transshipmentCosts) : undefined,
