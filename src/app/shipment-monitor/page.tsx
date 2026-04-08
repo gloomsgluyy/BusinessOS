@@ -1469,7 +1469,14 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">LHV Terbit (Boolean)</label>
-                                    <select value={editForm.lhv_terbit ? "true" : "false"} onChange={(e) => setEditForm({ ...editForm, lhv_terbit: e.target.value === "true" })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs">
+                                    <select 
+                                        value={editForm.lhv_terbit ? "true" : "false"} 
+                                        onChange={(e) => setEditForm({ 
+                                            ...editForm, 
+                                            lhv_terbit: e.target.value === "true" ? new Date().toISOString() : "" 
+                                        })} 
+                                        className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs"
+                                    >
                                         <option value="true">YES</option>
                                         <option value="false">NO</option>
                                     </select>
