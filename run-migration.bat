@@ -1,0 +1,3 @@
+@echo off
+echo Running Historical Data Migration...
+node scripts\migrate-historical-data.js

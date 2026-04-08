@@ -1,0 +1,3 @@
+@echo off
+echo Running Migration Verification...
+node scripts\verify-migration.js

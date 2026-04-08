@@ -24,7 +24,7 @@ export async function GET() {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         const records = await prisma.dailyDelivery.findMany({ where: { isDeleted: false }, orderBy: { createdAt: "desc" } });
-        return NextResponse.json({ success: true, deliveries: records });
+        return NextResponse.json({ success: true, dailyDeliveries: records });
     } catch (error) {
         console.error("GET /api/memory/daily-delivery error:", error);
         return NextResponse.json({ error: "Failed to fetch" }, { status: 500 });
@@ -47,11 +47,24 @@ export async function POST(req: Request) {
                 pol: data.pol, laycanPol: data.laycanPol, area: data.area, supplier: data.supplier,
                 mvBargeNomination: data.mvBargeNomination, issue: data.issue, blMonth: data.blMonth,
                 blQuantity: parseNum(data.blQuantity), blDate: parseDate(data.blDate),
+                analysisMethod: data.analysisMethod,
                 surveyorPol: data.surveyorPol, surveyorPod: data.surveyorPod,
-                project: data.project, flow: data.flow, basePrice: parseNum(data.basePrice),
+                project: data.project, flow: data.flow,
+                terpal: data.terpal, insurance: data.insurance,
+                basePrice: parseNum(data.basePrice), basePriceNotes: data.basePriceNotes,
+                poMonth: data.poMonth, product: data.product,
+                arriveAtPol: parseDate(data.arriveAtPol),
+                commenceLoading: parseDate(data.commenceLoading),
+                completeLoading: parseDate(data.completeLoading),
+                startDischarging: parseDate(data.startDischarging),
+                completeDischarged: parseDate(data.completeDischarged),
+                podQuantity: parseNum(data.podQuantity),
+                lossGainCargo: parseNum(data.lossGainCargo),
                 poNo: data.poNo, contractNo: data.contractNo, contractType: data.contractType,
-                invoicePrice: parseNum(data.invoicePrice), paymentDueDate: parseDate(data.paymentDueDate),
-                paymentStatus: data.paymentStatus, actualGcvGar: parseNum(data.actualGcvGar),
+                invoicePrice: parseNum(data.invoicePrice), invoiceAmount: parseNum(data.invoiceAmount),
+                paymentDueDate: parseDate(data.paymentDueDate),
+                paymentStatus: data.paymentStatus, specContract: data.specContract,
+                actualGcvGar: parseNum(data.actualGcvGar),
                 actualTs: parseNum(data.actualTs), actualAsh: parseNum(data.actualAsh), actualTm: parseNum(data.actualTm),
             }
         });
@@ -88,20 +101,33 @@ export async function PUT(req: Request) {
             data: {
                 reportType: data.reportType, year: data.year,
                 shipmentStatus: data.shipmentStatus, buyer: data.buyer, pod: data.pod,
-                shippingTerm: data.shippingTerm, latestEtaPod: data.latestEtaPod !== undefined ? parseDate(data.latestEtaPod) : undefined,
+                shippingTerm: data.shippingTerm,
+                latestEtaPod: data.latestEtaPod !== undefined ? parseDate(data.latestEtaPod) : undefined,
                 arriveAtPod: data.arriveAtPod !== undefined ? parseDate(data.arriveAtPod) : undefined,
                 keterlambatan: data.keterlambatan, pol: data.pol, laycanPol: data.laycanPol,
                 area: data.area, supplier: data.supplier, mvBargeNomination: data.mvBargeNomination,
                 issue: data.issue, blMonth: data.blMonth,
                 blQuantity: data.blQuantity !== undefined ? parseNum(data.blQuantity) : undefined,
                 blDate: data.blDate !== undefined ? parseDate(data.blDate) : undefined,
+                analysisMethod: data.analysisMethod,
                 surveyorPol: data.surveyorPol, surveyorPod: data.surveyorPod,
                 project: data.project, flow: data.flow,
+                terpal: data.terpal, insurance: data.insurance,
                 basePrice: data.basePrice !== undefined ? parseNum(data.basePrice) : undefined,
+                basePriceNotes: data.basePriceNotes,
+                poMonth: data.poMonth, product: data.product,
+                arriveAtPol: data.arriveAtPol !== undefined ? parseDate(data.arriveAtPol) : undefined,
+                commenceLoading: data.commenceLoading !== undefined ? parseDate(data.commenceLoading) : undefined,
+                completeLoading: data.completeLoading !== undefined ? parseDate(data.completeLoading) : undefined,
+                startDischarging: data.startDischarging !== undefined ? parseDate(data.startDischarging) : undefined,
+                completeDischarged: data.completeDischarged !== undefined ? parseDate(data.completeDischarged) : undefined,
+                podQuantity: data.podQuantity !== undefined ? parseNum(data.podQuantity) : undefined,
+                lossGainCargo: data.lossGainCargo !== undefined ? parseNum(data.lossGainCargo) : undefined,
                 poNo: data.poNo, contractNo: data.contractNo, contractType: data.contractType,
                 invoicePrice: data.invoicePrice !== undefined ? parseNum(data.invoicePrice) : undefined,
+                invoiceAmount: data.invoiceAmount !== undefined ? parseNum(data.invoiceAmount) : undefined,
                 paymentDueDate: data.paymentDueDate !== undefined ? parseDate(data.paymentDueDate) : undefined,
-                paymentStatus: data.paymentStatus,
+                paymentStatus: data.paymentStatus, specContract: data.specContract,
                 actualGcvGar: data.actualGcvGar !== undefined ? parseNum(data.actualGcvGar) : undefined,
                 actualTs: data.actualTs !== undefined ? parseNum(data.actualTs) : undefined,
                 actualAsh: data.actualAsh !== undefined ? parseNum(data.actualAsh) : undefined,

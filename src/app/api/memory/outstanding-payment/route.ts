@@ -24,7 +24,7 @@ export async function GET() {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         const records = await prisma.outstandingPayment.findMany({ where: { isDeleted: false }, orderBy: { createdAt: "desc" } });
-        return NextResponse.json({ success: true, payments: records });
+        return NextResponse.json({ success: true, outstandingPayments: records });
     } catch (error) {
         console.error("GET /api/memory/outstanding-payment error:", error);
         return NextResponse.json({ error: "Failed to fetch" }, { status: 500 });

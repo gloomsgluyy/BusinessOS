@@ -1,0 +1,35 @@
+# DB ↔ Frontend CRUD Coverage Fix
+
+## Changes Made
+
+### 🔴 Critical Fixes (2 files)
+
+**API response key mismatches** — These caused [DailyDelivery](file:///d:/programming/web/fullstack/11gawe/src/types/index.ts#266-319) and [OutstandingPayment](file:///d:/programming/web/fullstack/11gawe/src/types/index.ts#321-336) data to never load on the frontend.
+
+| File | Before | After |
+|---|---|---|
+| [route.ts](file:///d:/programming/web/fullstack/11gawe/src/app/api/memory/daily-delivery/route.ts) | `deliveries: records` | `dailyDeliveries: records` |
+| [route.ts](file:///d:/programming/web/fullstack/11gawe/src/app/api/memory/outstanding-payment/route.ts) | `payments: records` | `outstandingPayments: records` |
+
+### ⚠️ Missing Fields (1 file)
+
+Added **15 DB fields** to [daily-delivery route.ts](file:///d:/programming/web/fullstack/11gawe/src/app/api/memory/daily-delivery/route.ts) POST/PUT handlers:
+
+`analysisMethod`, `terpal`, `insurance`, `basePriceNotes`, `poMonth`, `product`, `arriveAtPol`, `commenceLoading`, `completeLoading`, `startDischarging`, `completeDischarged`, `podQuantity`, `lossGainCargo`, `invoiceAmount`, `specContract`
+
+## Validation
+
+- ✅ TypeScript compilation passes (only pre-existing error in unrelated [scripts/migrate-historical-data.ts](file:///d:/programming/web/fullstack/11gawe/scripts/migrate-historical-data.ts))
+- ✅ All 14 API routes verified to have GET/POST/PUT/DELETE
+- ✅ All stores now have matching response keys
+
+## Full CRUD Coverage Matrix
+
+All 14 business models now have working CRUD through API → Store → Frontend:
+
+| Model | Status |
+|---|---|
+| SalesDeal, ShipmentDetail, SourceSupplier, QualityResult, MarketPrice, MeetingItem, PLForecast, BlendingSimulation | ✅ Working |
+| TaskItem, SalesOrder, PurchaseRequest, Partner | ✅ Working |
+| **DailyDelivery** | ✅ **Fixed** |
+| **OutstandingPayment** | ✅ **Fixed** |
