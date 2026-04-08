@@ -12,7 +12,7 @@ import { TASK_STATUSES, TASK_PRIORITIES, SALES_DEAL_STATUSES, SHIPMENT_STATUSES 
 import {
     TrendingUp, TrendingDown, DollarSign, AlertCircle, Ship,
     Anchor, Package, BarChart3, Calendar, Clock, ArrowUpRight,
-    Lock, Filter, ChevronDown,
+    Lock, Filter, ChevronDown, Layers,
 } from "lucide-react";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
@@ -304,15 +304,17 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const data = months.map((m, i) => {
         const monthItems = shipments.filter((sh) => {
-            // Prioritize bl_date for historical accuracy, fallback to created_at
             const dateStr = sh.bl_date || sh.created_at || sh.updated_at;
             const d = new Date(dateStr);
             return d.getMonth() === i;
         });
+        const domestic = monthItems.filter((sh) => (sh.type as string) === "local").reduce((s, sh) => s + (Number(sh.quantity_loaded) || 0), 0);
+        const exportVol = monthItems.filter((sh) => (sh.type as string) === "export").reduce((s, sh) => s + (Number(sh.quantity_loaded) || 0), 0);
+
         return {
             month: m,
-            local: monthItems.filter((sh) => sh.type === "local").reduce((s, sh) => s + (sh.quantity_loaded || 0), 0),
-            export: monthItems.filter((sh) => sh.type !== "local").reduce((s, sh) => s + (sh.quantity_loaded || 0), 0),
+            local: Math.round(domestic / 1000),
+            export: Math.round(exportVol / 1000),
         };
     });
 
@@ -323,7 +325,7 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
             <div className="flex items-center justify-between mb-4">
                 <div>
                     <h3 className="text-sm font-semibold">Quantity per Month (MT)</h3>
-                    <p className="text-[10px] text-muted-foreground">Total: {safeFmt(totalQty / 1000, 0)}K MT</p>
+                    <p className="text-[10px] text-muted-foreground">Total: {Math.round(totalQty / 1000)}K MT</p>
                 </div>
                 <a href="/sales-monitor" className="text-xs text-primary hover:underline flex items-center gap-1 group">
                     Detail <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
@@ -448,7 +450,7 @@ export default function DashboardPage() {
     const tasks = useTaskStore((s) => s.tasks);
     const salesOrders = useSalesStore((s) => s.orders);
     const purchaseRequests = usePurchaseStore((s) => s.purchases);
-    const [range, setRange] = React.useState<FilterRange>("all");
+    const [range, setRange] = React.useState<"30d" | "90d" | "ytd" | "all" | "custom">("all");
     const [customFrom, setCustomFrom] = React.useState("");
     const [customTo, setCustomTo] = React.useState("");
     const [region, setRegion] = React.useState("all");
@@ -486,6 +488,8 @@ export default function DashboardPage() {
             ].filter(Boolean).some((v: string) => v.toLowerCase().includes(q))) return false;
 
             // Date Range
+            if (range === "all") return true; 
+            
             if (item.created_at) {
                 const itemDate = new Date(item.created_at);
                 if (range === "30d") {
@@ -496,12 +500,13 @@ export default function DashboardPage() {
                     if (diffTime / (1000 * 3600 * 24) > 90) return false;
                 } else if (range === "ytd") {
                     if (itemDate.getFullYear() !== now.getFullYear()) return false;
-                } else if (range === "all") {
-                    return true;
                 } else if (range === "custom") {
                     if (customFrom && new Date(customFrom) > itemDate) return false;
                     if (customTo && new Date(customTo) < itemDate) return false;
                 }
+            } else if (range !== "all") {
+                // If range is specific but no date, hide it
+                return false;
             }
             return true;
         });
@@ -657,11 +662,12 @@ export default function DashboardPage() {
                         </div>
 
                         {/* Top Metrics - Row 1 */}
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                            {isCeo && <MetricCard label="Total Revenue (USD)" value={formatUSD(totalRevenue)} sub="YTD Confirmed Deals" icon={DollarSign} color="bg-emerald-500/10" delay={1} restricted hasAccess={isCeo} />}
+                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                            {isCeo && <MetricCard label="Total Revenue (USD)" value={formatUSD(totalRevenue)} sub="YTD Confirmed" icon={DollarSign} color="bg-emerald-500/10" delay={1} restricted hasAccess={isCeo} />}
                             {isCeo && <MetricCard label="Gross Profit (USD)" value={formatUSD(totalGrossProfit)} sub={`$${safeFmt(avgGrossProfit)}/MT avg`} icon={TrendingUp} color="bg-violet-500/10" delay={2} restricted hasAccess={isCeo} />}
-                            <MetricCard label="Active Deals" value={preSaleCount + confirmedCount + forecastCount} sub={`${confirmedCount} confirmed · ${preSaleCount} pre-sale`} icon={BarChart3} color="bg-blue-500/10" delay={isCeo ? 3 : 1} />
-                            <MetricCard label="Active Shipments" value={activeShipmentsList.length} sub={`${pendingTasks} tasks pending`} icon={Ship} color="bg-amber-500/10" delay={isCeo ? 4 : 2} />
+                            <MetricCard label="Total Volume" value={`${safeFmt(totalQty / 1000, 0)}K MT`} sub={`${safeFmt(localQty / 1000, 0)}K Local · ${safeFmt(exportQty / 1000, 0)}K Export`} icon={Layers} color="bg-cyan-500/10" delay={3} />
+                            <MetricCard label="Active Deals" value={preSaleCount + confirmedCount + forecastCount} sub={`${confirmedCount} confirmed`} icon={BarChart3} color="bg-blue-500/10" delay={isCeo ? 4 : 1} />
+                            <MetricCard label="Active Shipments" value={activeShipmentsList.length} sub={`${pendingTasks} tasks pending`} icon={Ship} color="bg-amber-500/10" delay={isCeo ? 5 : 2} />
                         </div>
 
                         {/* CEO-Only Revenue Split */}

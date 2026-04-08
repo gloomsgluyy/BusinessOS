@@ -161,12 +161,30 @@ async function migrate() {
             const qty = toFloat(row['QTY ACTUAL'] || row['QTY PLAN']);
             const sp = priceInfo.sp || 50;
 
+            const marketStr = (cleanStr(row['EXPORT DMO']) || '').toUpperCase();
+            const type = (marketStr.includes('DOMESTIC') || marketStr.includes('DMO') || marketStr.includes('LOCAL') || marketStr.includes('DOMESTIK') || marketStr.includes('LOKAL')) ? 'local' : 'export';
+            
+            // Extract country from POD
+            const pod = cleanStr(row['POD'] || recapEntry['POD']) || '';
+            let country = type === 'local' ? 'Indonesia' : 'Unknown';
+            if (type === 'export') {
+                const podUpper = pod.toUpperCase();
+                if (podUpper.includes('CHINA')) country = 'China';
+                else if (podUpper.includes('INDIA')) country = 'India';
+                else if (podUpper.includes('VIETNAM')) country = 'Vietnam';
+                else if (podUpper.includes('THAILAND')) country = 'Thailand';
+                else if (podUpper.includes('KOREA')) country = 'South Korea';
+                else if (podUpper.includes('JAPAN')) country = 'Japan';
+                else if (podUpper.includes('MALAYSIA')) country = 'Malaysia';
+                else if (podUpper.includes('PHILIPPINES')) country = 'Philippines';
+            }
+
             // A. Create Shipment Detail (Target: 40+ fields)
             const shipment = await prisma.shipmentDetail.create({
                 data: {
                     no: no,
                     year: year,
-                    exportDmo: cleanStr(row['EXPORT DMO']),
+                    exportDmo: type === 'local' ? 'DOMESTIC' : 'EXPORT',
                     status: (cleanStr(row['STATUS']) || 'upcoming').toLowerCase().includes('done') ? 'completed' : 'loading',
                     origin: cleanStr(row['ORIGIN']),
                     mvProjectName: cleanStr(row['MV/PROJECT NAME']),
@@ -206,13 +224,14 @@ async function migrate() {
                     resultGar: toFloat(row['RESULT GAR']),
                     // Link-ready fields
                     buyer: buyerName,
+                    type: type,
                     vesselName: cleanStr(row['NOMINATION']),
                     loadingPort: cleanStr(row['JETTY LOADING PORT']),
                     dischargePort: cleanStr(row['DISCHARGE PORT']) || cleanStr(recapEntry['POD']),
                     product: cleanStr(recapEntry['Product']) || 'Coal',
                     quantityLoaded: qty,
                     salesPrice: sp,
-                    marginMt: (sp - priceInfo.fob) || 5, // Estimated margin
+                    marginMt: (sp - priceInfo.fob) || 2.42, 
                 }
             });
 
@@ -228,7 +247,7 @@ async function migrate() {
                     dealNumber: dealNo,
                     status: 'confirmed', // Mark confirmed so it shows in revenue
                     buyer: buyerName,
-                    type: (cleanStr(row['EXPORT DMO']) || '').toLowerCase().includes('dmo') ? 'local' : 'export',
+                    type: type,
                     shippingTerms: cleanStr(row['SHIPPING TERM']) || 'FOB',
                     quantity: qty,
                     pricePerMt: sp,
