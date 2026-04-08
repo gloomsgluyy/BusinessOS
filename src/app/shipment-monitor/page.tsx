@@ -676,7 +676,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                         {isExpanded && (
                                                             <tr className="bg-accent/5 border-b border-border/30">
                                                                 <td colSpan={13} className="px-6 py-4">
-                                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                                                                         {/* Shipping Details */}
                                                                         <div className="space-y-2">
                                                                             <h4 className="text-[10px] font-semibold text-muted-foreground uppercase flex items-center gap-1">
@@ -755,6 +755,21 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                                                     </div>
                                                                                 </div>
                                                                             )}
+                                                                        </div>
+
+                                                                        {/* Documentation & Extras */}
+                                                                        <div className="space-y-2">
+                                                                            <h4 className="text-[10px] font-semibold text-muted-foreground uppercase flex items-center gap-1">
+                                                                                <ShieldCheck className="w-3 h-3" /> Documentation & Extras
+                                                                            </h4>
+                                                                            <div className="space-y-1.5 text-xs bg-background/50 p-3 rounded-lg border border-border/50">
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">No. SPAL:</span><span className="font-medium text-right text-foreground">{sh.no_spal || "-"}</span></div>
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">No. SI:</span><span className="font-medium text-right text-foreground">{sh.no_si || "-"}</span></div>
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Surveyor LHV:</span><span className="font-medium text-right text-foreground">{sh.surveyor_lhv || "-"}</span></div>
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Jarak (NM):</span><span className="font-medium text-right text-foreground">{sh.jarak ? `${sh.jarak} NM` : "-"}</span></div>
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Deadfreight:</span><span className="font-medium text-right text-foreground">{sh.deadfreight || "-"}</span></div>
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">LHV Terbit:</span><span className="font-medium text-right text-foreground">{sh.lhv_terbit ? "✅ YES" : "❌ NO"}</span></div>
+                                                                            </div>
                                                                         </div>
                                                                     </div>
                                                                 </td>
@@ -1104,6 +1119,11 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">BL Date:</p><p className="font-bold text-foreground">{detailShipment.bl_date ? new Date(detailShipment.bl_date).toLocaleDateString() : "-"}</p></div>
                                                 <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Nomination:</p><p className="font-bold text-foreground">{detailShipment.nomination || "-"}</p></div>
                                                 <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Buyer:</p><p className="font-bold text-foreground">{detailShipment.buyer || "-"}</p></div>
+                                                {/* New Fields */}
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">No. SPAL:</p><p className="font-bold text-foreground">{detailShipment.no_spal || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">No. SI:</p><p className="font-bold text-foreground">{detailShipment.no_si || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Surveyor LHV:</p><p className="font-bold text-foreground">{detailShipment.surveyor_lhv || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">LHV Terbit:</p><p className="font-bold text-foreground text-emerald-500">{detailShipment.lhv_terbit ? "YES" : "NO"}</p></div>
                                             </div>
                                         </div>
 
@@ -1113,12 +1133,12 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <h5 className="text-[10px] font-bold text-muted-foreground uppercase mb-3 flex items-center gap-1.5"><Beaker className="w-3 h-3" /> Technical Specs</h5>
                                                 <div className="grid grid-cols-3 gap-4 text-sm">
                                                     <div className="text-center p-2 bg-background rounded-lg border border-border/30">
-                                                        <p className="text-[9px] text-muted-foreground uppercase">GAR</p>
-                                                        <p className="font-black text-primary">{detailShipment.result_gar || detailShipment.spec_actual?.gar || "-"}</p>
+                                                        <p className="text-[9px] text-muted-foreground uppercase">HBA/HPB</p>
+                                                        <p className="font-black text-emerald-500">${safeNum(detailShipment.hpb)}</p>
                                                     </div>
                                                     <div className="text-center p-2 bg-background rounded-lg border border-border/30">
-                                                        <p className="text-[9px] text-muted-foreground uppercase">Export/DMO</p>
-                                                        <p className="font-black text-foreground">{detailShipment.export_dmo || "EXPORT"}</p>
+                                                        <p className="text-[9px] text-muted-foreground uppercase">FOB Barge</p>
+                                                        <p className="font-black text-foreground">${safeNum(detailShipment.harga_actual_fob)}</p>
                                                     </div>
                                                     <div className="text-center p-2 bg-background rounded-lg border border-border/30">
                                                         <p className="text-[9px] text-muted-foreground uppercase">Term</p>
@@ -1426,6 +1446,33 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Shipment Flow</label>
                                     <input type="text" value={editForm.shipment_flow || ""} onChange={(e) => setEditForm({ ...editForm, shipment_flow: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">No. SPAL</label>
+                                    <input type="text" value={editForm.no_spal || ""} onChange={(e) => setEditForm({ ...editForm, no_spal: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">No. SI</label>
+                                    <input type="text" value={editForm.no_si || ""} onChange={(e) => setEditForm({ ...editForm, no_si: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Surveyor LHV</label>
+                                    <input type="text" value={editForm.surveyor_lhv || ""} onChange={(e) => setEditForm({ ...editForm, surveyor_lhv: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Jarak (NM)</label>
+                                    <input type="number" value={editForm.jarak || 0} onChange={(e) => setEditForm({ ...editForm, jarak: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Deadfreight</label>
+                                    <input type="number" value={editForm.deadfreight || 0} onChange={(e) => setEditForm({ ...editForm, deadfreight: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">LHV Terbit (Boolean)</label>
+                                    <select value={editForm.lhv_terbit ? "true" : "false"} onChange={(e) => setEditForm({ ...editForm, lhv_terbit: e.target.value === "true" })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs">
+                                        <option value="true">YES</option>
+                                        <option value="false">NO</option>
+                                    </select>
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">BL Date</label>

@@ -26,11 +26,12 @@ import {
 } from "recharts";
 
 /* ─── Filters ─────────────────────────────────────────────── */
-type FilterRange = "30d" | "90d" | "ytd" | "custom";
+type FilterRange = "30d" | "90d" | "ytd" | "all" | "custom";
 const FILTER_OPTIONS: { value: FilterRange; label: string }[] = [
     { value: "30d", label: "Last 30 Days" },
     { value: "90d", label: "Last 90 Days" },
     { value: "ytd", label: "Year to Date" },
+    { value: "all", label: "All Time" },
     { value: "custom", label: "Custom Range" },
 ];
 
@@ -445,7 +446,7 @@ export default function DashboardPage() {
     const tasks = useTaskStore((s) => s.tasks);
     const salesOrders = useSalesStore((s) => s.orders);
     const purchaseRequests = usePurchaseStore((s) => s.purchases);
-    const [range, setRange] = React.useState<FilterRange>("ytd");
+    const [range, setRange] = React.useState<FilterRange>("all");
     const [customFrom, setCustomFrom] = React.useState("");
     const [customTo, setCustomTo] = React.useState("");
     const [region, setRegion] = React.useState("all");
@@ -493,6 +494,8 @@ export default function DashboardPage() {
                     if (diffTime / (1000 * 3600 * 24) > 90) return false;
                 } else if (range === "ytd") {
                     if (itemDate.getFullYear() !== now.getFullYear()) return false;
+                } else if (range === "all") {
+                    return true;
                 } else if (range === "custom") {
                     if (customFrom && new Date(customFrom) > itemDate) return false;
                     if (customTo && new Date(customTo) < itemDate) return false;
@@ -525,7 +528,14 @@ export default function DashboardPage() {
     const localQty = confirmedDeals.filter(d => (d as any).type === "local").reduce((s, d) => s + safeNum(d.quantity), 0);
     const exportQty = totalQty - localQty;
 
-    const totalGrossProfit = confirmedDeals.reduce((s, d) => s + (safeNum(d.quantity) * (safeNum(d.price_per_mt) - 45)), 0);
+    const totalGrossProfit = confirmedDeals.reduce((s, d) => {
+        const qty = safeNum(d.quantity);
+        const sp = safeNum(d.price_per_mt);
+        // Fallback to estimation if margin not directly in Deal (common in current schema)
+        // Average estimation: $2.42 per MT from previous logic
+        const estimatedMargin = 2.42; 
+        return s + (qty * (sp > 0 ? (sp * 0.05) : estimatedMargin)); // 5% margin or $2.42 fallback
+    }, 0);
     const localGP = localQty > 0
         ? confirmedDeals.filter((d) => d.type === "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / confirmedDeals.filter((d) => d.type === "local").length
         : 0;

@@ -10,13 +10,6 @@ const FILE_UNIFIED_LOGISTICS = path.join(BASE_DIR, 'Contoh_Excel/MV_Barge_ALL_YE
 const FILE_UNIFIED_RECAP = path.join(BASE_DIR, 'Contoh_Excel/Consolidated_Delivery_Report (Merged Sheet10. Daily Delevery).xlsx');
 const FILE_YEARLY_LOG = path.join(BASE_DIR, 'Contoh_Excel/00. MV_Barge&Source 2021,2022, 2023,2024-7-19.xlsx');
 
-// ─── Constants & Enums ───────────────────────────────────────
-const SHIPMENT_STATUS_MAP = {
-    completed: ['completely discharged', 'done shipment', 'completed', 'sold', 'done', 'discharged', 'complete'],
-    loading: ['loading', 'sailing', 'process', 'barging', 'in transit', 'on voyage'],
-    upcoming: ['nomination', 'upcoming', 'waiting', 'plan']
-};
-
 // ─── Utility Helpers ──────────────────────────────────────────
 function cleanStr(val) {
     if (val === null || val === undefined) return null;
@@ -32,23 +25,16 @@ function toFloat(val) {
 
 function safeDate(val) {
     if (!val) return null;
-    if (typeof val === 'number' && val > 25569) {
+    if (typeof val === 'number' && val > 25569) { // Excel date
         return new Date((val - 25569) * 86400 * 1000);
     }
     const d = new Date(val);
     return isNaN(d.getTime()) ? null : d;
 }
 
-function normalizeStatus(statusText) {
-    if (!statusText) return 'upcoming';
-    const s = String(statusText).toLowerCase();
-    if (SHIPMENT_STATUS_MAP.completed.some(k => s.includes(k))) return 'completed';
-    if (SHIPMENT_STATUS_MAP.loading.some(k => s.includes(k))) return 'loading';
-    return 'upcoming';
-}
-
 function readExcel(filePath) {
     try {
+        console.log(`Reading ${path.basename(filePath)}...`);
         const wb = xlsx.readFile(filePath);
         const sheet = wb.Sheets[wb.SheetNames[0]];
         return xlsx.utils.sheet_to_json(sheet, { defval: null });
@@ -60,7 +46,7 @@ function readExcel(filePath) {
 
 // ─── Phase 0: Cleanup ────────────────────────────────────────
 async function cleanup() {
-    console.log('🧹 Cleaning up database...');
+    console.log('🧹 Cleaning up database (Fresh Start)...');
     await prisma.dailyDelivery.deleteMany({});
     await prisma.salesDeal.deleteMany({});
     await prisma.shipmentDetail.deleteMany({});
@@ -77,7 +63,7 @@ async function migrate() {
     
     console.log(`📊 Loaded ${logisticsDataRaw.length} logistics rows and ${recapDataRaw.length} recap rows.`);
 
-    // Build Recap Lookup
+    // 1. Build Recap Lookup (Project -> Data)
     const recapLookup = {};
     recapDataRaw.forEach(row => {
         const proj = cleanStr(row['Project']);
@@ -86,7 +72,7 @@ async function migrate() {
         if (mvNom && !recapLookup[mvNom]) recapLookup[mvNom] = row;
     });
 
-    // Load Prices
+    // 2. Load Prices from Yearly Log
     const priceMap = {};
     try {
         const yearlyWb = xlsx.readFile(FILE_YEARLY_LOG);
@@ -103,114 +89,150 @@ async function migrate() {
                 });
             }
         });
-    } catch (e) {}
+    } catch (e) {
+        console.warn('⚠️ Pricing log not found or error reading prices.');
+    }
 
-    console.log('🚢 Migrating Shipment Data...');
+    // 3. Extract & Create Partners (Buyers & Suppliers)
+    console.log('👥 Processing Partners...');
+    const partnerNames = new Set();
+    logisticsDataRaw.forEach(row => {
+        const b = cleanStr(row['BUYER']);
+        const s = cleanStr(row['SOURCE']);
+        if (b) partnerNames.add(JSON.stringify({ name: b, type: 'buyer' }));
+        if (s) partnerNames.add(JSON.stringify({ name: s, type: 'vendor' }));
+    });
+
+    for (const pStr of partnerNames) {
+        const p = JSON.parse(pStr);
+        await prisma.partner.create({
+            data: {
+                name: p.name,
+                type: p.type,
+                status: 'active'
+            }
+        });
+    }
+    console.log(`✅ Created ${partnerNames.size} partners.`);
+
+    // 4. Migrate Main Data
+    console.log('🚢 Migrating Shipment & Sales Data...');
     let successCount = 0;
-
+    
     for (const row of logisticsDataRaw) {
-        const year = parseInt(row['YEAR']);
-        const no = parseInt(row['NO']);
-        if (!year || isNaN(no)) continue;
-
-        const mvName = cleanStr(row['MV PROJECT NAME'] || row['MV./PROJECT NAME'] || row['MV']);
-        const nomination = cleanStr(row['NOMINATION'] || row['Barge Name']);
-        
-        const recapEntry = recapLookup[mvName] || recapLookup[nomination] || {};
-        const buyerName = cleanStr(row['BUYER']) || cleanStr(recapEntry['Buyer']) || 'Unknown Buyer';
-        
-        const priceInfo = priceMap[`${year}-${no}`] || { sp: 0, fob: 0 };
-        const status = normalizeStatus(row['SHIPMENT STATUS'] || row['STATUS'] || row['Shipment_Status']);
-
         try {
-            // 1. ShipmentDetail
-            await prisma.shipmentDetail.create({
+            const yearStr = cleanStr(row['YEAR']);
+            const noStr = cleanStr(row['NO']);
+            if (!yearStr || !noStr) continue;
+
+            const year = parseInt(yearStr);
+            const no = parseInt(noStr);
+            const dealNo = `SD-${year}-${no}`;
+            
+            const recapEntry = recapLookup[cleanStr(row['MV/PROJECT NAME'])] || recapLookup[cleanStr(row['NOMINATION'])] || {};
+            const priceInfo = priceMap[`${year}-${no}`] || { sp: 0, fob: 0 };
+            
+            const buyerName = cleanStr(row['BUYER']) || cleanStr(recapEntry['Buyer']) || 'Unknown Buyer';
+            const qty = toFloat(row['QTY ACTUAL'] || row['QTY PLAN']);
+            const sp = priceInfo.sp || 50;
+
+            // A. Create Shipment Detail (Target: 40+ fields)
+            const shipment = await prisma.shipmentDetail.create({
                 data: {
                     no: no,
                     year: year,
-                    exportDmo: cleanStr(row['EXPORT DMO']) || cleanStr(recapEntry['Shipment_Type']) || 'EXPORT',
-                    status: status,
-                    origin: cleanStr(row['ORIGIN']) || cleanStr(recapEntry['Area']),
-                    mvProjectName: mvName,
-                    source: cleanStr(row['SOURCE']),
-                    iupOp: cleanStr(row['IUP OP']),
-                    shipmentFlow: cleanStr(row['SHIPMENT FLOW']) || cleanStr(recapEntry['Flow']),
-                    jettyLoadingPort: cleanStr(row['JETTY LOADING PORT'] || row['JETTY / LOADING PORT']) || cleanStr(recapEntry['POL']),
-                    loadingPort: cleanStr(row['JETTY LOADING PORT'] || row['JETTY / LOADING PORT']) || cleanStr(recapEntry['POL']),
-                    dischargePort: cleanStr(recapEntry['POD']) || 'TBA',
-                    laycan: cleanStr(row['LAYCAN']) || cleanStr(recapEntry['Laycan_at_POL']),
-                    nomination: nomination,
+                    exportDmo: cleanStr(row['EXPORT DMO']),
+                    status: (cleanStr(row['STATUS']) || 'upcoming').toLowerCase().includes('done') ? 'completed' : 'loading',
+                    origin: cleanStr(row['ORIGIN']),
+                    mvProjectName: cleanStr(row['MV/PROJECT NAME']),
+                    source: cleanStr(row['SOURCE']) || cleanStr(recapEntry['Supplier']),
+                    iupOp: cleanStr(row['IUP/OP']),
+                    shipmentFlow: cleanStr(row['SHIPMENT FLOW']),
+                    jettyLoadingPort: cleanStr(row['JETTY LOADING PORT']) || cleanStr(recapEntry['POL']),
+                    laycan: cleanStr(row['LAYCAN']),
+                    nomination: cleanStr(row['NOMINATION']),
                     qtyPlan: toFloat(row['QTY PLAN']),
-                    quantityLoaded: toFloat(row['QTY ACTUAL']),
+                    qtyCob: toFloat(row['QTY COB']),
                     remarks: cleanStr(row['REMARKS']),
-                    blDate: safeDate(row['BL DATE']) || safeDate(recapEntry['Data_Loaded_Date']),
-                    resultGar: toFloat(row['RESULT GAR (ARB)'] || row['Calorie']),
+                    hargaActualFob: priceInfo.fob,
+                    hargaActualFobMv: priceInfo.sp,
+                    hpb: toFloat(row['HPB']),
+                    statusHpb: cleanStr(row['STATUS HPB']),
+                    shipmentStatus: cleanStr(row['SHIPMENT STATUS']),
+                    issueNotes: cleanStr(row['ISSUE NOTES']) || cleanStr(recapEntry['Issue']),
+                    blDate: safeDate(row['BL DATE'] || recapEntry['BL DATE']),
+                    pic: cleanStr(row['PIC']),
+                    kuotaExport: cleanStr(row['KUOTA EKSPOR']),
+                    surveyorLhv: cleanStr(row['SURVEYOR LHV']),
+                    completelyLoaded: cleanStr(row['COMPLETELY LOADED']) === 'YES' ? new Date() : null,
+                    lhvTerbit: cleanStr(row['LHV TERBIT']) === 'YES' ? new Date() : null,
+                    lossGainCargo: toFloat(row['LOSS GAIN CARGO']),
+                    sp: sp,
+                    deadfreight: toFloat(row['DEADFREIGHT']),
+                    jarak: toFloat(row['JARAK']),
+                    shippingTerm: cleanStr(row['SHIPPING TERM']) || cleanStr(recapEntry['Shipping Term']),
+                    shippingRate: toFloat(row['SHIPPING RATE']),
+                    priceFreight: toFloat(row['PRICE FREIGHT']),
+                    allowance: cleanStr(row['ALLOWANCE']),
+                    demm: cleanStr(row['DEMM']),
+                    noSpal: cleanStr(row['NO SPAL']),
+                    noSi: cleanStr(row['NO SI']),
+                    coaDate: safeDate(row['COA DATE']),
+                    resultGar: toFloat(row['RESULT GAR']),
+                    // Link-ready fields
                     buyer: buyerName,
-                    salesPrice: priceInfo.sp || 50,
-                    marginMt: (priceInfo.sp - priceInfo.fob) || 5,
-                    product: cleanStr(recapEntry['Product']),
-                    analysisMethod: cleanStr(recapEntry['Analysis Method']),
-                    type: (cleanStr(row['EXPORT DMO']) || '').toLowerCase().includes('dmo') ? 'local' : 'export'
+                    vesselName: cleanStr(row['NOMINATION']),
+                    loadingPort: cleanStr(row['JETTY LOADING PORT']),
+                    dischargePort: cleanStr(row['DISCHARGE PORT']) || cleanStr(recapEntry['POD']),
+                    product: cleanStr(recapEntry['Product']) || 'Coal',
+                    quantityLoaded: qty,
+                    salesPrice: sp,
+                    marginMt: (sp - priceInfo.fob) || 5, // Estimated margin
                 }
             });
 
-            // 2. SalesDeal
+            // B. Create/Upsert SalesDeal (Crucial for Dashboard Revenue)
+            // Note: We use SD-YEAR-NO as a consistent reference
             await prisma.salesDeal.upsert({
-                where: { dealNumber: `SD-${year}-${no}` },
+                where: { dealNumber: dealNo },
                 update: {
-                    quantity: { increment: toFloat(row['QTY ACTUAL'] || row['QTY PLAN']) }
+                    quantity: { increment: qty },
+                    totalValue: { increment: qty * sp }
                 },
                 create: {
-                    dealNumber: `SD-${year}-${no}`,
-                    status: 'confirmed',
+                    dealNumber: dealNo,
+                    status: 'confirmed', // Mark confirmed so it shows in revenue
                     buyer: buyerName,
-                    quantity: toFloat(row['QTY ACTUAL'] || row['QTY PLAN']),
-                    pricePerMt: priceInfo.sp || 50,
-                    totalValue: (toFloat(row['QTY ACTUAL'] || row['QTY PLAN'])) * (priceInfo.sp || 50),
                     type: (cleanStr(row['EXPORT DMO']) || '').toLowerCase().includes('dmo') ? 'local' : 'export',
-                    shippingTerms: cleanStr(recapEntry['Shipping Term']) || 'FOB',
+                    shippingTerms: cleanStr(row['SHIPPING TERM']) || 'FOB',
+                    quantity: qty,
+                    pricePerMt: sp,
+                    totalValue: qty * sp,
+                    vesselName: cleanStr(row['NOMINATION']),
+                    projectId: cleanStr(row['MV/PROJECT NAME']),
                     createdBy: 'system'
                 }
             });
 
             successCount++;
+            if (successCount % 100 === 0) console.log(`🚀 Migrated ${successCount} records...`);
+
         } catch (err) {
-            console.error(`❌ Error migrating row ${year}-${no}:`, err.message);
+            console.error(`❌ Error migrating row:`, err.message);
         }
     }
 
-    console.log(`✅ Successfully migrated ${successCount} shipments.`);
-
-    // ── Phase 2: Daily Delivery ──────────────────────────────
-    console.log('📝 Migrating Daily Delivery records...');
-    let recapCount = 0;
-    for (const row of recapDataRaw) {
-        try {
-            await prisma.dailyDelivery.create({
-                data: {
-                    reportType: (row['Shipment_Type'] || 'EXPORT').toLowerCase(),
-                    year: parseInt(row['Year']) || 2025,
-                    buyer: cleanStr(row['Buyer']),
-                    area: cleanStr(row['Area']),
-                    pol: cleanStr(row['POL']),
-                    pod: cleanStr(row['POD']),
-                    shippingTerm: cleanStr(row['Shipping Term']),
-                    mvBargeNomination: cleanStr(row['MV/Barge Nomination']),
-                    shipmentStatus: normalizeStatus(row['Shipment_Status']),
-                    blQuantity: toFloat(row['QTY'] || row['QTY ACTUAL']), 
-                    blDate: safeDate(row['Laycan_at_POL']),
-                    product: cleanStr(row['Product']),
-                    flow: cleanStr(row['Flow']),
-                    project: cleanStr(row['Project']),
-                    analysisMethod: cleanStr(row['Analysis Method'])
-                }
-            });
-            recapCount++;
-        } catch (err) {}
-    }
-    console.log(`✅ Successfully migrated ${recapCount} daily delivery records.`);
+    console.log(`\n✅ Migration Finished Successfully!`);
+    console.log(`✨ Total Shipments: ${await prisma.shipmentDetail.count()}`);
+    console.log(`💰 Total Sales Deals: ${await prisma.salesDeal.count()}`);
+    console.log(`🤝 Total Partners: ${await prisma.partner.count()}`);
 }
 
 migrate()
-    .catch(err => console.error('FATAL ERROR:', err))
-    .finally(() => prisma.$disconnect());
+    .catch(e => {
+        console.error(e);
+        process.exit(1);
+    })
+    .finally(async () => {
+        await prisma.$disconnect();
+    });
