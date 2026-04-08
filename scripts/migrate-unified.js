@@ -32,6 +32,31 @@ function safeDate(val) {
     return isNaN(d.getTime()) ? null : d;
 }
 
+function parseSmartDate(row) {
+    // 1. Try BL DATE
+    let d = safeDate(row['BL DATE'] || row['BL Date'] || row['bl_date']);
+    if (d) return d;
+
+    // 2. Try extract from LAYCAN if YEAR is present
+    const laycan = cleanStr(row['LAYCAN'] || row['Laycan']);
+    const year = parseInt(row['YEAR'] || row['Year']);
+    if (laycan && !isNaN(year)) {
+        const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+        const upper = laycan.toUpperCase();
+        for (let i = 0; i < months.length; i++) {
+            if (upper.includes(months[i])) {
+                // Return middle of month
+                return new Date(year, i, 15);
+            }
+        }
+    }
+
+    // 3. Last fallback: Middle of the year
+    if (!isNaN(year)) return new Date(year, 5, 15);
+
+    return null;
+}
+
 function readExcel(filePath) {
     try {
         console.log(`Reading ${path.basename(filePath)}...`);
@@ -160,7 +185,7 @@ async function migrate() {
                     statusHpb: cleanStr(row['STATUS HPB']),
                     shipmentStatus: cleanStr(row['SHIPMENT STATUS']),
                     issueNotes: cleanStr(row['ISSUE NOTES']) || cleanStr(recapEntry['Issue']),
-                    blDate: safeDate(row['BL DATE'] || recapEntry['BL DATE']),
+                    blDate: parseSmartDate(row),
                     pic: cleanStr(row['PIC']),
                     kuotaExport: cleanStr(row['KUOTA EKSPOR']),
                     surveyorLhv: cleanStr(row['SURVEYOR LHV']),

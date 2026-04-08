@@ -304,7 +304,9 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const data = months.map((m, i) => {
         const monthItems = shipments.filter((sh) => {
-            const d = new Date(sh.created_at || sh.bl_date || sh.updated_at);
+            // Prioritize bl_date for historical accuracy, fallback to created_at
+            const dateStr = sh.bl_date || sh.created_at || sh.updated_at;
+            const d = new Date(dateStr);
             return d.getMonth() === i;
         });
         return {
@@ -314,7 +316,7 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
         };
     });
 
-    const totalQty = data.reduce((s, d) => s + d.local + d.export, 0);
+    const totalQty = shipments.reduce((s, sh) => s + (sh.quantity_loaded || 0), 0);
 
     return (
         <div className="card-elevated p-5 animate-slide-up delay-2">
@@ -518,30 +520,29 @@ export default function DashboardPage() {
     );
     const activeShipments = filteredShipments.filter(s => s.status !== "cancelled" && s.status !== "draft");
 
-    // To avoid double counting, we use Deals for revenue/volume as they represent the contract
-    // Shipments are used for operational tracking
+    // Shipments are used for operational tracking and volume reporting
+    const totalQty = filteredShipments.reduce((s, sh) => s + safeNum(sh.quantity_loaded), 0);
+    const localQty = filteredShipments.filter(s => s.type === "local").reduce((s, sh) => s + safeNum(sh.quantity_loaded), 0);
+    const exportQty = totalQty - localQty;
+
     const totalRevenue = confirmedDeals.reduce((s, d) => s + (safeNum(d.quantity) * safeNum(d.price_per_mt)), 0);
     const localRevenue = confirmedDeals.filter(d => d.type === "local").reduce((s, d) => s + (safeNum(d.quantity) * safeNum(d.price_per_mt)), 0);
     const exportRevenue = totalRevenue - localRevenue;
 
-    const totalQty = confirmedDeals.reduce((s, d) => s + safeNum(d.quantity), 0);
-    const localQty = confirmedDeals.filter(d => (d as any).type === "local").reduce((s, d) => s + safeNum(d.quantity), 0);
-    const exportQty = totalQty - localQty;
-
     const totalGrossProfit = confirmedDeals.reduce((s, d) => {
         const qty = safeNum(d.quantity);
         const sp = safeNum(d.price_per_mt);
-        // Fallback to estimation if margin not directly in Deal (common in current schema)
-        // Average estimation: $2.42 per MT from previous logic
         const estimatedMargin = 2.42; 
-        return s + (qty * (sp > 0 ? (sp * 0.05) : estimatedMargin)); // 5% margin or $2.42 fallback
+        return s + (qty * (sp > 0 ? (sp * 0.05) : estimatedMargin));
     }, 0);
+
     const localGP = localQty > 0
-        ? confirmedDeals.filter((d) => d.type === "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / confirmedDeals.filter((d) => d.type === "local").length
+        ? confirmedDeals.filter((d) => d.type === "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / (confirmedDeals.filter((d) => d.type === "local").length || 1)
         : 0;
     const exportGP = exportQty > 0
-        ? confirmedDeals.filter((d) => d.type !== "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / confirmedDeals.filter((d) => d.type !== "local").length
+        ? confirmedDeals.filter((d) => d.type !== "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / (confirmedDeals.filter((d) => d.type !== "local").length || 1)
         : 0;
+
     const avgGrossProfit = totalQty > 0 ? totalGrossProfit / totalQty : 0;
 
     // Deal counts — handles deals from store or falls back to shipment-based count
