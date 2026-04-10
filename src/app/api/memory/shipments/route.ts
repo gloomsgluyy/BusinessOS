@@ -33,7 +33,35 @@ export async function GET() {
             orderBy: { createdAt: "desc" }
         });
 
-        return NextResponse.json({ success: true, shipments });
+        const shipmentIds = shipments.map((s) => s.id);
+        const timeline = shipmentIds.length
+            ? await prisma.timelineMilestone.findMany({
+                where: { shipmentId: { in: shipmentIds } },
+                orderBy: { date: "asc" }
+            })
+            : [];
+
+        const timelineByShipment = new Map<string, typeof timeline>();
+        for (const item of timeline) {
+            const existing = timelineByShipment.get(item.shipmentId) || [];
+            existing.push(item);
+            timelineByShipment.set(item.shipmentId, existing);
+        }
+
+        const enriched = shipments.map((s) => {
+            const milestones = timelineByShipment.get(s.id) || [];
+            return {
+                ...s,
+                milestones: milestones.map((m) => ({
+                    title: m.title,
+                    subtitle: `${m.date.toISOString().slice(0, 10)}${m.description ? ` - ${m.description}` : ""}`,
+                    status: "completed",
+                    date: m.date
+                }))
+            };
+        });
+
+        return NextResponse.json({ success: true, shipments: enriched });
     } catch (error) {
         console.error("GET /api/memory/shipments error:", error);
         return NextResponse.json({ error: "Failed to fetch shipments" }, { status: 500 });
@@ -88,6 +116,9 @@ export async function POST(req: Request) {
                     demm: data.demm,
                     noSpal: data.noSpal,
                     noSi: data.noSi,
+                    sentToSupplier: data.sentToSupplier,
+                    sentToBargeOwner: data.sentToBargeOwner,
+                    noInvoiceMkls: data.noInvoiceMkls,
                     coaDate: parseDate(data.coaDate),
                     resultGar: parseNum(data.resultGar),
                     year: data.year || new Date().getFullYear(),
@@ -167,6 +198,9 @@ export async function PUT(req: Request) {
                     shippingTerm: data.shippingTerm, shippingRate: data.shippingRate !== undefined ? parseNum(data.shippingRate) : undefined,
                     priceFreight: data.priceFreight !== undefined ? parseNum(data.priceFreight) : undefined,
                     allowance: data.allowance, demm: data.demm, noSpal: data.noSpal, noSi: data.noSi,
+                    sentToSupplier: data.sentToSupplier,
+                    sentToBargeOwner: data.sentToBargeOwner,
+                    noInvoiceMkls: data.noInvoiceMkls,
                     coaDate: data.coaDate !== undefined ? parseDate(data.coaDate) : undefined,
                     resultGar: data.resultGar !== undefined ? parseNum(data.resultGar) : undefined,
                     year: data.year,

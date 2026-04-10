@@ -289,6 +289,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
             jarak: s.jarak, shippingTerm: s.shipping_term, shippingRate: s.shipping_rate,
             priceFreight: s.price_freight, allowance: s.allowance, demm: s.demm,
             noSpal: s.no_spal, noSi: s.no_si, coaDate: s.coa_date, resultGar: s.result_gar,
+            sentToSupplier: s.sent_to_supplier, sentToBargeOwner: s.sent_to_barge_owner, noInvoiceMkls: s.no_invoice_mkls,
             year: s.year || new Date().getFullYear(),
         };
         const res = await fetch("/api/memory/shipments", {
@@ -311,6 +312,8 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 jarak: ship.jarak, shipping_term: ship.shippingTerm, shipping_rate: ship.shippingRate,
                 price_freight: ship.priceFreight, allowance: ship.allowance, demm: ship.demm,
                 no_spal: ship.noSpal, no_si: ship.noSi, coa_date: ship.coaDate, result_gar: ship.resultGar,
+                sent_to_supplier: ship.sentToSupplier, sent_to_barge_owner: ship.sentToBargeOwner, no_invoice_mkls: ship.noInvoiceMkls,
+                milestones: Array.isArray(ship.milestones) ? ship.milestones : [],
                 year: ship.year, created_at: ship.createdAt, updated_at: ship.updatedAt
             };
             set((state) => {
@@ -343,6 +346,9 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
         if (u.bl_date) body.blDate = u.bl_date;
         if (u.pic) body.pic = u.pic;
         if (u.shipping_term) body.shippingTerm = u.shipping_term;
+        if (u.sent_to_supplier !== undefined) body.sentToSupplier = u.sent_to_supplier;
+        if (u.sent_to_barge_owner !== undefined) body.sentToBargeOwner = u.sent_to_barge_owner;
+        if (u.no_invoice_mkls !== undefined) body.noInvoiceMkls = u.no_invoice_mkls;
         if (u.year) body.year = u.year;
 
         await fetch("/api/memory/shipments", {
@@ -943,6 +949,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         jarak: s.jarak, shipping_term: s.shippingTerm, shipping_rate: s.shippingRate,
                         price_freight: s.priceFreight, allowance: s.allowance, demm: s.demm,
                         no_spal: s.noSpal, no_si: s.noSi, coa_date: s.coaDate, result_gar: s.resultGar,
+                        sent_to_supplier: s.sentToSupplier, sent_to_barge_owner: s.sentToBargeOwner, no_invoice_mkls: s.noInvoiceMkls,
                         // Fix missing fields for dashboard accuracy
                         quantity_load: s.quantityLoaded || s.qtyPlan || 0,
                         quantity_loaded: s.quantityLoaded || s.qtyPlan || 0,
@@ -955,6 +962,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         discharge_port: s.dischargePort || "-",
                         product: s.product || "-",
                         analysis_method: s.analysisMethod || "-",
+                        milestones: Array.isArray(s.milestones) ? s.milestones : [],
                         type: (() => {
                             const t = (s.type || "export").toLowerCase();
                             if (t === "lokal" || t === "domestic") return "local";

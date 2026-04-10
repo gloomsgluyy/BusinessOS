@@ -20,6 +20,7 @@ import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
+const normalizeKey = (v?: string | null) => (v || "").toUpperCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
 
 export default function ShipmentMonitorPage() {
     const [isInitializing, setIsInitializing] = React.useState(true);
@@ -183,6 +184,24 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
         }
         return true;
     });
+
+    const shipmentFamily = React.useMemo(() => {
+        if (!detailShipment) return [];
+        const detailVessel = normalizeKey(detailShipment.vessel_name || detailShipment.mv_project_name);
+        const detailProject = normalizeKey(detailShipment.mv_project_name);
+        const detailYear = detailShipment.year;
+
+        return shipments
+            .filter((s) => {
+                if (detailYear && s.year && detailYear !== s.year) return false;
+                const vessel = normalizeKey(s.vessel_name || s.mv_project_name);
+                const project = normalizeKey(s.mv_project_name);
+                const sameProject = detailProject && project && detailProject === project;
+                const sameVessel = detailVessel && vessel && (vessel.includes(detailVessel) || detailVessel.includes(vessel));
+                return sameProject || sameVessel;
+            })
+            .sort((a, b) => (a.no || 99999) - (b.no || 99999));
+    }, [detailShipment, shipments]);
 
     const toggleExpand = (id: string) => {
         setExpandedRows((prev) => {
@@ -1023,7 +1042,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                             <div className="flex justify-between items-start mb-4">
                                 <div>
                                     <h3 className="text-sm font-bold text-foreground mb-3">Shipment Details</h3>
-                                    <h2 className="text-3xl font-black text-foreground mb-1">{detailShipment.shipment_number}</h2>
+                                    <h2 className="text-3xl font-black text-foreground mb-1">{detailShipment.vessel_name || detailShipment.mv_project_name || detailShipment.shipment_number || "Shipment Detail"}</h2>
                                     <p className="text-sm text-muted-foreground">{detailShipment.buyer} - {detailShipment.supplier}</p>
                                 </div>
                                 <div className="flex items-start gap-4">
@@ -1126,6 +1145,45 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">LHV Terbit:</p><p className="font-bold text-foreground text-emerald-500">{detailShipment.lhv_terbit ? "YES" : "NO"}</p></div>
                                             </div>
                                         </div>
+
+                                        {shipmentFamily.length > 0 && (
+                                            <div className="p-4 bg-accent/20 rounded-xl border border-border/50">
+                                                <h5 className="text-[10px] font-bold text-muted-foreground uppercase mb-3 flex items-center gap-1.5">
+                                                    <Anchor className="w-3 h-3" /> Child Barge Details ({shipmentFamily.length})
+                                                </h5>
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-[11px]">
+                                                        <thead>
+                                                            <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border/40">
+                                                                <th className="py-2 pr-3">Nomination</th>
+                                                                <th className="py-2 pr-3">Jetty / Loading Port</th>
+                                                                <th className="py-2 pr-3">Source</th>
+                                                                <th className="py-2 pr-3 text-right">Plan (MT)</th>
+                                                                <th className="py-2 pr-3 text-right">Actual (MT)</th>
+                                                                <th className="py-2 pr-3">Status</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {shipmentFamily.slice(0, 12).map((item) => (
+                                                                <tr key={item.id} className="border-b border-border/20">
+                                                                    <td className="py-2 pr-3 font-semibold text-foreground">{item.nomination || item.barge_name || "-"}</td>
+                                                                    <td className="py-2 pr-3 text-muted-foreground">{item.jetty_loading_port || item.loading_port || "-"}</td>
+                                                                    <td className="py-2 pr-3 text-foreground">{item.source || "-"}</td>
+                                                                    <td className="py-2 pr-3 text-right text-blue-500 font-semibold">{safeNum(item.qty_plan).toLocaleString()}</td>
+                                                                    <td className="py-2 pr-3 text-right text-emerald-500 font-semibold">{safeNum(item.qty_cob || item.quantity_loaded).toLocaleString()}</td>
+                                                                    <td className="py-2 pr-3">{item.shipment_status || item.status || "-"}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                                {shipmentFamily.length > 12 && (
+                                                    <p className="text-[10px] text-muted-foreground mt-2">
+                                                        Showing first 12 details. Total child rows: {shipmentFamily.length}.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
 
                                         {/* Bottom Extended Info */}
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
