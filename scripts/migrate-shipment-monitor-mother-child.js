@@ -41,8 +41,41 @@ function cleanStr(val) {
 function toFloat(val) {
   if (val === null || val === undefined || val === "") return null;
   if (typeof val === "number") return Number.isFinite(val) ? val : null;
-  const n = parseFloat(String(val).replace(/[^0-9.\-]/g, ""));
+  const n = parseFloatLocalized(String(val));
   return Number.isFinite(n) ? n : null;
+}
+
+function parseFloatLocalized(raw) {
+  if (raw === null || raw === undefined) return NaN;
+  let s = String(raw).trim();
+  if (!s) return NaN;
+  s = s.replace(/[^\d,.\-]/g, "");
+  if (!s) return NaN;
+
+  const commaCount = (s.match(/,/g) || []).length;
+  const dotCount = (s.match(/\./g) || []).length;
+
+  if (commaCount > 0 && dotCount > 0) {
+    if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
+      s = s.replace(/\./g, "").replace(",", ".");
+    } else {
+      s = s.replace(/,/g, "");
+    }
+  } else if (commaCount > 0) {
+    if (commaCount === 1) {
+      const parts = s.split(",");
+      const left = parts[0] || "";
+      const right = parts[1] || "";
+      s = right.length <= 2 ? `${left}.${right}` : `${left}${right}`;
+    } else {
+      s = s.replace(/,/g, "");
+    }
+  } else if (dotCount > 1) {
+    s = s.replace(/\./g, "");
+  }
+
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : NaN;
 }
 
 function toInt(val) {
@@ -274,6 +307,10 @@ async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
   const col = legacyColumnMap(year);
   let inserted = 0;
   let milestones = 0;
+  const carry = {
+    mvProjectName: null,
+    laycan: null
+  };
 
   for (let r = 1; r < rows.length; r += 1) {
     const row = rows[r] || [];
@@ -281,8 +318,16 @@ async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
     if (!isChildDataRow(line)) continue;
 
     const no = toInt(row[col.no]);
-    const mvProjectName = cleanStr(row[col.mvProjectName]);
+    const mvRaw = cleanStr(row[col.mvProjectName]);
+    const laycanRaw = cleanStr(row[col.laycan]);
+    if (mvRaw) carry.mvProjectName = mvRaw;
+    if (laycanRaw) carry.laycan = laycanRaw;
+
+    const mvProjectName = mvRaw || carry.mvProjectName;
     const nomination = cleanStr(row[col.nomination]);
+    const mvNorm = normalizeText(mvProjectName || "");
+    const nomNorm = normalizeText(nomination || "");
+    if (mvNorm === "MV NAME" || mvNorm === "MV PROJECT NAME" || nomNorm === "NOMINATION") continue;
     if (!no && !mvProjectName && !nomination) continue;
 
     const vesselHint = normalizeVesselName(mvProjectName || nomination);
@@ -302,7 +347,7 @@ async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
         source: cleanStr(row[col.source]),
         iupOp: cleanStr(row[col.iupOp]),
         jettyLoadingPort: cleanStr(row[col.jettyLoadingPort]) || mother?.pol || null,
-        laycan: cleanStr(row[col.laycan]) || mother?.laycan || null,
+        laycan: laycanRaw || carry.laycan || mother?.laycan || null,
         nomination,
         qtyPlan: toFloat(row[col.qtyPlan]),
         qtyCob: toFloat(row[col.qtyCob]),
@@ -470,6 +515,9 @@ async function migrate() {
       lhvTerbit: findCol(headers, [/LHV\s+TERBIT/]),
       jarak: findCol(headers, [/JARAK/]),
       sp: findCol(headers, [/\bSP\b/]),
+      marketPriceUsd: findCol(headers, [/IN\s+USD.*MARKET\s+PRICE/]),
+      kurs: findCol(headers, [/KURS/]),
+      priceComparison: findCol(headers, [/PRICE\s+COMPARISON/]),
       deadfreight: findCol(headers, [/DEADFREIGHT/]),
       arrivalPol: findCol(headers, [/ARRIVAL\s+POL/]),
       berthing: findCol(headers, [/BERTHING/]),
@@ -484,13 +532,35 @@ async function migrate() {
 
     const startRow = headerRow + 3;
     let insertedThisSheet = 0;
+    const carry = {
+      mvProjectName: null,
+      laycan: null,
+      origin: null,
+      shipmentFlow: null,
+      jettyLoadingPort: null,
+      exportDmo: null
+    };
 
     for (let r = startRow; r < rows.length; r += 1) {
       const row = rows[r] || [];
       const line = row.map((v) => (v == null ? "" : String(v))).join(" | ");
       if (!isChildDataRow(line)) continue;
 
-      const mvProjectName = cleanStr(row[idx.mvProjectName]);
+      const mvRaw = cleanStr(row[idx.mvProjectName]);
+      const laycanRaw = cleanStr(row[idx.laycan]);
+      const originRaw = cleanStr(row[idx.origin]);
+      const flowRaw = cleanStr(row[idx.shipmentFlow]);
+      const jettyRaw = cleanStr(row[idx.jettyLoadingPort]);
+      const exportDmoRaw = cleanStr(row[idx.exportDmo]);
+
+      if (mvRaw) carry.mvProjectName = mvRaw;
+      if (laycanRaw) carry.laycan = laycanRaw;
+      if (originRaw) carry.origin = originRaw;
+      if (flowRaw) carry.shipmentFlow = flowRaw;
+      if (jettyRaw) carry.jettyLoadingPort = jettyRaw;
+      if (exportDmoRaw) carry.exportDmo = exportDmoRaw;
+
+      const mvProjectName = mvRaw || carry.mvProjectName;
       const nomination = cleanStr(row[idx.nomination]);
       const no = toInt(row[idx.no]);
       if (!mvProjectName && !nomination && !no) continue;
@@ -514,18 +584,27 @@ async function migrate() {
           .find((m) => m.year === year && m.projectNorm && (m.projectNorm.includes(projectNorm) || projectNorm.includes(m.projectNorm)));
       }
 
+      const marketPriceUsd = toFloat(row[idx.marketPriceUsd]);
+      const kurs = toFloat(row[idx.kurs]);
+      const priceComparisonIdr = toFloat(row[idx.priceComparison]);
+      const spRaw = toFloat(row[idx.sp]);
+      const spPlausible = spRaw && spRaw > 0 && spRaw < 500 ? spRaw : null;
+      const marginMtUsd = (priceComparisonIdr && kurs && kurs > 0)
+        ? Number((priceComparisonIdr / kurs).toFixed(4))
+        : null;
+
       const shipment = await prisma.shipmentDetail.create({
         data: {
           no,
-          exportDmo: cleanStr(row[idx.exportDmo]),
+          exportDmo: exportDmoRaw || carry.exportDmo,
           status: statusToInternal(cleanStr(row[idx.status]), cleanStr(row[idx.shipmentStatus])),
-          origin: cleanStr(row[idx.origin]) || mother?.area || null,
+          origin: originRaw || carry.origin || mother?.area || null,
           mvProjectName,
           source: cleanStr(row[idx.source]),
           iupOp: cleanStr(row[idx.iupOp]),
-          shipmentFlow: cleanStr(row[idx.shipmentFlow]) || mother?.flow || null,
-          jettyLoadingPort: cleanStr(row[idx.jettyLoadingPort]) || mother?.pol || null,
-          laycan: cleanStr(row[idx.laycan]) || mother?.laycan || null,
+          shipmentFlow: flowRaw || carry.shipmentFlow || mother?.flow || null,
+          jettyLoadingPort: jettyRaw || carry.jettyLoadingPort || mother?.pol || null,
+          laycan: laycanRaw || carry.laycan || mother?.laycan || null,
           nomination,
           qtyPlan: toFloat(row[idx.qtyPlan]),
           qtyCob: toFloat(row[idx.qtyCob]),
@@ -536,9 +615,10 @@ async function migrate() {
           surveyorLhv: cleanStr(row[idx.surveyorLhv]),
           completelyLoaded: parseDate(row[idx.completelyLoaded], year || undefined),
           lhvTerbit: parseDate(row[idx.lhvTerbit], year || undefined),
-          sp: toFloat(row[idx.sp]),
+          sp: spPlausible,
           deadfreight: toFloat(row[idx.deadfreight]),
           jarak: toFloat(row[idx.jarak]),
+          hargaActualFobMv: marketPriceUsd || null,
           shippingTerm: cleanStr(row[idx.shippingTerm]) || mother?.shippingTerm || null,
           noSpal: cleanStr(row[idx.noSpal]),
           noSi: cleanStr(row[idx.noSi]),
@@ -551,6 +631,8 @@ async function migrate() {
           bargeName: nomination,
           loadingPort: cleanStr(row[idx.jettyLoadingPort]) || mother?.pol || null,
           quantityLoaded: toFloat(row[idx.qtyCob]) || toFloat(row[idx.qtyPlan]),
+          salesPrice: marketPriceUsd || spPlausible,
+          marginMt: marginMtUsd,
           product: mother?.product || null,
           type: typeFromExportDmo(cleanStr(row[idx.exportDmo])),
           year: year || new Date().getFullYear()

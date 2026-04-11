@@ -594,7 +594,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                             <div>
                                                 <div className="flex justify-between items-start mb-3">
                                                     <div>
-                                                        <h3 className="font-bold text-lg text-primary group-hover:underline decoration-primary/50 underline-offset-4">{sh.mv_project_name || sh.shipment_number || `#${sh.no}`}</h3>
+                                                        <h3 className="font-bold text-lg text-primary group-hover:underline decoration-primary/50 underline-offset-4">{sh.mv_project_name || sh.vessel_name || sh.shipment_number || `#${sh.no}`}</h3>
                                                         <p className="text-xs text-muted-foreground">{sh.source || sh.buyer} • {sh.origin || ""}</p>
                                                     </div>
                                                     <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
@@ -667,7 +667,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                             </td>
                                                             <td className="px-4 py-3 font-medium text-xs text-primary">{sh.no || "-"}</td>
                                                             <td className="px-4 py-3 text-xs">{sh.export_dmo || "-"}</td>
-                                                            <td className="px-4 py-3 text-xs font-semibold">{sh.mv_project_name || sh.shipment_number || "-"}</td>
+                                                            <td className="px-4 py-3 text-xs font-semibold">{sh.mv_project_name || sh.vessel_name || sh.shipment_number || "-"}</td>
                                                             <td className="px-4 py-3 text-xs text-muted-foreground">{sh.source || sh.supplier || "-"}</td>
                                                             <td className="px-4 py-3 text-xs">{sh.nomination || sh.vessel_name || sh.barge_name || "-"}</td>
                                                             <td className="px-4 py-3 text-right text-xs font-semibold">{(sh.qty_plan || sh.quantity_loaded) ? safeNum(sh.qty_plan || sh.quantity_loaded).toLocaleString() : "-"}</td>
@@ -1090,7 +1090,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                     <Package className="w-4 h-4" /> Logistics Identity
                                                 </h4>
                                                 <div className="space-y-3 text-[11px] mt-auto">
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Project:</span><span className="font-bold text-foreground">{detailShipment.mv_project_name || "-"}</span></div>
+                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Project:</span><span className="font-bold text-foreground">{detailShipment.mv_project_name || detailShipment.vessel_name || "-"}</span></div>
                                                     <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Vessel:</span><span className="font-semibold text-foreground">{detailShipment.vessel_name || detailShipment.nomination || "-"}</span></div>
                                                     <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Barge:</span><span className="font-semibold text-foreground">{detailShipment.barge_name || "-"}</span></div>
                                                     <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Source:</span><span className="font-bold text-primary">{detailShipment.source || "-"}</span></div>
