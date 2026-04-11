@@ -100,6 +100,23 @@ function parseDate(val, fallbackYear) {
   const raw = String(val).trim();
   if (!raw) return null;
 
+  // Handle compact textual dates without explicit year ("29Nov", "1 Dec")
+  // so we can apply sheet year instead of JS default year heuristics.
+  const dayMonthOnly = raw.match(/^(\d{1,2})\s*[-\/]?\s*([A-Za-z]{3,})$/);
+  if (dayMonthOnly) {
+    const day = parseInt(dayMonthOnly[1], 10);
+    const monthTxt = dayMonthOnly[2].substring(0, 3).toUpperCase();
+    const monthMap = {
+      JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, MEI: 4, JUN: 5,
+      JUL: 6, AUG: 7, AGU: 7, SEP: 8, OCT: 9, OKT: 9, NOV: 10,
+      DEC: 11, DES: 11
+    };
+    if (monthMap[monthTxt] !== undefined && fallbackYear) {
+      const d = new Date(fallbackYear, monthMap[monthTxt], day);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
+
   const direct = new Date(raw);
   if (!Number.isNaN(direct.getTime())) return direct;
 
@@ -110,9 +127,9 @@ function parseDate(val, fallbackYear) {
     const monthTxt = m[2].substring(0, 3).toUpperCase();
     const yearRaw = m[3] ? parseInt(m[3], 10) : fallbackYear;
     const monthMap = {
-      JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5,
-      JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11,
-      DES: 11
+      JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, MEI: 4, JUN: 5,
+      JUL: 6, AUG: 7, AGU: 7, SEP: 8, OCT: 9, OKT: 9, NOV: 10,
+      DEC: 11, DES: 11
     };
     if (monthMap[monthTxt] !== undefined && yearRaw) {
       const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
@@ -300,7 +317,7 @@ function legacyColumnMap(year) {
     no: 1,
     mvProjectName: 2,
     laycan: 3,
-    blDate: 4,
+    blDate: 17,
     buyer: 5,
     iupOp: 10,
     source: 11,
