@@ -57,6 +57,12 @@ const shipmentProjectName = (sh: ShipmentDetail): string =>
     cleanText(sh.vessel_name) ||
     "Unmapped Project";
 
+const shipmentType = (sh: ShipmentDetail): "local" | "export" => {
+    const t = normalizeKey(sh.type || sh.export_dmo || "");
+    if (t.includes("LOCAL") || t.includes("DMO") || t.includes("DOMESTIC")) return "local";
+    return "export";
+};
+
 export default function PLForecastClient() {
     const [isInitializing, setIsInitializing] = React.useState(true);
 
@@ -113,7 +119,7 @@ export default function PLForecastClient() {
                 console.log("Calling addPLForecast", form);
                 await addPLForecast({
                     deal_id: form.deal_id,
-                    deal_number: form.deal_number,
+                    deal_number: form.deal_number || form.project_name,
                     project_name: form.project_name,
                     buyer: form.buyer,
                     type: form.type as "local" | "export",
@@ -192,6 +198,19 @@ export default function PLForecastClient() {
         setShowForm(true);
     };
 
+    const handleLoadProject = (projectName: string) => {
+        const selected = shipmentByProject.get(normalizeKey(projectName));
+        if (!selected) return;
+        setForm((prev) => ({
+            ...prev,
+            project_name: selected.projectName,
+            mv_name: selected.mvName,
+            buyer: selected.buyer === "-" ? prev.buyer : selected.buyer,
+            type: selected.type,
+            quantity: selected.qty > 0 ? selected.qty : prev.quantity,
+        }));
+    };
+
     // Filter forecasts based on role
     const visibleForecasts = (isHighLevel ? plForecasts : (plForecasts || []).filter((f) => f.created_by === session?.user?.id || f.buyer.includes(session?.user?.name || ""))) || [];
 
@@ -208,21 +227,50 @@ export default function PLForecastClient() {
     }, [deals]);
 
     const shipmentByProject = React.useMemo(() => {
-        const map = new Map<string, { projectName: string; mvName: string; buyer: string }>();
+        const map = new Map<string, { projectName: string; mvName: string; buyer: string; type: "local" | "export"; qty: number; year: number }>();
         shipments.forEach((sh) => {
             const projectName = shipmentProjectName(sh);
             const projectKey = normalizeKey(projectName);
             if (!projectKey) return;
-            if (!map.has(projectKey)) {
+            const existing = map.get(projectKey);
+            const qty = safeNum(sh.qty_plan || sh.quantity_loaded);
+            if (!existing) {
                 map.set(projectKey, {
                     projectName,
                     mvName: extractMVName(sh.vessel_name || sh.mv_project_name) || "-",
                     buyer: cleanText(sh.buyer) || "-",
+                    type: shipmentType(sh),
+                    qty,
+                    year: safeNum(sh.year) || new Date().getFullYear(),
                 });
+                return;
             }
+            existing.qty += qty;
+            if (existing.mvName === "-" && extractMVName(sh.vessel_name || sh.mv_project_name)) {
+                existing.mvName = extractMVName(sh.vessel_name || sh.mv_project_name) || existing.mvName;
+            }
+            if (existing.buyer === "-" && cleanText(sh.buyer)) existing.buyer = cleanText(sh.buyer) || existing.buyer;
+            existing.year = Math.max(existing.year, safeNum(sh.year) || existing.year);
+            map.set(projectKey, existing);
         });
         return map;
     }, [shipments]);
+
+    const projectOptions = React.useMemo(() => {
+        return Array.from(shipmentByProject.values()).sort((a, b) => b.qty - a.qty);
+    }, [shipmentByProject]);
+
+    const projectsByBuyer = React.useMemo(() => {
+        const map = new Map<string, string[]>();
+        projectOptions.forEach((p) => {
+            const key = normalizeKey(p.buyer);
+            if (!key || key === "-") return;
+            const existing = map.get(key) || [];
+            if (!existing.includes(p.projectName)) existing.push(p.projectName);
+            map.set(key, existing);
+        });
+        return map;
+    }, [projectOptions]);
 
     const resolveContext = React.useCallback((f: PLForecastItem) => {
         const linkedDeal = dealById.get(f.deal_id) || dealByNumber.get(normalizeKey(f.deal_number));
@@ -231,11 +279,14 @@ export default function PLForecastClient() {
             extractProjectName(linkedDeal?.vessel_name) ||
             extractMVName(linkedDeal?.vessel_name);
         const forecastProject = cleanText(f.project_name);
+        const buyerProjects = cleanText(f.buyer) ? projectsByBuyer.get(normalizeKey(f.buyer)) : undefined;
+        const inferredProjectByBuyer = buyerProjects && buyerProjects.length === 1 ? buyerProjects[0] : null;
         const fallbackByBuyer = cleanText(f.buyer) ? `Buyer - ${cleanText(f.buyer)}` : null;
         const fallbackById = `Forecast - ${f.id.slice(-6).toUpperCase()}`;
         const projectName =
             forecastProject ||
             dealProject ||
+            inferredProjectByBuyer ||
             cleanText(f.deal_number) ||
             fallbackByBuyer ||
             fallbackById;
@@ -253,7 +304,7 @@ export default function PLForecastClient() {
             buyer,
             dealNumber: linkedDeal?.deal_number || f.deal_number || "-",
         };
-    }, [dealById, dealByNumber, shipmentByProject]);
+    }, [dealById, dealByNumber, shipmentByProject, projectsByBuyer]);
 
     const projectRollup = React.useMemo(() => {
         const map = new Map<string, { projectName: string; mvName: string; qty: number; revenue: number; cogs: number; gp: number }>();
@@ -386,7 +437,7 @@ export default function PLForecastClient() {
                 <div className="card-elevated p-4">
                     <div className="flex items-center justify-between mb-3">
                         <h3 className="text-sm font-semibold">Project Rollup</h3>
-                        <span className="text-[10px] text-muted-foreground">Aggregated by Project name</span>
+                        <span className="text-[10px] text-muted-foreground">Aggregated by Project/MV (forecast + mapped context)</span>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-xs">
@@ -431,6 +482,19 @@ export default function PLForecastClient() {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {!editingId && (
+                                    <div className="sm:col-span-2">
+                                        <label className="text-[10px] font-bold text-muted-foreground uppercase">Select Project / MV (Required)</label>
+                                        <select onChange={(e) => handleLoadProject(e.target.value)} className="w-full mt-1 px-3 py-2.5 rounded-xl bg-background border border-border text-sm outline-none focus:border-primary" value={form.project_name || ""}>
+                                            <option value="">Select Project...</option>
+                                            {projectOptions.map((p) => (
+                                                <option key={normalizeKey(p.projectName)} value={p.projectName}>
+                                                    {p.projectName} | {p.mvName} | {p.buyer} | {p.qty.toLocaleString()} MT
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
                                 {!editingId && (
                                     <div className="sm:col-span-2">
                                         <label className="text-[10px] font-bold text-muted-foreground uppercase">Link Deal (for Project/MV Context)</label>
@@ -483,7 +547,7 @@ export default function PLForecastClient() {
                             </div>
                         </div>
                         <div className="flex gap-2 mt-4 pt-4 border-t border-border/50">
-                            <button onClick={handleAddOrUpdate} className="btn-primary px-8" disabled={isSaving || (!editingId && !form.deal_id)}>
+                            <button onClick={handleAddOrUpdate} className="btn-primary px-8" disabled={isSaving || (!editingId && !form.project_name)}>
                                 {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</> : editingId ? "Update Costs" : "Create Forecast"}
                             </button>
                             <button onClick={() => { setShowForm(false); resetForm(); }} className="px-6 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent transition-colors" disabled={isSaving}>Cancel</button>
