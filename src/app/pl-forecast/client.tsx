@@ -170,7 +170,10 @@ export default function PLForecastClient() {
     };
 
     const handleEdit = (f: PLForecastItem) => {
-        const ctxProject = cleanText(f.project_name) || f.deal_number || "Unmapped Project";
+        const ctxProject =
+            cleanText(f.project_name) ||
+            cleanText(f.deal_number) ||
+            (cleanText(f.buyer) ? `Buyer - ${cleanText(f.buyer)}` : `Forecast - ${f.id.slice(-6).toUpperCase()}`);
         const shipmentCtx = shipmentByProject.get(normalizeKey(ctxProject));
         setForm({
             deal_id: f.deal_id,
@@ -228,7 +231,14 @@ export default function PLForecastClient() {
             extractProjectName(linkedDeal?.vessel_name) ||
             extractMVName(linkedDeal?.vessel_name);
         const forecastProject = cleanText(f.project_name);
-        const projectName = forecastProject || dealProject || f.deal_number || "Unmapped Project";
+        const fallbackByBuyer = cleanText(f.buyer) ? `Buyer - ${cleanText(f.buyer)}` : null;
+        const fallbackById = `Forecast - ${f.id.slice(-6).toUpperCase()}`;
+        const projectName =
+            forecastProject ||
+            dealProject ||
+            cleanText(f.deal_number) ||
+            fallbackByBuyer ||
+            fallbackById;
         const shipmentCtx = shipmentByProject.get(normalizeKey(projectName));
         const mvName =
             shipmentCtx?.mvName ||
