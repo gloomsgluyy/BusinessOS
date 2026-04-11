@@ -1038,15 +1038,25 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                 {detailShipment && (
                     <div className="modal-overlay">
                         <div className="modal-backdrop" onClick={() => setDetailShipment(null)} />
-                        <div className="modal-content max-w-[900px] w-full bg-card border border-border shadow-2xl p-6 flex flex-col max-h-[90vh] rounded-xl">
-                            <div className="flex justify-between items-start mb-4">
-                                <div>
-                                    <h3 className="text-sm font-bold text-foreground mb-3">Shipment Details</h3>
-                                    <h2 className="text-3xl font-black text-foreground mb-1">{detailShipment.vessel_name || detailShipment.mv_project_name || detailShipment.shipment_number || "Shipment Detail"}</h2>
-                                    <p className="text-sm text-muted-foreground">{detailShipment.buyer} - {detailShipment.supplier}</p>
+                        <div className="modal-content w-[min(96vw,1120px)] bg-card border border-border shadow-2xl p-4 sm:p-6 flex flex-col max-h-[92vh] rounded-xl">
+                            <div className="flex flex-col gap-4 mb-4">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <h3 className="text-xs sm:text-sm font-bold text-foreground mb-2">Shipment Details</h3>
+                                        <h2 className="text-3xl sm:text-4xl font-black text-foreground leading-[1.05] break-words">
+                                            {detailShipment.vessel_name || detailShipment.mv_project_name || detailShipment.shipment_number || "Shipment Detail"}
+                                        </h2>
+                                        <p className="text-xs sm:text-sm text-muted-foreground mt-1 break-words">
+                                            {[detailShipment.buyer, detailShipment.supplier].filter(Boolean).join(" • ") || "-"}
+                                        </p>
+                                    </div>
+                                    <button onClick={() => setDetailShipment(null)} className="p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg transition-colors shrink-0">
+                                        <X className="w-5 h-5" />
+                                    </button>
                                 </div>
-                                <div className="flex items-start gap-4">
-                                    <div className="flex items-center gap-2 mt-8">
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                         <span className="px-3 py-1.5 rounded-md text-xs font-bold text-white bg-emerald-500">
                                             {SHIPMENT_STATUSES.find(s => s.value === detailShipment.status)?.label || "Completed"}
                                         </span>
@@ -1067,91 +1077,106 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                             <Trash2 className="w-3.5 h-3.5" /> Delete
                                         </button>
                                     </div>
-                                    <button onClick={() => setDetailShipment(null)} className="p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg transition-colors"><X className="w-5 h-5" /></button>
                                 </div>
                             </div>
 
-                            <div className="flex justify-center mb-6 pt-2">
-                                <div className="flex items-center gap-1 bg-accent/40 p-1.5 rounded-xl border border-border/40">
-                                    <button onClick={() => setDetailModalTab("overview")} className={cn("px-5 py-2 rounded-lg text-sm font-bold transition-all", detailModalTab === "overview" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Overview</button>
-                                    <button onClick={() => setDetailModalTab("blending")} className={cn("px-5 py-2 rounded-lg text-sm font-bold transition-all", detailModalTab === "blending" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Blending Details</button>
-                                    <button onClick={() => setDetailModalTab("timeline")} className={cn("px-5 py-2 rounded-lg text-sm font-bold transition-all", detailModalTab === "timeline" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Timeline</button>
-                                    <button onClick={() => setDetailModalTab("risk")} className={cn("px-5 py-2 rounded-lg text-sm font-bold transition-all", detailModalTab === "risk" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Risk Analysis</button>
+                            <div className="mb-4">
+                                <div className="grid grid-cols-2 md:flex md:items-center gap-1.5 bg-accent/40 p-1.5 rounded-xl border border-border/40">
+                                    <button onClick={() => setDetailModalTab("overview")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "overview" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Overview</button>
+                                    <button onClick={() => setDetailModalTab("blending")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "blending" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Blending Details</button>
+                                    <button onClick={() => setDetailModalTab("timeline")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "timeline" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Timeline</button>
+                                    <button onClick={() => setDetailModalTab("risk")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "risk" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Risk Analysis</button>
                                 </div>
                             </div>
 
-                            <div className="overflow-y-auto pr-2 pb-4 space-y-4">
+                            <div className="overflow-y-auto pr-1 sm:pr-2 pb-2 sm:pb-4 space-y-4">
                                 {detailModalTab === "overview" && (
                                     <div className="space-y-6 animate-fade-in">
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
                                             {/* Unified Shipment Identity */}
-                                            <div className="border border-border/60 rounded-xl p-5 bg-background/50 flex flex-col shadow-sm">
-                                                <h4 className="text-xs font-bold flex items-center gap-2 mb-4 text-primary uppercase tracking-wider">
+                                            <div className="border border-border/60 rounded-xl p-4 sm:p-5 bg-background/60 shadow-sm">
+                                                <h4 className="text-[11px] sm:text-xs font-bold flex items-center gap-2 mb-3 text-primary uppercase tracking-wider">
                                                     <Package className="w-4 h-4" /> Logistics Identity
                                                 </h4>
-                                                <div className="space-y-3 text-[11px] mt-auto">
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Project:</span><span className="font-bold text-foreground">{detailShipment.mv_project_name || detailShipment.vessel_name || "-"}</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Vessel:</span><span className="font-semibold text-foreground">{detailShipment.vessel_name || detailShipment.nomination || "-"}</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Barge:</span><span className="font-semibold text-foreground">{detailShipment.barge_name || "-"}</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Source:</span><span className="font-bold text-primary">{detailShipment.source || "-"}</span></div>
+                                                <div className="space-y-2.5 text-xs sm:text-[13px]">
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Project</span><span className="font-semibold text-foreground break-words">{detailShipment.mv_project_name || detailShipment.vessel_name || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Vessel</span><span className="font-semibold text-foreground break-words">{detailShipment.vessel_name || detailShipment.nomination || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Barge</span><span className="font-medium text-foreground break-words">{detailShipment.barge_name || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Source</span><span className="font-bold text-primary break-words">{detailShipment.source || "-"}</span></div>
                                                 </div>
                                             </div>
 
                                             {/* Port & Period Details */}
-                                            <div className="border border-border/60 rounded-xl p-5 bg-background/50 flex flex-col shadow-sm">
-                                                <h4 className="text-xs font-bold flex items-center gap-2 mb-4 text-primary uppercase tracking-wider">
+                                            <div className="border border-border/60 rounded-xl p-4 sm:p-5 bg-background/60 shadow-sm">
+                                                <h4 className="text-[11px] sm:text-xs font-bold flex items-center gap-2 mb-3 text-primary uppercase tracking-wider">
                                                     <Anchor className="w-4 h-4" /> Port & Timeline
                                                 </h4>
-                                                <div className="space-y-3 text-[11px] mt-auto">
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Loading Port:</span><span className="font-semibold text-foreground">{detailShipment.jetty_loading_port || detailShipment.loading_port || "-"}</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Discharge Port:</span><span className="font-semibold text-foreground">{detailShipment.discharge_port || "-"}</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Laycan:</span><span className="font-bold text-foreground">{detailShipment.laycan || "-"}</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Region:</span><span className="font-semibold text-muted-foreground">{detailShipment.origin || "-"}</span></div>
+                                                <div className="space-y-2.5 text-xs sm:text-[13px]">
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Load Port</span><span className="font-semibold text-foreground break-words">{detailShipment.jetty_loading_port || detailShipment.loading_port || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Discharge</span><span className="font-medium text-foreground break-words">{detailShipment.discharge_port || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Laycan</span><span className="font-semibold text-foreground break-words">{detailShipment.laycan || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Region</span><span className="font-medium text-muted-foreground break-words">{detailShipment.origin || "-"}</span></div>
                                                 </div>
                                             </div>
 
                                             {/* Financial & Quantities */}
-                                            <div className="border border-border/60 rounded-xl p-5 bg-emerald-500/5 border-emerald-500/20 flex flex-col shadow-sm">
-                                                <h4 className="text-xs font-bold flex items-center gap-2 mb-4 text-emerald-600 uppercase tracking-wider">
+                                            <div className="border border-emerald-500/20 rounded-xl p-4 sm:p-5 bg-emerald-500/5 shadow-sm">
+                                                <h4 className="text-[11px] sm:text-xs font-bold flex items-center gap-2 mb-3 text-emerald-600 uppercase tracking-wider">
                                                     <DollarSign className="w-4 h-4" /> Commercials
                                                 </h4>
-                                                <div className="space-y-3 text-[11px] mt-auto">
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Qty Loaded:</span><span className="font-black text-foreground">{detailShipment.quantity_loaded?.toLocaleString() || "0"} MT</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Sales Price:</span><span className="font-bold text-emerald-600">${safeNum(detailShipment.sales_price || detailShipment.sp)}/MT</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Margin:</span><span className="font-bold text-blue-600">${safeNum(detailShipment.margin_mt)}/MT</span></div>
-                                                    <div className="flex justify-between items-center border-t border-emerald-500/10 pt-2"><span className="text-muted-foreground uppercase">Est. Revenue:</span><span className="font-black text-emerald-700">${((detailShipment.quantity_loaded || 0) * safeNum(detailShipment.sales_price || detailShipment.sp)).toLocaleString()}</span></div>
+                                                <div className="space-y-2.5 text-xs sm:text-[13px]">
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Qty Loaded</span><span className="font-black text-foreground break-words">{detailShipment.quantity_loaded?.toLocaleString() || "0"} MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Sales Price</span><span className="font-bold text-emerald-600 break-words">${safeNum(detailShipment.sales_price || detailShipment.sp)}/MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Margin</span><span className="font-bold text-blue-600 break-words">${safeNum(detailShipment.margin_mt)}/MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3 border-t border-emerald-500/10 pt-2"><span className="text-muted-foreground uppercase">Est. Revenue</span><span className="font-black text-emerald-700 break-words">${((detailShipment.quantity_loaded || 0) * safeNum(detailShipment.sales_price || detailShipment.sp)).toLocaleString()}</span></div>
                                                 </div>
                                             </div>
                                         </div>
 
                                         {/* Operational & Legal Details */}
-                                        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-5 shadow-sm">
-                                            <h4 className="text-xs font-bold flex items-center gap-2 mb-4 text-blue-600 uppercase tracking-wider">
+                                        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 sm:p-5 shadow-sm">
+                                            <h4 className="text-[11px] sm:text-xs font-bold flex items-center gap-2 mb-3 text-blue-600 uppercase tracking-wider">
                                                 <ShieldCheck className="w-4 h-4" /> Operational & Legal
                                             </h4>
-                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-[11px]">
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">IUP OP:</p><p className="font-bold text-foreground">{detailShipment.iup_op || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Shipment Flow:</p><p className="font-bold text-foreground">{detailShipment.shipment_flow || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Product:</p><p className="font-bold text-foreground">{detailShipment.product || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Analysis Method:</p><p className="font-bold text-foreground">{detailShipment.analysis_method || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">DMO / Export:</p><p className="font-bold text-foreground">{detailShipment.export_dmo || "EXPORT"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">BL Date:</p><p className="font-bold text-foreground">{detailShipment.bl_date ? new Date(detailShipment.bl_date).toLocaleDateString() : "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Nomination:</p><p className="font-bold text-foreground">{detailShipment.nomination || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Buyer:</p><p className="font-bold text-foreground">{detailShipment.buyer || "-"}</p></div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs sm:text-[13px]">
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">IUP OP</p><p className="font-semibold text-foreground break-words">{detailShipment.iup_op || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Shipment Flow</p><p className="font-semibold text-foreground break-words">{detailShipment.shipment_flow || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Product</p><p className="font-semibold text-foreground break-words">{detailShipment.product || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Analysis Method</p><p className="font-semibold text-foreground break-words">{detailShipment.analysis_method || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">DMO / Export</p><p className="font-semibold text-foreground break-words">{detailShipment.export_dmo || "EXPORT"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">BL Date</p><p className="font-semibold text-foreground break-words">{detailShipment.bl_date ? new Date(detailShipment.bl_date).toLocaleDateString() : "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Nomination</p><p className="font-semibold text-foreground break-words">{detailShipment.nomination || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Buyer</p><p className="font-semibold text-foreground break-words">{detailShipment.buyer || "-"}</p></div>
                                                 {/* New Fields */}
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">No. SPAL:</p><p className="font-bold text-foreground">{detailShipment.no_spal || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">No. SI:</p><p className="font-bold text-foreground">{detailShipment.no_si || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Surveyor LHV:</p><p className="font-bold text-foreground">{detailShipment.surveyor_lhv || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">LHV Terbit:</p><p className="font-bold text-foreground text-emerald-500">{detailShipment.lhv_terbit ? "YES" : "NO"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">No. SPAL</p><p className="font-semibold text-foreground break-words">{detailShipment.no_spal || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">No. SI</p><p className="font-semibold text-foreground break-words">{detailShipment.no_si || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Surveyor LHV</p><p className="font-semibold text-foreground break-words">{detailShipment.surveyor_lhv || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">LHV Terbit</p><p className="font-semibold text-foreground">{detailShipment.lhv_terbit ? "YES" : "NO"}</p></div>
                                             </div>
                                         </div>
 
                                         {shipmentFamily.length > 0 && (
                                             <div className="p-4 bg-accent/20 rounded-xl border border-border/50">
-                                                <h5 className="text-[10px] font-bold text-muted-foreground uppercase mb-3 flex items-center gap-1.5">
+                                                <h5 className="text-[10px] sm:text-[11px] font-bold text-muted-foreground uppercase mb-3 flex items-center gap-1.5">
                                                     <Anchor className="w-3 h-3" /> Child Barge Details ({shipmentFamily.length})
                                                 </h5>
-                                                <div className="overflow-x-auto">
+                                                <div className="md:hidden space-y-2">
+                                                    {shipmentFamily.slice(0, 8).map((item) => (
+                                                        <div key={item.id} className="rounded-lg border border-border/50 bg-background/60 p-3 text-xs space-y-1.5">
+                                                            <p className="font-semibold text-foreground break-words">{item.nomination || item.barge_name || "-"}</p>
+                                                            <p className="text-muted-foreground break-words">{item.jetty_loading_port || item.loading_port || "-"}</p>
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-muted-foreground">Plan</span>
+                                                                <span className="font-semibold text-blue-500">{safeNum(item.qty_plan).toLocaleString()} MT</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-muted-foreground">Actual</span>
+                                                                <span className="font-semibold text-emerald-500">{safeNum(item.qty_cob || item.quantity_loaded).toLocaleString()} MT</span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div className="hidden md:block overflow-x-auto">
                                                     <table className="w-full text-[11px]">
                                                         <thead>
                                                             <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border/40">
