@@ -188,6 +188,15 @@ function isChildDataRow(rowText) {
   return true;
 }
 
+function hasRowDetailSignal(fields) {
+  return fields.some((v) => {
+    const s = cleanStr(v);
+    if (!s) return false;
+    const n = normalizeText(s);
+    return n !== "0" && n !== "0 JAN" && n !== "0 JANUARY 00";
+  });
+}
+
 function findHeaderRow(rows) {
   for (let i = 0; i < Math.min(rows.length, 20); i += 1) {
     const r = rows[i] || [];
@@ -325,10 +334,18 @@ async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
 
     const mvProjectName = mvRaw || carry.mvProjectName;
     const nomination = cleanStr(row[col.nomination]);
+    const sourceRaw = cleanStr(row[col.source]);
+    const iupRaw = cleanStr(row[col.iupOp]);
+    const jettyRaw = cleanStr(row[col.jettyLoadingPort]);
+    const shipmentStatusRaw = cleanStr(row[col.shipmentStatus]);
     const mvNorm = normalizeText(mvProjectName || "");
     const nomNorm = normalizeText(nomination || "");
     if (mvNorm === "MV NAME" || mvNorm === "MV PROJECT NAME" || nomNorm === "NOMINATION") continue;
     if (!no && !mvProjectName && !nomination) continue;
+    if (
+      !no &&
+      !hasRowDetailSignal([nomination, sourceRaw, iupRaw, jettyRaw, shipmentStatusRaw])
+    ) continue;
 
     const vesselHint = normalizeVesselName(mvProjectName || nomination);
     let mother = null;
@@ -344,9 +361,9 @@ async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
         status: statusToInternal(cleanStr(row[col.shipmentStatus]), cleanStr(row[col.shipmentStatus])),
         origin: mother?.area || null,
         mvProjectName,
-        source: cleanStr(row[col.source]),
-        iupOp: cleanStr(row[col.iupOp]),
-        jettyLoadingPort: cleanStr(row[col.jettyLoadingPort]) || mother?.pol || null,
+        source: sourceRaw,
+        iupOp: iupRaw,
+        jettyLoadingPort: jettyRaw || mother?.pol || null,
         laycan: laycanRaw || carry.laycan || mother?.laycan || null,
         nomination,
         qtyPlan: toFloat(row[col.qtyPlan]),
@@ -357,7 +374,7 @@ async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
         buyer: cleanStr(row[col.buyer]) || mother?.buyer || null,
         vesselName: mother?.vessel || vesselHint || mvProjectName || null,
         bargeName: nomination,
-        loadingPort: cleanStr(row[col.jettyLoadingPort]) || mother?.pol || null,
+        loadingPort: jettyRaw || mother?.pol || null,
         quantityLoaded: toFloat(row[col.qtyCob]) || toFloat(row[col.qtyPlan]),
         product: mother?.product || null,
         type: "export",
@@ -563,7 +580,14 @@ async function migrate() {
       const mvProjectName = mvRaw || carry.mvProjectName;
       const nomination = cleanStr(row[idx.nomination]);
       const no = toInt(row[idx.no]);
+      const sourceRaw = cleanStr(row[idx.source]);
+      const iupRaw = cleanStr(row[idx.iupOp]);
+      const shipmentStatusRaw = cleanStr(row[idx.shipmentStatus]);
       if (!mvProjectName && !nomination && !no) continue;
+      if (
+        !no &&
+        !hasRowDetailSignal([nomination, sourceRaw, iupRaw, jettyRaw, shipmentStatusRaw])
+      ) continue;
 
       const vesselHint = normalizeVesselName(mvProjectName || nomination);
       const projectHint = extractProjectHint(mvProjectName);
@@ -600,8 +624,8 @@ async function migrate() {
           status: statusToInternal(cleanStr(row[idx.status]), cleanStr(row[idx.shipmentStatus])),
           origin: originRaw || carry.origin || mother?.area || null,
           mvProjectName,
-          source: cleanStr(row[idx.source]),
-          iupOp: cleanStr(row[idx.iupOp]),
+          source: sourceRaw,
+          iupOp: iupRaw,
           shipmentFlow: flowRaw || carry.shipmentFlow || mother?.flow || null,
           jettyLoadingPort: jettyRaw || carry.jettyLoadingPort || mother?.pol || null,
           laycan: laycanRaw || carry.laycan || mother?.laycan || null,
