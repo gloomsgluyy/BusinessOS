@@ -21,6 +21,75 @@ import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 const normalizeKey = (v?: string | null) => (v || "").toUpperCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+const monthToNumber: Record<string, number> = {
+    JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5,
+    JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11,
+    MEI: 4, AGU: 7, OKT: 9, DES: 11,
+};
+
+const parseFlexibleDate = (value?: string | null): Date | null => {
+    if (!value) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+
+    const direct = new Date(raw);
+    if (!Number.isNaN(direct.getTime())) return direct;
+
+    const dmY = raw.match(/^(\d{1,2})\s*[-\/]?\s*([A-Za-z]{3,})(?:\s+(\d{2,4}))?$/);
+    if (dmY) {
+        const day = Number(dmY[1]);
+        const monthKey = dmY[2].slice(0, 3).toUpperCase();
+        const month = monthToNumber[monthKey];
+        const yearPart = dmY[3] ? Number(dmY[3]) : null;
+        if (month !== undefined && yearPart) {
+            const year = yearPart < 100 ? 2000 + yearPart : yearPart;
+            const d = new Date(year, month, day);
+            if (!Number.isNaN(d.getTime())) return d;
+        }
+    }
+
+    return null;
+};
+
+const parseYearFromLaycan = (laycan?: string | null): number | null => {
+    if (!laycan) return null;
+    const m = String(laycan).match(/\b(19|20)\d{2}\b/);
+    return m ? Number(m[0]) : null;
+};
+
+const getShipmentYear = (s: ShipmentDetail): number | null => {
+    if (s.year && Number.isFinite(s.year)) return s.year;
+    const byLaycan = parseYearFromLaycan(s.laycan);
+    if (byLaycan) return byLaycan;
+    const byBl = parseFlexibleDate(s.bl_date);
+    if (byBl) return byBl.getFullYear();
+    const byCreated = parseFlexibleDate(s.created_at);
+    if (byCreated) return byCreated.getFullYear();
+    return null;
+};
+
+const getShipmentDate = (s: ShipmentDetail): Date | null => {
+    const byBl = parseFlexibleDate(s.bl_date);
+    if (byBl) return byBl;
+    const byEta = parseFlexibleDate(s.eta);
+    if (byEta) return byEta;
+    const byCreated = parseFlexibleDate(s.created_at);
+    if (byCreated) return byCreated;
+    return null;
+};
+
+const formatLaycanWithYear = (s: ShipmentDetail): string => {
+    if (!s.laycan) {
+        const d = getShipmentDate(s);
+        return d
+            ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+            : "-";
+    }
+    const laycanRaw = String(s.laycan).trim();
+    if (/\b(19|20)\d{2}\b/.test(laycanRaw)) return laycanRaw;
+    const y = getShipmentYear(s);
+    return y ? `${laycanRaw} ${y}` : laycanRaw;
+};
 
 export default function ShipmentMonitorPage() {
     const [isInitializing, setIsInitializing] = React.useState(true);
@@ -41,6 +110,10 @@ export default function ShipmentMonitorPage() {
     const [editForm, setEditForm] = React.useState<Partial<ShipmentDetail>>({});
     const [expandedRows, setExpandedRows] = React.useState<Set<string>>(new Set());
     const [searchQuery, setSearchQuery] = React.useState("");
+    const [yearFilter, setYearFilter] = React.useState<string>("all");
+    const [dateFrom, setDateFrom] = React.useState("");
+    const [dateTo, setDateTo] = React.useState("");
+    const [sortBy, setSortBy] = React.useState<"latest" | "oldest" | "qty_desc" | "qty_asc">("latest");
     const [showReportModal, setShowReportModal] = React.useState(false);
 
     // Interactive Modal States
@@ -175,15 +248,69 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
         setEditForm({ ...sh });
     };
 
-    const filtered = shipments.filter((s) => {
-        const matchesTab = activeTab === "all" || s.status === activeTab;
-        if (!matchesTab) return false;
-        if (searchQuery) {
-            const q = searchQuery.toLowerCase();
-            return (s.mv_project_name || s.shipment_number || "").toLowerCase().includes(q) || (s.source || s.buyer || "").toLowerCase().includes(q) || (s.nomination || s.vessel_name || "").toLowerCase().includes(q);
-        }
-        return true;
-    });
+    const uniqueYears = React.useMemo(() => {
+        return Array.from(new Set(
+            shipments
+                .map((s) => getShipmentYear(s))
+                .filter((y): y is number => y !== null)
+        )).sort((a, b) => b - a);
+    }, [shipments]);
+
+    const filtered = React.useMemo(() => {
+        const start = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null;
+        const end = dateTo ? new Date(`${dateTo}T23:59:59`) : null;
+
+        const rows = shipments.filter((s) => {
+            const matchesTab = activeTab === "all" || s.status === activeTab;
+            if (!matchesTab) return false;
+
+            if (searchQuery) {
+                const q = searchQuery.toLowerCase();
+                const matchesSearch = (s.mv_project_name || s.shipment_number || "").toLowerCase().includes(q)
+                    || (s.source || s.buyer || "").toLowerCase().includes(q)
+                    || (s.nomination || s.vessel_name || "").toLowerCase().includes(q);
+                if (!matchesSearch) return false;
+            }
+
+            if (yearFilter !== "all") {
+                const yr = getShipmentYear(s);
+                if (!yr || String(yr) !== yearFilter) return false;
+            }
+
+            if (start || end) {
+                const d = getShipmentDate(s);
+                if (!d) return false;
+                if (start && d < start) return false;
+                if (end && d > end) return false;
+            }
+
+            return true;
+        });
+
+        rows.sort((a, b) => {
+            const aYear = getShipmentYear(a) || 0;
+            const bYear = getShipmentYear(b) || 0;
+            const aNo = a.no || 0;
+            const bNo = b.no || 0;
+            const aQty = safeNum(a.qty_plan || a.quantity_loaded);
+            const bQty = safeNum(b.qty_plan || b.quantity_loaded);
+            const aDate = getShipmentDate(a)?.getTime() || 0;
+            const bDate = getShipmentDate(b)?.getTime() || 0;
+
+            if (sortBy === "qty_desc") return bQty - aQty;
+            if (sortBy === "qty_asc") return aQty - bQty;
+            if (sortBy === "oldest") {
+                if (aYear !== bYear) return aYear - bYear;
+                if (aDate !== bDate) return aDate - bDate;
+                return aNo - bNo;
+            }
+            if (aYear !== bYear) return bYear - aYear;
+            if (aDate !== bDate) return bDate - aDate;
+            return bNo - aNo;
+        });
+
+        return rows;
+    }, [shipments, activeTab, searchQuery, yearFilter, dateFrom, dateTo, sortBy]);
 
     const shipmentFamily = React.useMemo(() => {
         if (!detailShipment) return [];
@@ -303,7 +430,8 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                 </div>
 
                 {/* Filters & View Toggles */}
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="flex flex-col gap-3">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div className="flex bg-accent/30 p-1 rounded-xl">
                         <button onClick={() => setActiveView("list")} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all", activeView === "list" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}><List className="w-3.5 h-3.5" /> List View</button>
                         <button onClick={() => setActiveView("card")} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all", activeView === "card" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}><Package className="w-3.5 h-3.5" /> Card View</button>
@@ -314,6 +442,51 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                         <div className="relative flex-1 md:w-64">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                             <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search shipments..." className="w-full pl-9 pr-4 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-primary/50 transition-colors" />
+                        </div>
+                    </div>
+                </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-accent/20 text-xs text-muted-foreground xl:col-span-2">
+                            <Filter className="w-3.5 h-3.5" />
+                            <span>
+                                Sorted by: {sortBy === "latest" ? "Year latest first, then date/no desc" : sortBy === "oldest" ? "Year oldest first, then date/no asc" : sortBy === "qty_desc" ? "Volume largest first" : "Volume smallest first"}
+                            </span>
+                        </div>
+                        <select
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value as any)}
+                            className="px-3 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-primary/50"
+                        >
+                            <option value="latest">Sort: Latest</option>
+                            <option value="oldest">Sort: Oldest</option>
+                            <option value="qty_desc">Sort: Volume Desc</option>
+                            <option value="qty_asc">Sort: Volume Asc</option>
+                        </select>
+                        <select
+                            value={yearFilter}
+                            onChange={(e) => setYearFilter(e.target.value)}
+                            className="px-3 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-primary/50"
+                        >
+                            <option value="all">All Years</option>
+                            {uniqueYears.map((y) => (
+                                <option key={y} value={String(y)}>{y}</option>
+                            ))}
+                        </select>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="date"
+                                value={dateFrom}
+                                onChange={(e) => setDateFrom(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-primary/50"
+                                title="Date from (BL Date / ETA / Created)"
+                            />
+                            <input
+                                type="date"
+                                value={dateTo}
+                                onChange={(e) => setDateTo(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-primary/50"
+                                title="Date to (BL Date / ETA / Created)"
+                            />
                         </div>
                     </div>
                 </div>
@@ -595,7 +768,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <div className="flex justify-between items-start mb-3">
                                                     <div>
                                                         <h3 className="font-bold text-lg text-primary group-hover:underline decoration-primary/50 underline-offset-4">{sh.mv_project_name || sh.vessel_name || sh.shipment_number || `#${sh.no}`}</h3>
-                                                        <p className="text-xs text-muted-foreground">{sh.source || sh.buyer} • {sh.origin || ""}</p>
+                                                        <p className="text-xs text-muted-foreground">{sh.source || sh.buyer} | {sh.origin || "-"} | Year {getShipmentYear(sh) || "-"}</p>
                                                     </div>
                                                     <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
                                                         {stCfg?.label}
@@ -621,7 +794,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 </div>
                                             </div>
                                             <div className="pt-3 border-t border-border/50 flex justify-between items-center text-xs text-muted-foreground">
-                                                <span className="flex items-center gap-1"><Anchor className="w-3.5 h-3.5" /> {sh.laycan || sh.bl_date || "Pending"}</span>
+                                                <span className="flex items-center gap-1"><Anchor className="w-3.5 h-3.5" /> {formatLaycanWithYear(sh)}</span>
                                                 <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button onClick={(e) => { e.stopPropagation(); openEdit(sh); }} className="p-1 hover:text-foreground"><Edit className="w-3.5 h-3.5" /></button>
                                                 </div>
@@ -642,6 +815,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">NO</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">EXP/DMO</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">MV / Project</th>
+                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Year</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Source</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Nomination</th>
                                                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Qty Plan</th>
@@ -668,10 +842,11 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                             <td className="px-4 py-3 font-medium text-xs text-primary">{sh.no || "-"}</td>
                                                             <td className="px-4 py-3 text-xs">{sh.export_dmo || "-"}</td>
                                                             <td className="px-4 py-3 text-xs font-semibold">{sh.mv_project_name || sh.vessel_name || sh.shipment_number || "-"}</td>
+                                                            <td className="px-4 py-3 text-xs font-semibold text-primary/90">{getShipmentYear(sh) || "-"}</td>
                                                             <td className="px-4 py-3 text-xs text-muted-foreground">{sh.source || sh.supplier || "-"}</td>
                                                             <td className="px-4 py-3 text-xs">{sh.nomination || sh.vessel_name || sh.barge_name || "-"}</td>
                                                             <td className="px-4 py-3 text-right text-xs font-semibold">{(sh.qty_plan || sh.quantity_loaded) ? safeNum(sh.qty_plan || sh.quantity_loaded).toLocaleString() : "-"}</td>
-                                                            <td className="px-4 py-3 text-[10px] text-muted-foreground">{sh.laycan || sh.bl_date || "-"}</td>
+                                                            <td className="px-4 py-3 text-[10px] text-muted-foreground">{formatLaycanWithYear(sh)}</td>
                                                             <td className="px-4 py-3 text-right text-xs font-mono">{(sh.harga_actual_fob_mv || sh.sales_price) ? `$${safeFmt(sh.harga_actual_fob_mv || sh.sales_price)}` : "-"}</td>
                                                             <td className="px-4 py-3 text-right text-xs font-mono font-medium text-emerald-500">{sh.hpb ? `$${safeFmt(sh.hpb)}` : (sh.margin_mt ? `$${safeFmt(sh.margin_mt)}` : "-")}</td>
                                                             <td className="px-4 py-3">
@@ -694,7 +869,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                         {/* Expanded Detail Row */}
                                                         {isExpanded && (
                                                             <tr className="bg-accent/5 border-b border-border/30">
-                                                                <td colSpan={13} className="px-6 py-4">
+                                                                <td colSpan={14} className="px-6 py-4">
                                                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                                                                         {/* Shipping Details */}
                                                                         <div className="space-y-2">
@@ -1114,7 +1289,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <div className="space-y-2.5 text-xs sm:text-[13px]">
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Load Port</span><span className="font-semibold text-foreground break-words">{detailShipment.jetty_loading_port || detailShipment.loading_port || "-"}</span></div>
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Discharge</span><span className="font-medium text-foreground break-words">{detailShipment.discharge_port || "-"}</span></div>
-                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Laycan</span><span className="font-semibold text-foreground break-words">{detailShipment.laycan || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Laycan</span><span className="font-semibold text-foreground break-words">{formatLaycanWithYear(detailShipment)}</span></div>
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Region</span><span className="font-medium text-muted-foreground break-words">{detailShipment.origin || "-"}</span></div>
                                                 </div>
                                             </div>
