@@ -410,10 +410,6 @@ body {
 .modal-overlay .modal-content {
   position: relative;
   z-index: 1;
-  width: 90%;
-  max-width: 32rem;
-  max-height: 80vh;
-  overflow-y: auto;
   animation: scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 

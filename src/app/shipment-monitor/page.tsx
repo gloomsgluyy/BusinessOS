@@ -1038,7 +1038,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                 {detailShipment && (
                     <div className="modal-overlay">
                         <div className="modal-backdrop" onClick={() => setDetailShipment(null)} />
-                        <div className="modal-content w-[min(96vw,1120px)] bg-card border border-border shadow-2xl p-4 sm:p-6 flex flex-col max-h-[92vh] rounded-xl">
+                        <div className="modal-content w-full max-w-5xl bg-card border border-border shadow-2xl p-4 sm:p-6 flex flex-col max-h-[92vh] overflow-hidden rounded-xl">
                             <div className="flex flex-col gap-4 mb-4">
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
@@ -1089,7 +1089,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                 </div>
                             </div>
 
-                            <div className="overflow-y-auto pr-1 sm:pr-2 pb-2 sm:pb-4 space-y-4">
+                            <div className="overflow-y-auto overflow-x-hidden pr-1 sm:pr-2 pb-2 sm:pb-4 space-y-4">
                                 {detailModalTab === "overview" && (
                                     <div className="space-y-6 animate-fade-in">
                                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
