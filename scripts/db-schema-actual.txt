@@ -1,0 +1,524 @@
+﻿generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String         @id @default(cuid())
+  name          String?
+  email         String?        @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  role          String         @default("staff")
+  accounts      Account[]
+  auditLogs     AuditLog[]
+  chatHistories ChatHistory[]
+  meetingMedia  MeetingMedia[]
+  sessions      Session[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model ChatHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MeetingMedia {
+  id              String   @id @default(cuid())
+  meetingId       String
+  uploaderId      String
+  fileName        String
+  fileUrl         String
+  transcribedText String?
+  generatedMom    String?
+  extractedTasks  String?
+  createdAt       DateTime @default(now())
+  uploader        User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+}
+
+model TimelineMilestone {
+  id          String   @id @default(cuid())
+  shipmentId  String
+  title       String
+  date        DateTime
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SyncState {
+  id           String   @id @default("singleton")
+  lastSyncTime DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  userName  String
+  action    String
+  entity    String
+  entityId  String
+  details   String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TaskItem {
+  id           String    @id @default(cuid())
+  title        String    @db.VarChar(500)
+  description  String?
+  status       String    @default("todo")
+  priority     String    @default("medium")
+  assigneeId   String?   @db.VarChar(60)
+  assigneeName String?   @db.VarChar(255)
+  dueDate      DateTime?
+  createdBy    String    @db.VarChar(60)
+  createdAt    DateTime? @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt
+  isDeleted    Boolean   @default(false)
+  version      BigInt    @default(1)
+}
+
+model SalesOrder {
+  id            String    @id @default(cuid())
+  orderNumber   String?   @unique @db.VarChar(60)
+  client        String    @db.VarChar(255)
+  description   String?
+  amount        Float     @default(0)
+  priority      String    @default("medium")
+  status        String    @default("pending")
+  imageUrl      String?
+  createdByName String?   @db.VarChar(255)
+  createdBy     String    @db.VarChar(60)
+  approvedBy    String?   @db.VarChar(60)
+  notes         String?
+  createdAt     DateTime? @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt
+  isDeleted     Boolean   @default(false)
+  version       BigInt    @default(1)
+}
+
+model PurchaseRequest {
+  id            String    @id @default(cuid())
+  requestNumber String?   @unique @db.VarChar(60)
+  category      String    @db.VarChar(100)
+  supplier      String?   @db.VarChar(255)
+  description   String?
+  amount        Float     @default(0)
+  priority      String    @default("medium")
+  status        String    @default("pending")
+  imageUrl      String?
+  createdByName String?   @db.VarChar(255)
+  createdBy     String    @db.VarChar(60)
+  approvedBy    String?   @db.VarChar(60)
+  notes         String?
+  isAnomaly     Boolean   @default(false)
+  anomalyReason String?
+  ocrData       String?
+  createdAt     DateTime? @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt
+  isDeleted     Boolean   @default(false)
+  version       BigInt    @default(1)
+}
+
+model ShipmentDetail {
+  id               String    @id @default(cuid())
+  status           String    @default("draft") @db.VarChar(20)
+  buyer            String    @db.VarChar(255)
+  supplier         String?   @db.VarChar(255)
+  iupOp            String?   @db.VarChar(255)
+  vesselName       String?   @db.VarChar(255)
+  bargeName        String?   @db.VarChar(255)
+  loadingPort      String?   @db.VarChar(255)
+  dischargePort    String?   @db.VarChar(255)
+  quantityLoaded   Decimal?  @db.Decimal(15, 2)
+  blDate           DateTime?
+  eta              DateTime?
+  salesPrice       Decimal?  @db.Decimal(15, 2)
+  marginMt         Decimal?  @db.Decimal(15, 2)
+  picName          String?   @db.VarChar(255)
+  type             String    @default("export")
+  createdAt        DateTime? @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt
+  isDeleted        Boolean   @default(false)
+  allowance        String?
+  coaDate          DateTime?
+  completelyLoaded DateTime?
+  deadfreight      Float?
+  demm             String?
+  exportDmo        String?
+  hargaActualFob   Float?
+  hargaActualFobMv Float?
+  hpb              Float?
+  issueNotes       String?
+  jarak            Float?
+  jettyLoadingPort String?
+  kuotaExport      String?
+  laycan           String?
+  lhvTerbit        DateTime?
+  lossGainCargo    Float?
+  mvProjectName    String?
+  no               Int?
+  noInvoiceMkls    String?
+  noSi             String?
+  noSpal           String?
+  nomination       String?
+  origin           String?
+  pic              String?
+  priceFreight     Float?
+  qtyCob           Float?
+  qtyPlan          Float?
+  remarks          String?
+  resultGar        Float?
+  sentToBargeOwner String?
+  sentToSupplier   String?
+  shipmentFlow     String?
+  shipmentStatus   String?
+  shippingRate     Float?
+  shippingTerm     String?
+  source           String?
+  sp               Float?
+  statusHpb        String?
+  surveyorLhv      String?
+  year             Int       @default(2026)
+  shipmentNumber   String?   @unique(map: "idx_ShipmentDetail_shipment_number") @db.VarChar(60)
+  dealId           String?   @db.VarChar(60)
+  isBlending       Boolean   @default(false)
+  milestones       String?
+  version          BigInt    @default(1)
+}
+
+model SourceSupplier {
+  id               String    @id @default(cuid())
+  name             String    @db.VarChar(255)
+  region           String    @db.VarChar(255)
+  calorieRange     String?   @db.VarChar(100)
+  gar              Decimal?  @db.Decimal(10, 2)
+  ts               Decimal?  @db.Decimal(10, 2)
+  ash              Decimal?  @db.Decimal(10, 2)
+  tm               Decimal?  @db.Decimal(10, 2)
+  im               Decimal?  @db.Decimal(10, 2)
+  fc               Decimal?  @db.Decimal(10, 2)
+  nar              Decimal?  @db.Decimal(10, 2)
+  adb              Decimal?  @db.Decimal(10, 2)
+  jettyPort        String?   @db.VarChar(255)
+  anchorage        String?   @db.VarChar(255)
+  stockAvailable   Float     @default(0)
+  minStockAlert    Decimal?  @db.Decimal(15, 2)
+  kycStatus        String    @default("not_started")
+  psiStatus        String    @default("not_started")
+  fobBargeOnly     Boolean   @default(false)
+  priceLinkedIndex String?   @db.VarChar(255)
+  fobBargePriceUsd Decimal?  @db.Decimal(15, 2)
+  contractType     String?   @db.VarChar(100)
+  picName          String?   @db.VarChar(255)
+  iupNumber        String?   @db.VarChar(255)
+  createdAt        DateTime? @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt
+  isDeleted        Boolean   @default(false)
+  dokumenFlow      String?
+  origin           String?
+  psaResultGar     Float?
+  qtyProduction    Float?
+  specGar          Float?
+  statusDetail     String?
+  updatedDate      DateTime?
+  version          BigInt    @default(1)
+}
+
+model QualityResult {
+  id           String    @id @default(cuid())
+  cargoId      String    @db.VarChar(60)
+  cargoName    String    @db.VarChar(255)
+  surveyor     String?   @db.VarChar(255)
+  samplingDate DateTime?
+  gar          Decimal?  @db.Decimal(10, 2)
+  ts           Decimal?  @db.Decimal(10, 2)
+  ash          Decimal?  @db.Decimal(10, 2)
+  tm           Decimal?  @db.Decimal(10, 2)
+  status       String    @default("pending")
+  createdAt    DateTime? @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt
+  isDeleted    Boolean   @default(false)
+  version      BigInt    @default(1)
+}
+
+model MarketPrice {
+  id             String    @id @default(cuid())
+  date           DateTime
+  ici1           Decimal?  @db.Decimal(10, 2)
+  ici2           Decimal?  @db.Decimal(10, 2)
+  ici3           Decimal?  @db.Decimal(10, 2)
+  ici4           Decimal?  @db.Decimal(10, 2)
+  ici5           Decimal?  @db.Decimal(10, 2)
+  newcastle      Decimal?  @db.Decimal(10, 2)
+  hba            Decimal?  @db.Decimal(10, 2)
+  source         String?
+  createdAt      DateTime? @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt
+  isDeleted      Boolean   @default(false)
+  avg2WeeksIci1  Float?
+  avg4WeeksIci1  Float?
+  avgMonthlyIci1 Float?
+  changeWeekly   Float?
+  hbaI           Float?
+  hbaII          Float?
+  hbaIII         Float?
+  hpbValue       Float?
+  version        BigInt    @default(1)
+}
+
+model DailyDelivery {
+  id                 String    @id @default(cuid())
+  reportType         String    @default("domestic")
+  year               Int       @default(2026)
+  shipmentStatus     String?
+  buyer              String?
+  pod                String?
+  shippingTerm       String?
+  latestEtaPod       DateTime?
+  arriveAtPod        DateTime?
+  keterlambatan      String?
+  pol                String?
+  laycanPol          String?
+  area               String?
+  supplier           String?
+  mvBargeNomination  String?
+  issue              String?
+  blMonth            String?
+  blQuantity         Float?
+  blDate             DateTime?
+  analysisMethod     String?
+  surveyorPol        String?
+  surveyorPod        String?
+  project            String?
+  flow               String?
+  terpal             String?
+  insurance          String?
+  basePrice          Float?
+  basePriceNotes     String?
+  poMonth            String?
+  product            String?
+  arriveAtPol        DateTime?
+  commenceLoading    DateTime?
+  completeLoading    DateTime?
+  startDischarging   DateTime?
+  completeDischarged DateTime?
+  podQuantity        Float?
+  lossGainCargo      Float?
+  poNo               String?
+  contractNo         String?
+  contractType       String?
+  invoicePrice       Float?
+  invoiceAmount      Float?
+  paymentDueDate     DateTime?
+  paymentStatus      String?
+  specContract       String?
+  actualGcvGar       Float?
+  actualTs           Float?
+  actualAsh          Float?
+  actualTm           Float?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  isDeleted          Boolean   @default(false)
+}
+
+model OutstandingPayment {
+  id              String    @id @default(cuid())
+  perusahaan      String
+  kodeBatu        String?
+  priceInclPph    Float?
+  qty             Float?
+  totalDp         Float?
+  calculationDate DateTime?
+  dpToShipment    DateTime?
+  timeframeDays   String?
+  status          String    @default("pending")
+  year            Int       @default(2026)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  isDeleted       Boolean   @default(false)
+}
+
+model MeetingItem {
+  id            String    @id @default(cuid())
+  title         String    @db.VarChar(500)
+  date          DateTime?
+  time          String?   @db.VarChar(20)
+  location      String?   @db.VarChar(255)
+  status        String    @default("scheduled")
+  attendees     String?
+  momContent    String?
+  voiceNoteUrl  String?
+  aiSummary     String?
+  createdByName String?   @db.VarChar(255)
+  createdBy     String    @db.VarChar(60)
+  createdAt     DateTime? @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt
+  isDeleted     Boolean   @default(false)
+  version       BigInt    @default(1)
+}
+
+model PLForecast {
+  id               String    @id @default(cuid())
+  dealId           String?   @db.VarChar(60)
+  dealNumber       String?   @db.VarChar(60)
+  projectName      String?   @db.VarChar(255)
+  buyer            String?   @db.VarChar(255)
+  type             String    @default("export")
+  status           String    @default("forecast")
+  quantity         Float     @default(0)
+  sellingPrice     Float     @default(0)
+  buyingPrice      Float     @default(0)
+  freightCost      Float     @default(0)
+  otherCost        Float     @default(0)
+  grossProfitMt    Float     @default(0)
+  totalGrossProfit Float     @default(0)
+  createdBy        String?   @db.VarChar(60)
+  createdAt        DateTime? @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt
+  isDeleted        Boolean   @default(false)
+  version          BigInt    @default(1)
+}
+
+model SalesDeal {
+  id            String    @id @default(cuid())
+  dealNumber    String?   @unique @db.VarChar(60)
+  status        String    @default("pre_sale")
+  buyer         String    @db.VarChar(255)
+  buyerCountry  String?   @db.VarChar(100)
+  type          String    @default("export")
+  shippingTerms String    @default("FOB")
+  quantity      Float     @default(0)
+  pricePerMt    Decimal?  @db.Decimal(15, 2)
+  totalValue    Decimal?  @db.Decimal(15, 2)
+  laycanStart   DateTime?
+  laycanEnd     DateTime?
+  vesselName    String?   @db.VarChar(255)
+  gar           Decimal?  @db.Decimal(10, 2)
+  ts            Decimal?  @db.Decimal(10, 2)
+  ash           Decimal?  @db.Decimal(10, 2)
+  tm            Decimal?  @db.Decimal(10, 2)
+  projectId     String?   @db.VarChar(60)
+  picId         String?   @db.VarChar(60)
+  picName       String?   @db.VarChar(255)
+  createdByName String?   @db.VarChar(255)
+  createdBy     String    @db.VarChar(60)
+  createdAt     DateTime? @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt
+  isDeleted     Boolean   @default(false)
+  version       BigInt    @default(1)
+}
+
+model Partner {
+  id            String    @id @default(cuid())
+  name          String    @db.VarChar(255)
+  type          String    @default("buyer")
+  category      String?   @db.VarChar(100)
+  contactPerson String?   @db.VarChar(255)
+  phone         String?   @db.VarChar(50)
+  email         String?   @db.VarChar(255)
+  address       String?
+  city          String?   @db.VarChar(100)
+  country       String?   @db.VarChar(100)
+  taxId         String?   @db.VarChar(100)
+  status        String    @default("active")
+  notes         String?
+  createdAt     DateTime? @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt
+  isDeleted     Boolean   @default(false)
+  version       BigInt    @default(1)
+}
+
+model BlendingSimulation {
+  id            String    @id @default(cuid())
+  inputs        String    @default("[]")
+  totalQuantity Float     @default(0)
+  resultGar     Float     @default(0)
+  resultTs      Float     @default(0)
+  resultAsh     Float     @default(0)
+  resultTm      Float     @default(0)
+  createdBy     String    @db.VarChar(60)
+  createdAt     DateTime? @db.Timestamptz(6)
+  isDeleted     Boolean   @default(false)
+  version       BigInt    @default(1)
+}
+
+
+node.exe : ΓöîΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓ
+öÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓ
+öÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓ
+öÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÉ
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program 
+Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (ΓöîΓöÇΓö 
+   ÇΓöÇΓöÇ...ΓöÇΓöÇΓöÇΓöÇΓöÉ:String) [], RemoteExcep  
+  tion
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Γöé  Update available 5.22.0 -> 7.6.0                 
+      Γöé
+Γöé                                                   
+      Γöé
+Γöé  This is a major update - please follow the guide 
+at    Γöé
+Γöé  https://pris.ly/d/major-version-upgrade          
+      Γöé
+Γöé                                                   
+      Γöé
+Γöé  Run the following to update                      
+      Γöé
+Γöé    npm i --save-dev prisma@latest                 
+      Γöé
+Γöé    npm i @prisma/client@latest                    
+      Γöé
+ΓööΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÿ

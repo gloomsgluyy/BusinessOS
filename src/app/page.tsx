@@ -12,7 +12,7 @@ import { TASK_STATUSES, TASK_PRIORITIES, SALES_DEAL_STATUSES, SHIPMENT_STATUSES 
 import {
     TrendingUp, TrendingDown, DollarSign, AlertCircle, Ship,
     Anchor, Package, BarChart3, Calendar, Clock, ArrowUpRight,
-    Lock, Filter, ChevronDown,
+    Lock, Filter, ChevronDown, Layers,
 } from "lucide-react";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
@@ -26,11 +26,12 @@ import {
 } from "recharts";
 
 /* ─── Filters ─────────────────────────────────────────────── */
-type FilterRange = "30d" | "90d" | "ytd" | "custom";
+type FilterRange = "30d" | "90d" | "ytd" | "all" | "custom";
 const FILTER_OPTIONS: { value: FilterRange; label: string }[] = [
     { value: "30d", label: "Last 30 Days" },
     { value: "90d", label: "Last 90 Days" },
     { value: "ytd", label: "Year to Date" },
+    { value: "all", label: "All Time" },
     { value: "custom", label: "Custom Range" },
 ];
 
@@ -303,24 +304,38 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const data = months.map((m, i) => {
         const monthItems = shipments.filter((sh) => {
-            const d = new Date(sh.created_at || sh.bl_date || sh.updated_at);
-            return d.getMonth() === i;
+            const dateStr = sh.bl_date || sh.created_at || sh.updated_at;
+            if (!dateStr) return false;
+            try {
+                const d = new Date(dateStr);
+                return d.getMonth() === i;
+            } catch (e) {
+                return false;
+            }
         });
+
+        const domestic = monthItems
+            .filter((sh) => (sh.type as string) === "local")
+            .reduce((s, sh) => s + (Number(sh.quantity_loaded) || Number(sh.qty_plan) || 0), 0);
+        const exportVol = monthItems
+            .filter((sh) => (sh.type as string) === "export")
+            .reduce((s, sh) => s + (Number(sh.quantity_loaded) || Number(sh.qty_plan) || 0), 0);
+
         return {
             month: m,
-            local: monthItems.filter((sh) => sh.type === "local").reduce((s, sh) => s + (sh.quantity_loaded || 0), 0),
-            export: monthItems.filter((sh) => sh.type !== "local").reduce((s, sh) => s + (sh.quantity_loaded || 0), 0),
+            local: Math.round(domestic / 1000),
+            export: Math.round(exportVol / 1000),
         };
     });
 
-    const totalQty = data.reduce((s, d) => s + d.local + d.export, 0);
+    const totalQty = shipments.reduce((s, sh) => s + (Number(sh.quantity_loaded) || Number(sh.qty_plan) || 0), 0);
 
     return (
         <div className="card-elevated p-5 animate-slide-up delay-2">
             <div className="flex items-center justify-between mb-4">
                 <div>
                     <h3 className="text-sm font-semibold">Quantity per Month (MT)</h3>
-                    <p className="text-[10px] text-muted-foreground">Total: {safeFmt(totalQty / 1000, 0)}K MT</p>
+                    <p className="text-[10px] text-muted-foreground">Total: {Math.round(totalQty / 1000)}K MT</p>
                 </div>
                 <a href="/sales-monitor" className="text-xs text-primary hover:underline flex items-center gap-1 group">
                     Detail <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
@@ -335,8 +350,8 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
                             <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${safeFmt(v / 1000, 0)}K`} />
                             <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }} />
                             <Legend wrapperStyle={{ fontSize: '11px' }} />
-                            <Bar dataKey="local" name="Local" fill="#10b981" stackId="qty" radius={[0, 0, 0, 0]} />
-                            <Bar dataKey="export" name="Export" fill="#8b5cf6" stackId="qty" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="local" name="Local (Domestic)" fill="#3b82f6" stackId="qty" radius={[0, 0, 0, 0]} />
+                            <Bar dataKey="export" name="Export" fill="#10b981" stackId="qty" radius={[4, 4, 0, 0]} />
                         </BarChart>
                     </ResponsiveContainer>
                 )}
@@ -445,7 +460,7 @@ export default function DashboardPage() {
     const tasks = useTaskStore((s) => s.tasks);
     const salesOrders = useSalesStore((s) => s.orders);
     const purchaseRequests = usePurchaseStore((s) => s.purchases);
-    const [range, setRange] = React.useState<FilterRange>("ytd");
+    const [timeRange, setTimeRange] = React.useState<FilterRange>("all");
     const [customFrom, setCustomFrom] = React.useState("");
     const [customTo, setCustomTo] = React.useState("");
     const [region, setRegion] = React.useState("all");
@@ -483,20 +498,26 @@ export default function DashboardPage() {
             ].filter(Boolean).some((v: string) => v.toLowerCase().includes(q))) return false;
 
             // Date Range
+            const currentRange = timeRange as string;
+            if (currentRange === "all") return true; 
+            
             if (item.created_at) {
                 const itemDate = new Date(item.created_at);
-                if (range === "30d") {
+                if (currentRange === "30d") {
                     const diffTime = now.getTime() - itemDate.getTime();
                     if (diffTime / (1000 * 3600 * 24) > 30) return false;
-                } else if (range === "90d") {
+                } else if (currentRange === "90d") {
                     const diffTime = now.getTime() - itemDate.getTime();
                     if (diffTime / (1000 * 3600 * 24) > 90) return false;
-                } else if (range === "ytd") {
+                } else if (currentRange === "ytd") {
                     if (itemDate.getFullYear() !== now.getFullYear()) return false;
-                } else if (range === "custom") {
+                } else if (currentRange === "custom") {
                     if (customFrom && new Date(customFrom) > itemDate) return false;
                     if (customTo && new Date(customTo) < itemDate) return false;
                 }
+            } else {
+                // If range is specific but no date, hide it
+                return false;
             }
             return true;
         });
@@ -515,23 +536,29 @@ export default function DashboardPage() {
     );
     const activeShipments = filteredShipments.filter(s => s.status !== "cancelled" && s.status !== "draft");
 
-    // To avoid double counting, we use Deals for revenue/volume as they represent the contract
-    // Shipments are used for operational tracking
+    // Shipments are used for operational tracking and volume reporting
+    const totalQty = filteredShipments.reduce((s, sh) => s + safeNum(sh.quantity_loaded), 0);
+    const localQty = filteredShipments.filter(s => s.type === "local").reduce((s, sh) => s + safeNum(sh.quantity_loaded), 0);
+    const exportQty = totalQty - localQty;
+
     const totalRevenue = confirmedDeals.reduce((s, d) => s + (safeNum(d.quantity) * safeNum(d.price_per_mt)), 0);
     const localRevenue = confirmedDeals.filter(d => d.type === "local").reduce((s, d) => s + (safeNum(d.quantity) * safeNum(d.price_per_mt)), 0);
     const exportRevenue = totalRevenue - localRevenue;
 
-    const totalQty = confirmedDeals.reduce((s, d) => s + safeNum(d.quantity), 0);
-    const localQty = confirmedDeals.filter(d => (d as any).type === "local").reduce((s, d) => s + safeNum(d.quantity), 0);
-    const exportQty = totalQty - localQty;
+    const totalGrossProfit = confirmedDeals.reduce((s, d) => {
+        const qty = safeNum(d.quantity);
+        const sp = safeNum(d.price_per_mt);
+        const estimatedMargin = 2.42; 
+        return s + (qty * (sp > 0 ? (sp * 0.05) : estimatedMargin));
+    }, 0);
 
-    const totalGrossProfit = confirmedDeals.reduce((s, d) => s + (safeNum(d.quantity) * (safeNum(d.price_per_mt) - 45)), 0);
     const localGP = localQty > 0
-        ? confirmedDeals.filter((d) => d.type === "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / confirmedDeals.filter((d) => d.type === "local").length
+        ? confirmedDeals.filter((d) => d.type === "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / (confirmedDeals.filter((d) => d.type === "local").length || 1)
         : 0;
     const exportGP = exportQty > 0
-        ? confirmedDeals.filter((d) => d.type !== "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / confirmedDeals.filter((d) => d.type !== "local").length
+        ? confirmedDeals.filter((d) => d.type !== "local").reduce((s, d) => s + (safeNum(d.price_per_mt) - 45), 0) / (confirmedDeals.filter((d) => d.type !== "local").length || 1)
         : 0;
+
     const avgGrossProfit = totalQty > 0 ? totalGrossProfit / totalQty : 0;
 
     // Deal counts — handles deals from store or falls back to shipment-based count
@@ -607,9 +634,10 @@ export default function DashboardPage() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                             {isCeo && <MetricCardSkeleton />}
                             {isCeo && <MetricCardSkeleton />}
+                            <MetricCardSkeleton />
                             <MetricCardSkeleton />
                             <MetricCardSkeleton />
                         </div>
@@ -634,7 +662,7 @@ export default function DashboardPage() {
                                 <p className="text-sm text-muted-foreground">Commercial Team Overview · {currentUser?.job_title || currentUser?.role || "Guest"}</p>
                             </div>
                             <DashboardFilters
-                                range={range} setRange={setRange}
+                                range={timeRange} setRange={setTimeRange}
                                 customFrom={customFrom} customTo={customTo}
                                 setCustomFrom={setCustomFrom} setCustomTo={setCustomTo}
                                 region={region} setRegion={setRegion}
@@ -646,11 +674,12 @@ export default function DashboardPage() {
                         </div>
 
                         {/* Top Metrics - Row 1 */}
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                            {isCeo && <MetricCard label="Total Revenue (USD)" value={formatUSD(totalRevenue)} sub="YTD Confirmed Deals" icon={DollarSign} color="bg-emerald-500/10" delay={1} restricted hasAccess={isCeo} />}
+                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                            {isCeo && <MetricCard label="Total Revenue (USD)" value={formatUSD(totalRevenue)} sub="YTD Confirmed" icon={DollarSign} color="bg-emerald-500/10" delay={1} restricted hasAccess={isCeo} />}
                             {isCeo && <MetricCard label="Gross Profit (USD)" value={formatUSD(totalGrossProfit)} sub={`$${safeFmt(avgGrossProfit)}/MT avg`} icon={TrendingUp} color="bg-violet-500/10" delay={2} restricted hasAccess={isCeo} />}
-                            <MetricCard label="Active Deals" value={preSaleCount + confirmedCount + forecastCount} sub={`${confirmedCount} confirmed · ${preSaleCount} pre-sale`} icon={BarChart3} color="bg-blue-500/10" delay={isCeo ? 3 : 1} />
-                            <MetricCard label="Active Shipments" value={activeShipmentsList.length} sub={`${pendingTasks} tasks pending`} icon={Ship} color="bg-amber-500/10" delay={isCeo ? 4 : 2} />
+                            <MetricCard label="Total Volume" value={`${safeFmt(totalQty / 1000, 0)}K MT`} sub={`${safeFmt(localQty / 1000, 0)}K Local · ${safeFmt(exportQty / 1000, 0)}K Export`} icon={Layers} color="bg-cyan-500/10" delay={3} />
+                            <MetricCard label="Active Deals" value={preSaleCount + confirmedCount + forecastCount} sub={`${confirmedCount} confirmed`} icon={BarChart3} color="bg-blue-500/10" delay={isCeo ? 4 : 1} />
+                            <MetricCard label="Active Shipments" value={activeShipmentsList.length} sub={`${pendingTasks} tasks pending`} icon={Ship} color="bg-amber-500/10" delay={isCeo ? 5 : 2} />
                         </div>
 
                         {/* CEO-Only Revenue Split */}

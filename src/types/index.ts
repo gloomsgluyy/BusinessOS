@@ -232,6 +232,9 @@ export interface ShipmentDetail {
     demm?: string;
     no_spal?: string;
     no_si?: string;
+    sent_to_supplier?: string;
+    sent_to_barge_owner?: string;
+    no_invoice_mkls?: string;
     coa_date?: string;
     result_gar?: number;
     // Legacy compat
@@ -249,6 +252,8 @@ export interface ShipmentDetail {
     sales_price?: number;
     margin_mt?: number;
     pic_name?: string;
+    product?: string;
+    analysis_method?: string;
     type?: string;
     year?: number;
     region?: string;

@@ -234,6 +234,8 @@ model ShipmentDetail {
   salesPrice       Float?                  // alias for sp
   marginMt         Float?                  // MARGIN/MT calculated
   picName          String?                 // alias for pic
+  product          String?                 // Jenis produk batubara
+  analysisMethod   String?                 // Metode analisis (SGS, etc.)
   type             String    @default("export")
   // Metadata
   year             Int       @default(2026)

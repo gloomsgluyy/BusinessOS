@@ -211,9 +211,10 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
             const mapped: SalesDeal = {
                 id: deal.id, deal_number: deal.dealNumber, status: deal.status as SalesDealStatus, buyer: deal.buyer, buyer_country: deal.buyerCountry,
                 type: deal.type, shipping_terms: deal.shippingTerms, quantity: deal.quantity, price_per_mt: deal.pricePerMt, total_value: deal.totalValue,
-                laycan_start: deal.laycanStart, laycan_end: deal.laycanEnd, vessel_name: deal.vesselName, spec: { gar: deal.gar || 0, ts: deal.ts || 0, ash: deal.ash || 0, tm: deal.tm || 0 },
+                laycan_start: deal.laycanStart, laycan_end: deal.laycanEnd, vessel_name: deal.vesselName, 
+                spec: { gar: deal.gar || 0, ts: deal.ts || 0, ash: deal.ash || 0, tm: deal.tm || 0 },
                 project_id: deal.projectId, pic_id: deal.picId, pic_name: deal.picName, created_by: deal.createdBy, created_by_name: deal.createdByName,
-                created_at: deal.createdAt, updated_at: deal.updatedAt
+                created_at: deal.createdAt, updated_at: deal.updatedAt, is_deleted: deal.isDeleted
             };
             set((s) => {
                 const raw = [mapped, ...s._rawDeals];
@@ -223,20 +224,28 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     },
     updateDeal: async (id, u) => {
         const body: any = { id };
-        if (u.deal_number) body.dealNumber = u.deal_number;
-        if (u.buyer) body.buyer = u.buyer;
-        if (u.buyer_country) body.buyerCountry = u.buyer_country;
-        if (u.type) body.type = u.type;
-        if (u.status) body.status = u.status;
-        if (u.shipping_terms) body.shippingTerms = u.shipping_terms;
+        if (u.deal_number !== undefined) body.dealNumber = u.deal_number;
+        if (u.buyer !== undefined) body.buyer = u.buyer;
+        if (u.buyer_country !== undefined) body.buyerCountry = u.buyer_country;
+        if (u.type !== undefined) body.type = u.type;
+        if (u.status !== undefined) body.status = u.status;
+        if (u.shipping_terms !== undefined) body.shippingTerms = u.shipping_terms;
         if (u.quantity !== undefined) body.quantity = u.quantity;
         if (u.price_per_mt !== undefined) body.pricePerMt = u.price_per_mt;
         if (u.total_value !== undefined) body.totalValue = u.total_value;
-        if (u.laycan_start) body.laycanStart = u.laycan_start;
-        if (u.laycan_end) body.laycanEnd = u.laycan_end;
-        if (u.vessel_name) body.vesselName = u.vessel_name;
-        if (u.project_id) body.projectId = u.project_id;
-        if (u.pic_name) body.picName = u.pic_name;
+        if (u.laycan_start !== undefined) body.laycanStart = u.laycan_start;
+        if (u.laycan_end !== undefined) body.laycanEnd = u.laycan_end;
+        if (u.vessel_name !== undefined) body.vesselName = u.vessel_name;
+        if (u.project_id !== undefined) body.projectId = u.project_id;
+        if (u.pic_name !== undefined) body.picName = u.pic_name;
+        
+        // Handle nested spec fields
+        if (u.spec) {
+            if (u.spec.gar !== undefined) body.gar = u.spec.gar;
+            if (u.spec.ts !== undefined) body.ts = u.spec.ts;
+            if (u.spec.ash !== undefined) body.ash = u.spec.ash;
+            if (u.spec.tm !== undefined) body.tm = u.spec.tm;
+        }
 
         await fetch("/api/memory/sales-deals", {
             method: "PUT",
@@ -280,6 +289,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
             jarak: s.jarak, shippingTerm: s.shipping_term, shippingRate: s.shipping_rate,
             priceFreight: s.price_freight, allowance: s.allowance, demm: s.demm,
             noSpal: s.no_spal, noSi: s.no_si, coaDate: s.coa_date, resultGar: s.result_gar,
+            sentToSupplier: s.sent_to_supplier, sentToBargeOwner: s.sent_to_barge_owner, noInvoiceMkls: s.no_invoice_mkls,
             year: s.year || new Date().getFullYear(),
         };
         const res = await fetch("/api/memory/shipments", {
@@ -302,12 +312,9 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 jarak: ship.jarak, shipping_term: ship.shippingTerm, shipping_rate: ship.shippingRate,
                 price_freight: ship.priceFreight, allowance: ship.allowance, demm: ship.demm,
                 no_spal: ship.noSpal, no_si: ship.noSi, coa_date: ship.coaDate, result_gar: ship.resultGar,
-                year: ship.year, created_at: ship.createdAt, updated_at: ship.updatedAt,
-                // Legacy compat fields
-                buyer: ship.buyer, supplier: ship.supplier, vessel_name: ship.vesselName,
-                barge_name: ship.bargeName, loading_port: ship.loadingPort, discharge_port: ship.dischargePort,
-                quantity_loaded: ship.quantityLoaded, sales_price: ship.salesPrice,
-                margin_mt: ship.marginMt, pic_name: ship.picName, type: ship.type,
+                sent_to_supplier: ship.sentToSupplier, sent_to_barge_owner: ship.sentToBargeOwner, no_invoice_mkls: ship.noInvoiceMkls,
+                milestones: Array.isArray(ship.milestones) ? ship.milestones : [],
+                year: ship.year, created_at: ship.createdAt, updated_at: ship.updatedAt
             };
             set((state) => {
                 const raw = [mapped, ...state._rawShipments];
@@ -339,6 +346,9 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
         if (u.bl_date) body.blDate = u.bl_date;
         if (u.pic) body.pic = u.pic;
         if (u.shipping_term) body.shippingTerm = u.shipping_term;
+        if (u.sent_to_supplier !== undefined) body.sentToSupplier = u.sent_to_supplier;
+        if (u.sent_to_barge_owner !== undefined) body.sentToBargeOwner = u.sent_to_barge_owner;
+        if (u.no_invoice_mkls !== undefined) body.noInvoiceMkls = u.no_invoice_mkls;
         if (u.year) body.year = u.year;
 
         await fetch("/api/memory/shipments", {
@@ -939,12 +949,26 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         jarak: s.jarak, shipping_term: s.shippingTerm, shipping_rate: s.shippingRate,
                         price_freight: s.priceFreight, allowance: s.allowance, demm: s.demm,
                         no_spal: s.noSpal, no_si: s.noSi, coa_date: s.coaDate, result_gar: s.resultGar,
-                        year: s.year, created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted,
-                        // Legacy compat fields
-                        buyer: s.buyer, supplier: s.supplier, vessel_name: s.vesselName,
-                        barge_name: s.bargeName, loading_port: s.loadingPort, discharge_port: s.dischargePort,
-                        quantity_loaded: s.quantityLoaded, sales_price: s.salesPrice,
-                        margin_mt: s.marginMt, pic_name: s.picName, type: s.type,
+                        sent_to_supplier: s.sentToSupplier, sent_to_barge_owner: s.sentToBargeOwner, no_invoice_mkls: s.noInvoiceMkls,
+                        // Fix missing fields for dashboard accuracy
+                        quantity_load: s.quantityLoaded || s.qtyPlan || 0,
+                        quantity_loaded: s.quantityLoaded || s.qtyPlan || 0,
+                        sales_price: s.salesPrice || s.sp || 0,
+                        margin_mt: s.marginMt || 0,
+                        buyer: s.buyer || "-",
+                        vessel_name: s.vesselName || s.mvProjectName || "-",
+                        barge_name: s.bargeName || s.nomination || "-",
+                        loading_port: s.loadingPort || s.jettyLoadingPort || "-",
+                        discharge_port: s.dischargePort || "-",
+                        product: s.product || "-",
+                        analysis_method: s.analysisMethod || "-",
+                        milestones: Array.isArray(s.milestones) ? s.milestones : [],
+                        type: (() => {
+                            const t = (s.type || "export").toLowerCase();
+                            if (t === "lokal" || t === "domestic") return "local";
+                            return t;
+                        })(),
+                        year: s.year, created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
                     }));
                     updates._rawShipments = mappedShipments;
                     updates.shipments = mappedShipments.filter(x => !x.is_deleted);
@@ -956,7 +980,8 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         id: s.id, name: s.name, region: s.region, calorie_range: s.calorieRange,
                         spec: { gar: s.gar, ts: s.ts, ash: s.ash, tm: s.tm, hgi: 0, adb: 0, nar: 0 },
                         jetty_port: s.jettyPort, anchorage: s.anchorage, min_stock_alert: s.minStockAlert,
-                        kyc_status: s.kycStatus, psi_status: s.psiStatus, stock_available: s.stockAvailable,
+                        kyc_status: s.kycStatus, psi_status: s.psiStatus, 
+                        stock_available: s.stockAvailable || 0,
                         fob_barge_only: s.fobBargeOnly, requires_transshipment: s.requiresTransshipment,
                         price_linked_index: s.priceLinkedIndex, fob_barge_price_idr: s.fobBargePriceIdr, fob_barge_price_usd: s.fobBargePriceUsd,
                         transshipment_costs: s.transshipmentCosts ? JSON.parse(s.transshipmentCosts) : undefined,
