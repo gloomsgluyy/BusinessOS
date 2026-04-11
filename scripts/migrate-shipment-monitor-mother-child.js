@@ -214,6 +214,90 @@ function hasRowDetailSignal(fields) {
   });
 }
 
+function looksLikeDateText(val) {
+  if (val === null || val === undefined || val === "") return false;
+  if (typeof val === "number") return val > 20000; // likely Excel serial date
+  const s = String(val).trim();
+  if (!s) return false;
+  if (/^\d{5,}$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n) && n > 20000 && n < 80000) return true; // Excel serial range
+  }
+  if (/^\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?$/.test(s)) return true;
+  if (/^\d{1,2}\s*[A-Za-z]{3,}(?:\s+\d{2,4})?$/.test(s)) return true;
+  if (/^[A-Za-z]+,\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$/.test(s)) return true;
+  if (/^[A-Za-z]+\s+\d{1,2},\s*\d{4}$/.test(s)) return true;
+  return false;
+}
+
+function shouldAttemptDateParse(val) {
+  if (val === null || val === undefined || val === "") return false;
+  if (typeof val === "number") return true;
+  const s = String(val).trim();
+  if (!s) return false;
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    return Number.isFinite(n) && n > 20000 && n < 80000;
+  }
+  return true;
+}
+
+function buildLegacyHeaderLabels(rows) {
+  const h1 = rows[0] || [];
+  const h2 = rows[1] || [];
+  const maxLen = Math.max(h1.length, h2.length);
+  const labels = [];
+  for (let c = 0; c < maxLen; c += 1) {
+    const a = cleanStr(h1[c]);
+    const b = cleanStr(h2[c]);
+    const combined = [a, b].filter(Boolean).join(" > ");
+    labels.push(combined || null);
+  }
+  return labels;
+}
+
+function isLegacyMilestoneHeader(label) {
+  const h = normalizeText(label || "");
+  if (!h) return false;
+  if (h === "BL DATE") return true;
+  return /(DATE|ARRIVAL|BERTHING|LOAD|DISCH|INPOSITION|LHV|COA|SUBMIT|APPROVAL|PAID|RECEIVE|ISSUED|TARGET|LATEST|SENT)/.test(h);
+}
+
+function milestoneRowsFromLegacy(row, year, sheetName, colMap, headerLabels) {
+  const milestones = [];
+  const seen = new Set();
+  const pushMilestone = (title, rawDate, sequence, strictDateText = true) => {
+    if (strictDateText) {
+      if (!looksLikeDateText(rawDate)) return;
+    } else if (!shouldAttemptDateParse(rawDate) && !looksLikeDateText(rawDate)) {
+      return;
+    }
+    const date = parseDate(rawDate, year);
+    if (!date) return;
+    const key = `${title}|${date.toISOString()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    milestones.push({
+      title,
+      date,
+      description: `Imported from ${sheetName}`,
+      _sequence: sequence
+    });
+  };
+
+  pushMilestone("BL Date", row[colMap.blDate], 10, false);
+
+  for (let c = 0; c < row.length; c += 1) {
+    if (c === colMap.blDate) continue;
+    const label = headerLabels[c];
+    if (!isLegacyMilestoneHeader(label)) continue;
+    const title = cleanStr(label) || `Milestone C${c + 1}`;
+    pushMilestone(title, row[c], 100 + c, true);
+  }
+
+  return milestones.sort((a, b) => a._sequence - b._sequence);
+}
+
 function findHeaderRow(rows) {
   for (let i = 0; i < Math.min(rows.length, 20); i += 1) {
     const r = rows[i] || [];
@@ -331,6 +415,7 @@ function legacyColumnMap(year) {
 
 async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
   const col = legacyColumnMap(year);
+  const legacyHeaders = buildLegacyHeaderLabels(rows);
   let inserted = 0;
   let milestones = 0;
   const carry = {
@@ -400,15 +485,15 @@ async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
     });
     inserted += 1;
 
-    const bl = parseDate(row[col.blDate], year);
-    if (bl) {
+    const rowMilestones = milestoneRowsFromLegacy(row, year, sheetName, col, legacyHeaders);
+    if (rowMilestones.length > 0) {
       const created = await prisma.timelineMilestone.createMany({
-        data: [{
+        data: rowMilestones.map((m) => ({
           shipmentId: shipment.id,
-          title: "BL Date",
-          date: bl,
-          description: `Imported from ${sheetName}`
-        }]
+          title: m.title,
+          date: m.date,
+          description: m.description
+        }))
       });
       milestones += created.count;
     }
