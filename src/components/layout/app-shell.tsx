@@ -33,7 +33,11 @@ function SessionWatcher() {
 }
 
 function AutoSyncListener() {
+    const { status } = useSession();
+
     React.useEffect(() => {
+        if (status !== "authenticated") return;
+
         let isPulling = false;
 
         const doPull = async () => {
@@ -51,7 +55,7 @@ function AutoSyncListener() {
             const latestSync = lastSyncTimes.length ? Math.max(...lastSyncTimes) : 0;
 
             // Avoid duplicate pull storms from AppShell + page-level sync
-            if (latestSync && now - latestSync < 30000) return;
+            if (latestSync && now - latestSync < 5000) return;
 
             isPulling = true;
             try {
@@ -67,17 +71,25 @@ function AutoSyncListener() {
             isPulling = false;
         };
 
-        // Delay first pull slightly; page-level sync handles initial load.
-        const firstTimer = setTimeout(doPull, 5000);
+        // Pull immediately once session is authenticated.
+        doPull();
 
         // Poll less aggressively to reduce API pressure and UI flicker.
-        const pollInterval = setInterval(doPull, 120000);
+        const pollInterval = setInterval(doPull, 60000);
+
+        const onVisible = () => {
+            if (document.visibilityState === "visible") doPull();
+        };
+        const onFocus = () => doPull();
+        window.addEventListener("focus", onFocus);
+        document.addEventListener("visibilitychange", onVisible);
 
         return () => {
-            clearTimeout(firstTimer);
             clearInterval(pollInterval);
+            window.removeEventListener("focus", onFocus);
+            document.removeEventListener("visibilitychange", onVisible);
         };
-    }, []);
+    }, [status]);
 
     return null;
 }
