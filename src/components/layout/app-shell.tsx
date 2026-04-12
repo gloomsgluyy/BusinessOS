@@ -11,6 +11,8 @@ import { useCommercialStore } from "@/store/commercial-store";
 import { useSession } from "next-auth/react";
 import { useAuthStore } from "@/store/auth-store";
 import { usePathname } from "next/navigation";
+import { Skeleton } from "@/components/ui/skeleton";
+import { DISABLE_SKELETON_LOADERS } from "@/lib/feature-flags";
 
 function SessionWatcher() {
     const { data: session } = useSession();
@@ -33,7 +35,7 @@ function SessionWatcher() {
     return null;
 }
 
-function AutoSyncListener() {
+function AutoSyncListener({ onBootSyncChange }: { onBootSyncChange?: (loading: boolean) => void }) {
     const { status } = useSession();
     const pathname = usePathname();
 
@@ -60,6 +62,7 @@ function AutoSyncListener() {
             if (latestSync && now - latestSync < 5000) return;
 
             isPulling = true;
+            onBootSyncChange?.(true);
             try {
                 const syncJobs: Promise<void>[] = [
                     useTaskStore.getState().syncFromMemory(),
@@ -76,9 +79,14 @@ function AutoSyncListener() {
                 await Promise.all(syncJobs);
             } catch (e) {
                 console.error("[AppShell] Pull Error:", e);
+            } finally {
+                onBootSyncChange?.(false);
+                isPulling = false;
             }
-            isPulling = false;
         };
+
+        // Pull immediately once session is authenticated.
+        doPull();
 
         // Poll less aggressively to reduce API pressure and UI flicker.
         const pollInterval = setInterval(doPull, 60000);
@@ -95,7 +103,7 @@ function AutoSyncListener() {
             window.removeEventListener("focus", onFocus);
             document.removeEventListener("visibilitychange", onVisible);
         };
-    }, [status, pathname]);
+    }, [status, pathname, onBootSyncChange]);
 
     return null;
 }
@@ -105,17 +113,51 @@ interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
+    const [isBootSyncing, setIsBootSyncing] = React.useState(false);
+    const taskCount = useTaskStore((s) => s.tasks.length);
+    const salesCount = useSalesStore((s) => s.orders.length);
+    const purchaseCount = usePurchaseStore((s) => s.purchases.length);
+    const shipmentCount = useCommercialStore((s) => s.shipments.length);
+    const dealCount = useCommercialStore((s) => s.deals.length);
+    const sourceCount = useCommercialStore((s) => s.sources.length);
+
+    const hasAnyData = (taskCount + salesCount + purchaseCount + shipmentCount + dealCount + sourceCount) > 0;
+    const showBootSkeleton = !DISABLE_SKELETON_LOADERS && isBootSyncing && !hasAnyData;
+
     return (
         <div className="flex h-screen overflow-hidden bg-background text-foreground">
             <Sidebar />
             <div className="flex-1 flex flex-col overflow-hidden min-w-0">
                 <Header />
                 <main className="flex-1 overflow-y-auto custom-scrollbar pb-16 md:pb-0">
-                    {children}
+                    {showBootSkeleton ? (
+                        <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto space-y-6 w-full animate-fade-in">
+                            <div className="space-y-2">
+                                <Skeleton className="h-8 w-48" />
+                                <Skeleton className="h-4 w-72" />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                {Array.from({ length: 4 }).map((_, i) => (
+                                    <div key={i} className="p-5 rounded-2xl border border-border/50 bg-card space-y-3">
+                                        <div className="flex justify-between">
+                                            <Skeleton className="h-4 w-24" />
+                                            <Skeleton className="h-8 w-8 rounded-xl" />
+                                        </div>
+                                        <Skeleton className="h-7 w-28" />
+                                        <Skeleton className="h-3 w-36" />
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <Skeleton className="h-[220px] w-full rounded-xl" />
+                                <Skeleton className="h-[220px] w-full rounded-xl" />
+                            </div>
+                        </div>
+                    ) : children}
                 </main>
             </div>
             <AIChatbot />
-            <AutoSyncListener />
+            <AutoSyncListener onBootSyncChange={setIsBootSyncing} />
             <SessionWatcher />
         </div>
     );
