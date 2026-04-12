@@ -60,19 +60,62 @@ function inferBuyerFromFlow(flow: unknown): string | null {
     return null;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const { searchParams } = new URL(req.url);
+        const lite = ["1", "true", "yes"].includes((searchParams.get("lite") || "").toLowerCase());
 
         // DATABASE-FIRST: Read directly from database
         const shipments = await prisma.shipmentDetail.findMany({
             where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
+            orderBy: { createdAt: "desc" },
+            ...(lite
+                ? {
+                    select: {
+                        id: true,
+                        no: true,
+                        exportDmo: true,
+                        status: true,
+                        origin: true,
+                        mvProjectName: true,
+                        source: true,
+                        iupOp: true,
+                        shipmentFlow: true,
+                        jettyLoadingPort: true,
+                        laycan: true,
+                        nomination: true,
+                        qtyPlan: true,
+                        qtyCob: true,
+                        hargaActualFob: true,
+                        hargaActualFobMv: true,
+                        hpb: true,
+                        shipmentStatus: true,
+                        blDate: true,
+                        pic: true,
+                        sp: true,
+                        year: true,
+                        quantityLoaded: true,
+                        salesPrice: true,
+                        marginMt: true,
+                        buyer: true,
+                        supplier: true,
+                        vesselName: true,
+                        bargeName: true,
+                        loadingPort: true,
+                        dischargePort: true,
+                        type: true,
+                        createdAt: true,
+                        updatedAt: true,
+                        isDeleted: true,
+                    }
+                }
+                : {})
         });
 
         const shipmentIds = shipments.map((s) => s.id);
-        const timeline = shipmentIds.length
+        const timeline = !lite && shipmentIds.length
             ? await prisma.timelineMilestone.findMany({
                 where: { shipmentId: { in: shipmentIds } },
                 orderBy: { date: "asc" }

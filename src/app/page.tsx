@@ -586,13 +586,13 @@ export default function DashboardPage() {
                 return;
             }
 
-            // Block skeleton only by the main dashboard source (commercial data).
-            // No artificial minimum delay/timer.
-            await syncCommercial();
+            // Fast-first: only critical dashboard data for first paint.
+            await syncCommercial({ mode: "dashboard_fast", force: true });
 
             if (!cancelled) setIsLoading(false);
 
             // Secondary data can sync in background after first paint.
+            syncCommercial({ mode: "full", force: true }).catch((e) => console.error("[Dashboard] background commercial sync failed:", e));
             syncTasks().catch((e) => console.error("[Dashboard] background task sync failed:", e));
         };
 

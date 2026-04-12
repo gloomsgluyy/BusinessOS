@@ -7,6 +7,11 @@ import {
 } from "@/types";
 import { generateId } from "@/lib/utils";
 
+type CommercialSyncOptions = {
+    mode?: "full" | "dashboard_fast";
+    force?: boolean;
+};
+
 // ── Helper ────────────────────────────────────────────────────
 function blendSpecs(inputs: { quantity: number; spec: CoalSpec }[]): CoalSpec {
     const totalQty = inputs.reduce((s, i) => s + i.quantity, 0);
@@ -191,7 +196,7 @@ interface CommercialState {
 
     // Sync Integration
     lastSyncTime: string;
-    syncFromMemory: () => Promise<void>;
+    syncFromMemory: (options?: CommercialSyncOptions) => Promise<void>;
 }
 
 const COMMERCIAL_MIN_SYNC_INTERVAL_MS = 20_000;
@@ -919,54 +924,71 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     },
 
     // ── Sync Integration ─────────────────────────────────────
-    syncFromMemory: async () => {
+    syncFromMemory: async (options = {}) => {
         if (commercialSyncInFlight) return commercialSyncInFlight;
 
         const now = Date.now();
-        if (commercialLastSyncStartedAt && now - commercialLastSyncStartedAt < COMMERCIAL_MIN_SYNC_INTERVAL_MS) {
+        if (!options.force && commercialLastSyncStartedAt && now - commercialLastSyncStartedAt < COMMERCIAL_MIN_SYNC_INTERVAL_MS) {
             return;
         }
         commercialLastSyncStartedAt = now;
 
         commercialSyncInFlight = (async () => {
             try {
-            const ts = Date.now();
-            const fetchOpts = { cache: 'no-store' as RequestCache, headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } };
-            const endpoints = [
-                `/api/memory/shipments?t=${ts}`,
-                `/api/memory/sources?t=${ts}`,
-                `/api/memory/quality?t=${ts}`,
-                `/api/memory/market-prices?t=${ts}`,
-                `/api/memory/meetings?t=${ts}`,
-                `/api/memory/pl-forecasts?t=${ts}`,
-                `/api/memory/sales-deals?t=${ts}`,
-                `/api/memory/blending?t=${ts}`,
-            ];
-            const settled = await Promise.allSettled(
-                endpoints.map(async (url) => {
-                    const res = await fetch(url, fetchOpts);
-                    if (!res.ok) throw new Error(`${url} -> ${res.status}`);
-                    return res.json();
-                })
-            );
-            const toPayload = (idx: number) =>
-                settled[idx].status === "fulfilled"
-                    ? settled[idx].value
-                    : { success: false, error: (settled[idx] as PromiseRejectedResult).reason?.message || "request failed" };
-            const shipRes = toPayload(0);
-            const srcRes = toPayload(1);
-            const qRes = toPayload(2);
-            const mpRes = toPayload(3);
-            const mtgRes = toPayload(4);
-            const plRes = toPayload(5);
-            const dealRes = toPayload(6);
-            const blendRes = toPayload(7);
+                const mode = options.mode || "full";
+                const ts = Date.now();
+                const fetchOpts = { cache: "no-store" as RequestCache, headers: { "Cache-Control": "no-cache, no-store, must-revalidate" } };
+
+                type EndpointKey = "shipments" | "sources" | "quality" | "market-prices" | "meetings" | "pl-forecasts" | "sales-deals" | "blending";
+                const endpoints: Array<{ key: EndpointKey; url: string }> = mode === "dashboard_fast"
+                    ? [
+                        { key: "shipments", url: `/api/memory/shipments?t=${ts}&lite=1` },
+                        { key: "sales-deals", url: `/api/memory/sales-deals?t=${ts}` },
+                    ]
+                    : [
+                        { key: "shipments", url: `/api/memory/shipments?t=${ts}` },
+                        { key: "sources", url: `/api/memory/sources?t=${ts}` },
+                        { key: "quality", url: `/api/memory/quality?t=${ts}` },
+                        { key: "market-prices", url: `/api/memory/market-prices?t=${ts}` },
+                        { key: "meetings", url: `/api/memory/meetings?t=${ts}` },
+                        { key: "pl-forecasts", url: `/api/memory/pl-forecasts?t=${ts}` },
+                        { key: "sales-deals", url: `/api/memory/sales-deals?t=${ts}` },
+                        { key: "blending", url: `/api/memory/blending?t=${ts}` },
+                    ];
+
+                const settled = await Promise.allSettled(
+                    endpoints.map(async (e) => {
+                        const res = await fetch(e.url, fetchOpts);
+                        if (!res.ok) throw new Error(`${e.url} -> ${res.status}`);
+                        const payload = await res.json();
+                        return { key: e.key, payload };
+                    })
+                );
+
+                const payloads: Partial<Record<EndpointKey, any>> = {};
+                settled.forEach((entry, idx) => {
+                    const key = endpoints[idx].key;
+                    if (entry.status === "fulfilled") {
+                        payloads[key] = entry.value.payload;
+                    } else {
+                        payloads[key] = { success: false, error: (entry as PromiseRejectedResult).reason?.message || "request failed" };
+                    }
+                });
+
+                const shipRes = payloads["shipments"];
+                const srcRes = payloads["sources"];
+                const qRes = payloads["quality"];
+                const mpRes = payloads["market-prices"];
+                const mtgRes = payloads["meetings"];
+                const plRes = payloads["pl-forecasts"];
+                const dealRes = payloads["sales-deals"];
+                const blendRes = payloads["blending"];
 
                 set((state) => {
-                const updates: Partial<CommercialState> = {};
+                    const updates: Partial<CommercialState> = {};
 
                 // Shipments merge
-                if (shipRes.success && shipRes.shipments) {
+                if (shipRes?.success && shipRes.shipments) {
                     const mappedShipments: ShipmentDetail[] = shipRes.shipments.map((s: any) => ({
                         id: s.id, no: s.no, export_dmo: s.exportDmo, status: s.status,
                         origin: s.origin, mv_project_name: s.mvProjectName, source: s.source,
@@ -1008,7 +1030,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 }
 
                 // Sources merge
-                if (srcRes.success && srcRes.sources) {
+                if (srcRes?.success && srcRes.sources) {
                     const mappedSources: SourceSupplier[] = srcRes.sources.map((s: any) => ({
                         id: s.id, name: s.name, region: s.region, calorie_range: s.calorieRange,
                         spec: { gar: s.gar, ts: s.ts, ash: s.ash, tm: s.tm, hgi: 0, adb: 0, nar: 0 },
@@ -1027,7 +1049,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 }
 
                 // Quality merge
-                if (qRes.success && qRes.quality) {
+                if (qRes?.success && qRes.quality) {
                     const mappedQuality: QualityResult[] = qRes.quality.map((q: any) => ({
                         id: q.id, cargo_id: q.cargoId, cargo_name: q.cargoName, surveyor: q.surveyor,
                         sampling_date: q.samplingDate, spec_result: { gar: q.gar, ts: q.ts, ash: q.ash, tm: q.tm },
@@ -1038,7 +1060,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 }
 
                 // Market Price merge
-                if (mpRes.success && mpRes.prices) {
+                if (mpRes?.success && mpRes.prices) {
                     const mappedPrices: MarketPriceEntry[] = mpRes.prices.map((m: any) => ({
                         id: m.id,
                         date: m.date,
@@ -1076,7 +1098,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 }
 
                 // Meetings merge
-                if (mtgRes.success && mtgRes.meetings) {
+                if (mtgRes?.success && mtgRes.meetings) {
                     const mappedMeetings: MeetingItem[] = mtgRes.meetings.map((m: any) => ({
                         id: m.id, title: m.title, date: m.date, time: m.time,
                         attendees: Array.isArray(m.attendees) ? m.attendees : [],
@@ -1094,7 +1116,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 }
 
                 // PL merge
-                if (plRes.success && plRes.forecasts) {
+                if (plRes?.success && plRes.forecasts) {
                     const mappedPL: PLForecastItem[] = plRes.forecasts.map((p: any) => ({
                         id: p.id,
                         deal_id: p.dealId || "",
@@ -1120,7 +1142,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                 }
 
                 // Deals merge
-                if (dealRes.success && dealRes.deals) {
+                if (dealRes?.success && dealRes.deals) {
                     const mappedDeals: SalesDeal[] = dealRes.deals.map((deal: any) => ({
                         id: deal.id, deal_number: deal.dealNumber, status: deal.status as SalesDealStatus, buyer: deal.buyer, buyer_country: deal.buyerCountry,
                         type: deal.type, shipping_terms: deal.shippingTerms, quantity: deal.quantity, price_per_mt: deal.pricePerMt, total_value: deal.totalValue,
@@ -1132,8 +1154,8 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                     updates.deals = mappedDeals.filter(x => !x.is_deleted);
                 }
 
-                updates.lastSyncTime = new Date().toISOString();
-                return Object.keys(updates).length > 0 ? updates : state;
+                    updates.lastSyncTime = new Date().toISOString();
+                    return Object.keys(updates).length > 0 ? updates : state;
                 });
             } catch (error) {
                 console.error("syncFromMemory error:", error);
