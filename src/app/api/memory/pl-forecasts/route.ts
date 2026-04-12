@@ -42,6 +42,18 @@ export async function GET(req: Request) {
             }
         }
 
+        // Safety net: if everything was accidentally soft-deleted, restore visibility.
+        if (forecasts.length === 0) {
+            const deletedCount = await prisma.pLForecast.count({ where: { isDeleted: true } });
+            if (deletedCount > 0) {
+                await prisma.pLForecast.updateMany({
+                    where: { isDeleted: true },
+                    data: { isDeleted: false },
+                });
+                forecasts = await SheetsFirstService.listPLForecasts();
+            }
+        }
+
         return NextResponse.json({ success: true, forecasts });
     } catch (error) {
         console.error("GET /api/memory/pl-forecasts error:", error);
