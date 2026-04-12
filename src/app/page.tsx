@@ -571,8 +571,11 @@ export default function DashboardPage() {
     const [status, setStatus] = React.useState("all");
     const [country, setCountry] = React.useState("all");
     const [search, setSearch] = React.useState("");
-    const role = currentUser?.role?.toLowerCase();
-    const isCeo = role === "ceo";
+    const rawRole = String(currentUser?.role || "").trim().toLowerCase();
+    const normalizedRole = rawRole.replace(/[\s-]+/g, "_");
+    const isCeo = normalizedRole === "ceo";
+    const isExecutive = ["ceo", "director", "assistant_ceo", "assistantceo"].includes(normalizedRole);
+    const isRoleResolving = sessionStatus === "loading" || (sessionStatus === "authenticated" && !normalizedRole);
     const sources = useCommercialStore((s) => s.sources);
     const [isLoading, setIsLoading] = React.useState(true);
 
@@ -794,7 +797,35 @@ export default function DashboardPage() {
         return `$${v.toFixed(2)}`;
     };
 
-    if (!isCeo && role !== "director") {
+    if (isRoleResolving) {
+        return (
+            <AppShell>
+                <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto space-y-6">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <Skeleton className="h-8 w-48 mb-2" />
+                            <Skeleton className="h-4 w-64" />
+                        </div>
+                        <div className="flex gap-2 w-full md:w-auto flex-wrap">
+                            <Skeleton className="h-8 w-36" />
+                            <Skeleton className="h-8 w-24" />
+                            <Skeleton className="h-8 w-24" />
+                            <Skeleton className="h-8 w-24" />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                        {[1, 2, 3, 4, 5].map((i) => <MetricCardSkeleton key={i} />)}
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <ChartSkeleton />
+                        <ChartSkeleton />
+                    </div>
+                </div>
+            </AppShell>
+        );
+    }
+
+    if (sessionStatus === "authenticated" && !isExecutive) {
         return (
             <AppShell>
                 <div className="flex flex-col items-center justify-center h-[calc(100vh-80px)] p-6 text-center space-y-4 animate-fade-in">
