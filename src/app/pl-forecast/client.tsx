@@ -13,6 +13,13 @@ import { PLForecastItem, ShipmentDetail } from "@/types";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
+const parseLooseNum = (v: unknown): number => {
+    if (v === null || v === undefined) return 0;
+    const raw = String(v).replace(/[^0-9.\-]/g, "");
+    if (!raw) return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+};
 
 const formatCurrency = (n: number) => `$${safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
@@ -116,23 +123,37 @@ export default function PLForecastClient() {
                 console.log("Update successful");
                 setToast({ message: "Costs updated successfully!", type: "success" });
             } else {
-                console.log("Calling addPLForecast", form);
-                await addPLForecast({
-                    deal_id: form.deal_id,
-                    deal_number: form.deal_number || form.project_name,
-                    project_name: form.project_name,
-                    buyer: form.buyer,
-                    type: form.type as "local" | "export",
-                    quantity: form.quantity,
-                    selling_price: form.selling_price,
-                    buying_price: form.buying_price,
-                    freight_cost: form.freight_cost,
-                    other_cost: form.other_cost,
-                    status: "forecast",
-                    created_by: session?.user?.id || "system",
-                });
-                console.log("Create successful");
-                setToast({ message: "P&L Forecast created!", type: "success" });
+                const projectKey = normalizeKey(form.project_name);
+                const existingByProject = manualForecastByProject.get(projectKey);
+                if (existingByProject) {
+                    await updatePLForecast(existingByProject.id, {
+                        project_name: form.project_name,
+                        buying_price: form.buying_price,
+                        freight_cost: form.freight_cost,
+                        other_cost: form.other_cost,
+                        quantity: form.quantity,
+                        selling_price: form.selling_price,
+                    });
+                    setToast({ message: "Existing project cost updated!", type: "success" });
+                } else {
+                    console.log("Calling addPLForecast", form);
+                    await addPLForecast({
+                        deal_id: form.deal_id,
+                        deal_number: form.deal_number || form.project_name,
+                        project_name: form.project_name,
+                        buyer: form.buyer,
+                        type: form.type as "local" | "export",
+                        quantity: form.quantity,
+                        selling_price: form.selling_price,
+                        buying_price: form.buying_price,
+                        freight_cost: form.freight_cost,
+                        other_cost: form.other_cost,
+                        status: "forecast",
+                        created_by: session?.user?.id || "system",
+                    });
+                    console.log("Create successful");
+                    setToast({ message: "P&L Forecast created!", type: "success" });
+                }
             }
             setShowForm(false);
             resetForm();
@@ -181,6 +202,7 @@ export default function PLForecastClient() {
             cleanText(f.deal_number) ||
             (cleanText(f.buyer) ? `Buyer - ${cleanText(f.buyer)}` : `Forecast - ${f.id.slice(-6).toUpperCase()}`);
         const shipmentCtx = shipmentByProject.get(normalizeKey(ctxProject));
+        const isDerived = f.id.startsWith("derived:");
         setForm({
             deal_id: f.deal_id,
             deal_number: f.deal_number,
@@ -194,7 +216,7 @@ export default function PLForecastClient() {
             freight_cost: f.freight_cost,
             other_cost: f.other_cost,
         });
-        setEditingId(f.id);
+        setEditingId(isDerived ? null : f.id);
         setShowForm(true);
     };
 
@@ -211,9 +233,6 @@ export default function PLForecastClient() {
         }));
     };
 
-    // Filter forecasts based on role
-    const visibleForecasts = (isHighLevel ? plForecasts : (plForecasts || []).filter((f) => f.created_by === session?.user?.id || f.buyer.includes(session?.user?.name || ""))) || [];
-
     const dealById = React.useMemo(() => {
         const map = new Map<string, (typeof deals)[number]>();
         deals.forEach((d) => map.set(d.id, d));
@@ -227,13 +246,30 @@ export default function PLForecastClient() {
     }, [deals]);
 
     const shipmentByProject = React.useMemo(() => {
-        const map = new Map<string, { projectName: string; mvName: string; buyer: string; type: "local" | "export"; qty: number; year: number }>();
+        const map = new Map<string, {
+            projectName: string;
+            mvName: string;
+            buyer: string;
+            type: "local" | "export";
+            qty: number;
+            year: number;
+            qtyWeight: number;
+            sellingPrice: number;
+            buyingPrice: number;
+            freightCost: number;
+            otherCost: number;
+        }>();
         shipments.forEach((sh) => {
             const projectName = shipmentProjectName(sh);
             const projectKey = normalizeKey(projectName);
             if (!projectKey) return;
             const existing = map.get(projectKey);
-            const qty = safeNum(sh.qty_plan || sh.quantity_loaded);
+            const qty = safeNum(sh.qty_plan ?? sh.quantity_loaded ?? sh.qty_cob);
+            const weight = qty > 0 ? qty : 1;
+            const sellingPrice = safeNum(sh.sales_price ?? sh.sp ?? sh.harga_actual_fob_mv ?? sh.harga_actual_fob);
+            const buyingPrice = safeNum(sh.hpb);
+            const freightCost = safeNum(sh.price_freight ?? sh.shipping_rate);
+            const otherCost = parseLooseNum(sh.allowance);
             if (!existing) {
                 map.set(projectKey, {
                     projectName,
@@ -242,10 +278,21 @@ export default function PLForecastClient() {
                     type: shipmentType(sh),
                     qty,
                     year: safeNum(sh.year) || new Date().getFullYear(),
+                    qtyWeight: weight,
+                    sellingPrice,
+                    buyingPrice,
+                    freightCost,
+                    otherCost,
                 });
                 return;
             }
             existing.qty += qty;
+            const newWeight = existing.qtyWeight + weight;
+            existing.sellingPrice = ((existing.sellingPrice * existing.qtyWeight) + (sellingPrice * weight)) / newWeight;
+            existing.buyingPrice = ((existing.buyingPrice * existing.qtyWeight) + (buyingPrice * weight)) / newWeight;
+            existing.freightCost = ((existing.freightCost * existing.qtyWeight) + (freightCost * weight)) / newWeight;
+            existing.otherCost = ((existing.otherCost * existing.qtyWeight) + (otherCost * weight)) / newWeight;
+            existing.qtyWeight = newWeight;
             if (existing.mvName === "-" && extractMVName(sh.vessel_name || sh.mv_project_name)) {
                 existing.mvName = extractMVName(sh.vessel_name || sh.mv_project_name) || existing.mvName;
             }
@@ -305,6 +352,82 @@ export default function PLForecastClient() {
             dealNumber: linkedDeal?.deal_number || f.deal_number || "-",
         };
     }, [dealById, dealByNumber, shipmentByProject, projectsByBuyer]);
+
+    const manualForecastByProject = React.useMemo(() => {
+        const map = new Map<string, PLForecastItem>();
+        const sorted = [...plForecasts].sort(
+            (a, b) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime()
+        );
+        sorted.forEach((f) => {
+            const ctx = resolveContext(f);
+            if (!ctx.projectKey) return;
+            if (!map.has(ctx.projectKey)) map.set(ctx.projectKey, f);
+        });
+        return map;
+    }, [plForecasts, resolveContext]);
+
+    const projectForecasts = React.useMemo<PLForecastItem[]>(() => {
+        const rows: PLForecastItem[] = [];
+        const nowIso = new Date().toISOString();
+
+        shipmentByProject.forEach((ctx, projectKey) => {
+            const override = manualForecastByProject.get(projectKey);
+            const quantity = safeNum(override?.quantity) > 0 ? safeNum(override?.quantity) : safeNum(ctx.qty);
+            const sellingPrice = safeNum(override?.selling_price) > 0 ? safeNum(override?.selling_price) : safeNum(ctx.sellingPrice);
+            const buyingPrice = override ? safeNum(override.buying_price) : safeNum(ctx.buyingPrice);
+            const freightCost = override ? safeNum(override.freight_cost) : safeNum(ctx.freightCost);
+            const otherCost = override ? safeNum(override.other_cost) : safeNum(ctx.otherCost);
+            const grossProfitMt = sellingPrice - buyingPrice - freightCost - otherCost;
+            const totalGrossProfit = grossProfitMt * quantity;
+
+            rows.push({
+                id: override?.id || `derived:${projectKey}`,
+                deal_id: override?.deal_id || "",
+                deal_number: override?.deal_number || ctx.projectName,
+                project_name: ctx.projectName,
+                buyer: cleanText(override?.buyer) || cleanText(ctx.buyer) || "-",
+                type: (override?.type as "local" | "export") || ctx.type,
+                quantity,
+                selling_price: sellingPrice,
+                buying_price: buyingPrice,
+                freight_cost: freightCost,
+                other_cost: otherCost,
+                gross_profit_mt: grossProfitMt,
+                total_gross_profit: totalGrossProfit,
+                status: (override?.status as "pre_sale" | "confirmed" | "forecast") || "forecast",
+                created_by: override?.created_by || "system",
+                created_at: override?.created_at || nowIso,
+                updated_at: override?.updated_at || nowIso,
+                is_deleted: false,
+            });
+        });
+
+        // Keep non-mapped manual project forecasts, but drop obvious seeded dummy rows.
+        plForecasts.forEach((f) => {
+            const ctx = resolveContext(f);
+            if (shipmentByProject.has(ctx.projectKey)) return;
+            const hasProjectLikeContext = Boolean(cleanText(f.project_name) || cleanText(f.deal_number));
+            const isDummyBuyer = /^BUYER\s+\d+$/i.test(cleanText(f.buyer) || "");
+            if (!hasProjectLikeContext || isDummyBuyer) return;
+
+            const qty = safeNum(f.quantity);
+            const selling = safeNum(f.selling_price);
+            const buying = safeNum(f.buying_price);
+            const freight = safeNum(f.freight_cost);
+            const other = safeNum(f.other_cost);
+            const gpMt = selling - buying - freight - other;
+            rows.push({
+                ...f,
+                project_name: ctx.projectName,
+                gross_profit_mt: gpMt,
+                total_gross_profit: gpMt * qty,
+            });
+        });
+
+        return rows.sort((a, b) => (b.quantity * b.selling_price) - (a.quantity * a.selling_price));
+    }, [shipmentByProject, manualForecastByProject, plForecasts, resolveContext]);
+
+    const visibleForecasts = projectForecasts;
 
     const projectRollup = React.useMemo(() => {
         const map = new Map<string, { projectName: string; mvName: string; qty: number; revenue: number; cogs: number; gp: number }>();
@@ -598,7 +721,7 @@ export default function PLForecastClient() {
                                                 <button onClick={() => handleEdit(f)} className="p-2 rounded-lg hover:bg-primary/10 text-primary transition-colors" title="Input Costs">
                                                     <Edit3 className="w-4 h-4" />
                                                 </button>
-                                                {isHighLevel && (
+                                                {isHighLevel && !f.id.startsWith("derived:") && (
                                                     <button
                                                         onClick={async () => {
                                                             if (confirm("Are you sure you want to delete this forecast?")) {
