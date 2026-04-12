@@ -579,11 +579,6 @@ export default function DashboardPage() {
         if (sessionStatus === "loading") return;
 
         let cancelled = false;
-        const timeoutWrap = (p: Promise<unknown>, ms = 15000) =>
-            Promise.race([
-                p,
-                new Promise((_, reject) => setTimeout(() => reject(new Error("sync-timeout")), ms)),
-            ]);
 
         const runInitialSync = async () => {
             if (sessionStatus !== "authenticated") {
@@ -591,27 +586,14 @@ export default function DashboardPage() {
                 return;
             }
 
-            const startedAt = Date.now();
-            await Promise.allSettled([
-                timeoutWrap(syncTasks()),
-                timeoutWrap(syncCommercial(), 30000),
-            ]);
-
-            const state = useCommercialStore.getState();
-            if ((state.shipments?.length || 0) === 0 && (state.deals?.length || 0) === 0) {
-                await Promise.allSettled([
-                    timeoutWrap(syncCommercial(), 30000),
-                ]);
-            }
-
-            // Keep a tiny minimum skeleton to avoid jarring flash.
-            const minSkeletonMs = 500;
-            const elapsed = Date.now() - startedAt;
-            if (elapsed < minSkeletonMs) {
-                await new Promise((resolve) => setTimeout(resolve, minSkeletonMs - elapsed));
-            }
+            // Block skeleton only by the main dashboard source (commercial data).
+            // No artificial minimum delay/timer.
+            await syncCommercial();
 
             if (!cancelled) setIsLoading(false);
+
+            // Secondary data can sync in background after first paint.
+            syncTasks().catch((e) => console.error("[Dashboard] background task sync failed:", e));
         };
 
         runInitialSync().catch(() => {
