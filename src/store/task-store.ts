@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { Task, TaskStatus, TaskComment, TaskActivity, TaskPriority } from "@/types";
 import { generateId } from "@/lib/utils";
 
@@ -34,7 +35,7 @@ interface TaskState {
     syncFromMemory: () => Promise<void>;
 }
 
-export const useTaskStore = create<TaskState>((set, get) => ({
+export const useTaskStore = create<TaskState>()(persist((set, get) => ({
     _rawTasks: [],
     tasks: [],
     lastSyncTime: new Date(0).toISOString(),
@@ -204,6 +205,14 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     getTasksByAssignee: (userId) => get().tasks.filter((t) => t.assignee_id === userId),
     getTasksByStatus: (status) => get().tasks.filter((t) => t.status === status),
     getTasksInReview: () => get().tasks.filter((t) => t.status === "review"),
+}), {
+    name: "task-store-v1",
+    storage: createJSONStorage(() => localStorage),
+    partialize: (state) => ({
+        _rawTasks: state._rawTasks,
+        tasks: state.tasks,
+        lastSyncTime: state.lastSyncTime,
+    }),
 }));
 
 // Removed legacy auto-sync polling as this runs via polling in layout or push actions.

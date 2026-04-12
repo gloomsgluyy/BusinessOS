@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { PurchaseRequest, PurchaseStatus } from "@/types";
 import { generateId } from "@/lib/utils";
 import { DEFAULT_PURCHASE_CATEGORIES } from "@/lib/constants";
@@ -33,7 +34,7 @@ interface PurchaseState {
     lastSyncTime: string;
 }
 
-export const usePurchaseStore = create<PurchaseState>((set, get) => ({
+export const usePurchaseStore = create<PurchaseState>()(persist((set, get) => ({
     _rawPurchases: [],
     purchases: [],
     categories: [...DEFAULT_PURCHASE_CATEGORIES],
@@ -188,6 +189,15 @@ export const usePurchaseStore = create<PurchaseState>((set, get) => ({
         console.warn("[PurchaseStore] FORCING RESET TO DEMO DATA");
         set({ purchases: [...DEMO_PURCHASES] });
     }
+}), {
+    name: "purchase-store-v1",
+    storage: createJSONStorage(() => localStorage),
+    partialize: (state) => ({
+        _rawPurchases: state._rawPurchases,
+        purchases: state.purchases,
+        categories: state.categories,
+        lastSyncTime: state.lastSyncTime,
+    }),
 }));
 
 // Removed legacy Auto-sync mechanisms and intervals.

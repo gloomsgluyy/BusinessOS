@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
 import {
     SalesDeal, SalesDealStatus, ShipmentDetail, ShipmentStatus,
     SourceSupplier, QualityResult, MarketPriceEntry,
@@ -203,7 +204,7 @@ const COMMERCIAL_MIN_SYNC_INTERVAL_MS = 5_000;
 let commercialSyncInFlight: Promise<void> | null = null;
 let commercialLastSyncSucceededAt = 0;
 
-export const useCommercialStore = create<CommercialState>((set, get) => ({
+export const useCommercialStore = create<CommercialState>()(persist((set, get) => ({
     // ── Sales Deals ──────────────────────────────────────────
     _rawDeals: [],
     deals: [],
@@ -648,10 +649,12 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
     // ── Freight ──────────────────────────────────────────────
     _rawFreightInfo: [],
     freightInfo: [],
-    updateFreight: async (id, u) => set((s) => {
-        const raw = s._rawFreightInfo.map((f) => f.id === id ? { ...f, ...u, updated_at: new Date().toISOString() } : f);
-        return { _rawFreightInfo: raw, freightInfo: raw.filter(x => !x.is_deleted) };
-    }),
+    updateFreight: async (id, u) => {
+        set((s) => {
+            const raw = s._rawFreightInfo.map((f) => f.id === id ? { ...f, ...u, updated_at: new Date().toISOString() } : f);
+            return { _rawFreightInfo: raw, freightInfo: raw.filter(x => !x.is_deleted) };
+        });
+    },
 
     // ── Blending ─────────────────────────────────────────────
     _rawBlendingHistory: [],
@@ -1180,4 +1183,28 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
 
         return commercialSyncInFlight;
     }
+}), {
+    name: "commercial-store-v1",
+    storage: createJSONStorage(() => localStorage),
+    partialize: (state) => ({
+        _rawDeals: state._rawDeals,
+        deals: state.deals,
+        _rawShipments: state._rawShipments,
+        shipments: state.shipments,
+        _rawSources: state._rawSources,
+        sources: state.sources,
+        _rawQualityResults: state._rawQualityResults,
+        qualityResults: state.qualityResults,
+        _rawMarketPrices: state._rawMarketPrices,
+        marketPrices: state.marketPrices,
+        _rawMeetings: state._rawMeetings,
+        meetings: state.meetings,
+        _rawFreightInfo: state._rawFreightInfo,
+        freightInfo: state.freightInfo,
+        _rawBlendingHistory: state._rawBlendingHistory,
+        blendingHistory: state.blendingHistory,
+        _rawPLForecasts: state._rawPLForecasts,
+        plForecasts: state.plForecasts,
+        lastSyncTime: state.lastSyncTime,
+    }),
 }));
