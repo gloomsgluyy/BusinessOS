@@ -323,8 +323,8 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
 
         return {
             month: m,
-            local: Math.round(domestic / 1000),
-            export: Math.round(exportVol / 1000),
+            local: Math.round(domestic),
+            export: Math.round(exportVol),
         };
     });
 
@@ -348,7 +348,10 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(128,128,128,0.1)" />
                             <XAxis dataKey="month" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
                             <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${safeFmt(v / 1000, 0)}K`} />
-                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }} />
+                            <Tooltip 
+                                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }} 
+                                formatter={(v: any) => [`${safeFmt(Number(v) / 1000, 0)}K MT`]}
+                            />
                             <Legend wrapperStyle={{ fontSize: '11px' }} />
                             <Bar dataKey="local" name="Local (Domestic)" fill="#3b82f6" stackId="qty" radius={[0, 0, 0, 0]} />
                             <Bar dataKey="export" name="Export" fill="#10b981" stackId="qty" radius={[4, 4, 0, 0]} />
@@ -455,6 +458,10 @@ function ChartSkeleton({ short }: { short?: boolean }) {
 export default function DashboardPage() {
     const { data: session } = useSession();
     const currentUser = session?.user as any;
+    const syncTasks = useTaskStore((s) => s.syncFromMemory);
+    const syncSales = useSalesStore((s) => s.syncFromMemory);
+    const syncPurchases = usePurchaseStore((s) => s.syncFromMemory);
+    const syncCommercial = useCommercialStore((s) => s.syncFromMemory);
     const deals = useCommercialStore((s) => s.deals);
     const shipments = useCommercialStore((s) => s.shipments);
     const tasks = useTaskStore((s) => s.tasks);
@@ -474,9 +481,40 @@ export default function DashboardPage() {
     const [isLoading, setIsLoading] = React.useState(true);
 
     React.useEffect(() => {
-        const timer = setTimeout(() => setIsLoading(false), 1500); // Skeleton display duration
-        return () => clearTimeout(timer);
-    }, []);
+        let cancelled = false;
+        const timeoutWrap = (p: Promise<unknown>, ms = 15000) =>
+            Promise.race([
+                p,
+                new Promise((_, reject) => setTimeout(() => reject(new Error("sync-timeout")), ms)),
+            ]);
+
+        const runInitialSync = async () => {
+            const startedAt = Date.now();
+            await Promise.allSettled([
+                timeoutWrap(syncTasks()),
+                timeoutWrap(syncSales()),
+                timeoutWrap(syncPurchases()),
+                timeoutWrap(syncCommercial()),
+            ]);
+
+            // Keep a tiny minimum skeleton to avoid jarring flash.
+            const minSkeletonMs = 450;
+            const elapsed = Date.now() - startedAt;
+            if (elapsed < minSkeletonMs) {
+                await new Promise((resolve) => setTimeout(resolve, minSkeletonMs - elapsed));
+            }
+
+            if (!cancelled) setIsLoading(false);
+        };
+
+        runInitialSync().catch(() => {
+            if (!cancelled) setIsLoading(false);
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [syncTasks, syncSales, syncPurchases, syncCommercial]);
 
     // Master Filter logic
     const filterData = <T extends { created_at?: string; type?: string; region?: string; status?: string; buyer_country?: string; buyer?: string; vessel_name?: string; shipment_number?: string }>(data: T[]): T[] => {
