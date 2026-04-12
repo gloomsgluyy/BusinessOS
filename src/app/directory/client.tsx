@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { cn } from "@/lib/utils";
 import { Users, Building2, Truck, Search, MapPin, Mail, Phone, ExternalLink } from "lucide-react";
@@ -12,7 +11,7 @@ import { useDirectoryStore, DirectoryEntry } from "@/store/directory-store";
 import { Toast } from "@/components/shared/toast";
 
 export default function DirectoryPageClient() {
-    const [isInitializing, setIsInitializing] = React.useState(true);
+    const [, setIsInitializing] = React.useState(false);
 
     const searchParams = useSearchParams();
     const initialFilter = (searchParams.get("filter") || "all") as "all" | "buyer" | "vendor" | "fleet";
@@ -90,7 +89,6 @@ export default function DirectoryPageClient() {
         return <Truck className="w-5 h-5 text-amber-500" />;
     };
 
-    if (isInitializing) return <GlobalLoading />;
 
     return (
         <AppShell>

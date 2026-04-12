@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useSession } from "next-auth/react";
 import { useCommercialStore } from "@/store/commercial-store";
@@ -71,7 +70,7 @@ const shipmentType = (sh: ShipmentDetail): "local" | "export" => {
 };
 
 export default function PLForecastClient() {
-    const [isInitializing, setIsInitializing] = React.useState(true);
+    const [, setIsInitializing] = React.useState(false);
 
     const { data: session, status } = useSession();
     const router = useRouter();
@@ -490,7 +489,6 @@ export default function PLForecastClient() {
 
     // Show loading while checking authentication
     if (status === "loading") {
-        if (isInitializing) return <GlobalLoading />;
         return (
             <AppShell>
                 <div className="p-8 flex items-center justify-center">

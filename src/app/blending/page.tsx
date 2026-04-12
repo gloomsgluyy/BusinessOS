@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
@@ -17,7 +16,7 @@ interface BlendInput {
 }
 
 export default function BlendingPage() {
-    const [isInitializing, setIsInitializing] = React.useState(true);
+    const [, setIsInitializing] = React.useState(false);
 
     const { simulateBlend, blendingHistory, sources, syncFromMemory } = useCommercialStore();
     const { currentUser } = useAuthStore();
@@ -66,7 +65,6 @@ export default function BlendingPage() {
         tm: Math.round(inputs.reduce((s, inp) => s + inp.tm * inp.quantity, 0) / totalQty * 100) / 100,
     } : { gar: 0, ts: 0, ash: 0, tm: 0 };
 
-    if (isInitializing) return <GlobalLoading />;
 
     return (
         <AppShell>

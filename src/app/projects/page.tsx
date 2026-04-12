@@ -13,7 +13,6 @@ import {
   X,
 } from "lucide-react";
 import { useCommercialStore } from "@/store/commercial-store";
-import GlobalLoading from "@/app/loading";
 import { ShipmentDetail } from "@/types";
 
 type ProjectStatus = "ongoing" | "upcoming" | "completed";
@@ -123,7 +122,7 @@ const fmtInt = (n: number): string =>
 
 export default function ProjectsPage() {
   const { shipments, deals, syncFromMemory } = useCommercialStore();
-  const [isInitializing, setIsInitializing] = React.useState(true);
+  const [, setIsInitializing] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const [yearFilter, setYearFilter] = React.useState("all");
   const [statusFilter, setStatusFilter] = React.useState<
@@ -253,7 +252,6 @@ export default function ProjectsPage() {
     });
   }, [projects, search, yearFilter, statusFilter]);
 
-  if (isInitializing) return <GlobalLoading />;
 
   return (
     <AppShell>

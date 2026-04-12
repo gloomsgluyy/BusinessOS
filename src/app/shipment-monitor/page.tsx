@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useDailyDeliveryStore } from "@/store/daily-delivery-store";
@@ -107,7 +106,7 @@ const getCounterparty = (s: ShipmentDetail): { role: "Buyer" | "Vendor"; value: 
 };
 
 export default function ShipmentMonitorPage() {
-    const [isInitializing, setIsInitializing] = React.useState(true);
+    const [, setIsInitializing] = React.useState(false);
 
     const { shipments, syncFromMemory, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
     const { dailyDeliveries, syncDeliveries, addDelivery, updateDelivery, deleteDelivery } = useDailyDeliveryStore();
@@ -365,7 +364,6 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
         volume: shipments.reduce((sum, s) => sum + safeNum(s.qty_plan || s.quantity_loaded), 0)
     };
 
-    if (isInitializing) return <GlobalLoading />;
 
     return (
         <AppShell>

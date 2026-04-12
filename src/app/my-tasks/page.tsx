@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import GlobalLoading from "@/app/loading";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { Plus, Calendar, MessageSquare } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
@@ -14,7 +13,7 @@ import { Task, TaskStatus, TaskPriority } from "@/types";
 import { sendWhatsAppReminder } from "@/lib/whatsapp-client";
 
 export default function MyTasksPage() {
-    const [isInitializing, setIsInitializing] = React.useState(true);
+    const [, setIsInitializing] = React.useState(false);
 
     const { data: session } = useSession();
     const currentUser = session?.user as any;
@@ -70,7 +69,6 @@ export default function MyTasksPage() {
 
     const currentSelected = selectedTask ? tasks.find((t) => t.id === selectedTask.id) || null : null;
 
-    if (isInitializing) return <GlobalLoading />;
 
     return (
         <AppShell>
