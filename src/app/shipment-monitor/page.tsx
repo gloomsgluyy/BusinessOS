@@ -91,6 +91,21 @@ const formatLaycanWithYear = (s: ShipmentDetail): string => {
     return y ? `${laycanRaw} ${y}` : laycanRaw;
 };
 
+const isExportType = (s: ShipmentDetail): boolean => {
+    const t = normalizeKey(s.type || s.export_dmo || "");
+    if (t.includes("LOCAL") || t.includes("DMO") || t.includes("DOMESTIC")) return false;
+    return true;
+};
+
+const getCounterparty = (s: ShipmentDetail): { role: "Buyer" | "Vendor"; value: string } => {
+    const buyer = (s.buyer || "").trim();
+    const vendor = (s.source || s.supplier || s.iup_op || "").trim();
+    if (isExportType(s)) {
+        return { role: "Buyer", value: buyer || vendor || "-" };
+    }
+    return { role: "Vendor", value: vendor || buyer || "-" };
+};
+
 export default function ShipmentMonitorPage() {
     const [isInitializing, setIsInitializing] = React.useState(true);
 
@@ -762,13 +777,14 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-slide-up">
                                 {filtered.map((sh) => {
                                     const stCfg = SHIPMENT_STATUSES.find((s) => s.value === sh.status);
+                                    const cp = getCounterparty(sh);
                                     return (
                                         <div key={sh.id} className="card-custom p-4 flex flex-col justify-between hover:border-primary/50 transition-colors group cursor-pointer" onClick={() => setDetailShipment(sh)}>
                                             <div>
                                                 <div className="flex justify-between items-start mb-3">
                                                     <div>
                                                         <h3 className="font-bold text-lg text-primary group-hover:underline decoration-primary/50 underline-offset-4">{sh.mv_project_name || sh.vessel_name || sh.shipment_number || `#${sh.no}`}</h3>
-                                                        <p className="text-xs text-muted-foreground">{sh.source || sh.buyer} | {sh.origin || "-"} | Year {getShipmentYear(sh) || "-"}</p>
+                                                        <p className="text-xs text-muted-foreground">{cp.role}: {cp.value} | {sh.origin || "-"} | Year {getShipmentYear(sh) || "-"}</p>
                                                     </div>
                                                     <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
                                                         {stCfg?.label}
@@ -816,7 +832,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">EXP/DMO</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">MV / Project</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Year</th>
-                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Source</th>
+                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Buyer/Vendor</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Nomination</th>
                                                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Qty Plan</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Laycan</th>
@@ -830,6 +846,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                             {filtered.map((sh) => {
                                                 const stCfg = SHIPMENT_STATUSES.find((s) => s.value === sh.status);
                                                 const isExpanded = expandedRows.has(sh.id);
+                                                const cp = getCounterparty(sh);
 
                                                 return (
                                                     <React.Fragment key={sh.id}>
@@ -843,7 +860,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                             <td className="px-4 py-3 text-xs">{sh.export_dmo || "-"}</td>
                                                             <td className="px-4 py-3 text-xs font-semibold">{sh.mv_project_name || sh.vessel_name || sh.shipment_number || "-"}</td>
                                                             <td className="px-4 py-3 text-xs font-semibold text-primary/90">{getShipmentYear(sh) || "-"}</td>
-                                                            <td className="px-4 py-3 text-xs text-muted-foreground">{sh.source || sh.supplier || "-"}</td>
+                                                            <td className="px-4 py-3 text-xs text-muted-foreground">{cp.value}</td>
                                                             <td className="px-4 py-3 text-xs">{sh.nomination || sh.vessel_name || sh.barge_name || "-"}</td>
                                                             <td className="px-4 py-3 text-right text-xs font-semibold">{(sh.qty_plan || sh.quantity_loaded) ? safeNum(sh.qty_plan || sh.quantity_loaded).toLocaleString() : "-"}</td>
                                                             <td className="px-4 py-3 text-[10px] text-muted-foreground">{formatLaycanWithYear(sh)}</td>
@@ -877,7 +894,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                                                 <Anchor className="w-3 h-3" /> Shipping Details
                                                                             </h4>
                                                                             <div className="space-y-1.5 text-xs bg-background/50 p-3 rounded-lg border border-border/50">
-                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Source:</span><span className="font-medium text-right">{sh.source || sh.supplier}</span></div>
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">{cp.role}:</span><span className="font-medium text-right">{cp.value}</span></div>
                                                                                 <div className="flex justify-between"><span className="text-muted-foreground">Jetty/Port:</span><span className="font-medium text-right">{sh.jetty_loading_port || sh.loading_port || "-"}</span></div>
                                                                                 <div className="flex justify-between"><span className="text-muted-foreground">IUP/OP:</span><span className="font-medium text-right">{sh.iup_op || "-"}</span></div>
                                                                                 <div className="flex justify-between"><span className="text-muted-foreground">Shipment Flow:</span><span className="font-medium text-right">{sh.shipment_flow || "-"}</span></div>
@@ -1277,7 +1294,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Project</span><span className="font-semibold text-foreground break-words">{detailShipment.mv_project_name || detailShipment.vessel_name || "-"}</span></div>
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Vessel</span><span className="font-semibold text-foreground break-words">{detailShipment.vessel_name || detailShipment.nomination || "-"}</span></div>
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Barge</span><span className="font-medium text-foreground break-words">{detailShipment.barge_name || "-"}</span></div>
-                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Source</span><span className="font-bold text-primary break-words">{detailShipment.source || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">{getCounterparty(detailShipment).role}</span><span className="font-bold text-primary break-words">{getCounterparty(detailShipment).value}</span></div>
                                                 </div>
                                             </div>
 

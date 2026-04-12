@@ -22,6 +22,44 @@ function parseDate(v: any): Date | null {
     return isNaN(d.getTime()) ? null : d;
 }
 
+function cleanText(v: unknown): string | null {
+    if (v === null || v === undefined) return null;
+    const text = String(v).replace(/\s+/g, " ").trim();
+    return text || null;
+}
+
+function normalizeKey(v: unknown): string {
+    return (cleanText(v) || "").toUpperCase();
+}
+
+function isExportShipment(s: any): boolean {
+    const type = normalizeKey(s?.type);
+    const expDmo = normalizeKey(s?.exportDmo);
+    if (type.includes("LOCAL") || type.includes("DMO") || type.includes("DOMESTIC")) return false;
+    if (expDmo.includes("DMO") || expDmo.includes("LOCAL") || expDmo.includes("DOMESTIC")) return false;
+    return true;
+}
+
+function inferBuyerFromFlow(flow: unknown): string | null {
+    const raw = cleanText(flow);
+    if (!raw) return null;
+    const stopwords = new Set([
+        "MSE", "MKLS", "CMD", "BAC", "LJT", "BUYER", "SUPPLIER", "OPS", "FLOW", "I/O", "IO", "AND", "OR"
+    ]);
+    const tokens = raw
+        .split(/[-–>/,|]+/)
+        .map((t) => cleanText(t))
+        .filter((t): t is string => Boolean(t));
+    for (let i = tokens.length - 1; i >= 0; i--) {
+        const token = tokens[i];
+        const norm = normalizeKey(token);
+        if (!norm || stopwords.has(norm)) continue;
+        if (norm.length <= 2) continue;
+        return token;
+    }
+    return null;
+}
+
 export async function GET() {
     try {
         const session = await getServerSession(authOptions);
@@ -48,10 +86,55 @@ export async function GET() {
             timelineByShipment.set(item.shipmentId, existing);
         }
 
+        // Build buyer consensus by mother-vessel/project group
+        const buyerVotesByGroup = new Map<string, Map<string, number>>();
+        for (const s of shipments) {
+            const groupKey = normalizeKey(s.vesselName || s.mvProjectName || s.nomination);
+            const buyer = cleanText(s.buyer);
+            if (!groupKey || !buyer) continue;
+            const votes = buyerVotesByGroup.get(groupKey) || new Map<string, number>();
+            votes.set(buyer, (votes.get(buyer) || 0) + 1);
+            buyerVotesByGroup.set(groupKey, votes);
+        }
+
+        const consensusBuyerByGroup = new Map<string, string>();
+        buyerVotesByGroup.forEach((votes, groupKey) => {
+            let winner = "";
+            let maxVote = -1;
+            votes.forEach((vote, candidate) => {
+                if (vote > maxVote) {
+                    winner = candidate;
+                    maxVote = vote;
+                }
+            });
+            if (winner) consensusBuyerByGroup.set(groupKey, winner);
+        });
+
         const enriched = shipments.map((s) => {
             const milestones = timelineByShipment.get(s.id) || [];
+            const groupKey = normalizeKey(s.vesselName || s.mvProjectName || s.nomination);
+            const inferredBuyer =
+                cleanText(s.buyer) ||
+                consensusBuyerByGroup.get(groupKey) ||
+                inferBuyerFromFlow(s.shipmentFlow) ||
+                null;
+            const inferredSupplier =
+                cleanText(s.supplier) ||
+                cleanText(s.source) ||
+                cleanText(s.iupOp) ||
+                null;
+            const exportShipment = isExportShipment(s);
+            const counterpartyRole = exportShipment ? "buyer" : "vendor";
+            const counterparty = exportShipment
+                ? (inferredBuyer || inferredSupplier || "TBA Buyer")
+                : (inferredSupplier || inferredBuyer || "TBA Vendor");
+
             return {
                 ...s,
+                buyer: inferredBuyer,
+                supplier: inferredSupplier,
+                counterpartyRole,
+                counterparty,
                 milestones: milestones.map((m) => ({
                     title: m.title,
                     subtitle: `${m.date.toISOString().slice(0, 10)}${m.description ? ` - ${m.description}` : ""}`,

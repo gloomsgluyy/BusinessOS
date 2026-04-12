@@ -919,16 +919,35 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
         try {
             const ts = Date.now();
             const fetchOpts = { cache: 'no-store' as RequestCache, headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } };
-            const [shipRes, srcRes, qRes, mpRes, mtgRes, plRes, dealRes, blendRes] = await Promise.all([
-                fetch(`/api/memory/shipments?t=${ts}`, fetchOpts).then(res => res.json()),
-                fetch(`/api/memory/sources?t=${ts}`, fetchOpts).then(res => res.json()),
-                fetch(`/api/memory/quality?t=${ts}`, fetchOpts).then(res => res.json()),
-                fetch(`/api/memory/market-prices?t=${ts}`, fetchOpts).then(res => res.json()),
-                fetch(`/api/memory/meetings?t=${ts}`, fetchOpts).then(res => res.json()),
-                fetch(`/api/memory/pl-forecasts?t=${ts}`, fetchOpts).then(res => res.json()),
-                fetch(`/api/memory/sales-deals?t=${ts}`, fetchOpts).then(res => res.json()),
-                fetch(`/api/memory/blending?t=${ts}`, fetchOpts).then(res => res.json())
-            ]);
+            const endpoints = [
+                `/api/memory/shipments?t=${ts}`,
+                `/api/memory/sources?t=${ts}`,
+                `/api/memory/quality?t=${ts}`,
+                `/api/memory/market-prices?t=${ts}`,
+                `/api/memory/meetings?t=${ts}`,
+                `/api/memory/pl-forecasts?t=${ts}`,
+                `/api/memory/sales-deals?t=${ts}`,
+                `/api/memory/blending?t=${ts}`,
+            ];
+            const settled = await Promise.allSettled(
+                endpoints.map(async (url) => {
+                    const res = await fetch(url, fetchOpts);
+                    if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+                    return res.json();
+                })
+            );
+            const toPayload = (idx: number) =>
+                settled[idx].status === "fulfilled"
+                    ? settled[idx].value
+                    : { success: false, error: (settled[idx] as PromiseRejectedResult).reason?.message || "request failed" };
+            const shipRes = toPayload(0);
+            const srcRes = toPayload(1);
+            const qRes = toPayload(2);
+            const mpRes = toPayload(3);
+            const mtgRes = toPayload(4);
+            const plRes = toPayload(5);
+            const dealRes = toPayload(6);
+            const blendRes = toPayload(7);
 
             set((state) => {
                 const updates: Partial<CommercialState> = {};
@@ -955,7 +974,8 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         quantity_loaded: s.quantityLoaded || s.qtyPlan || 0,
                         sales_price: s.salesPrice || s.sp || 0,
                         margin_mt: s.marginMt || 0,
-                        buyer: s.buyer || "-",
+                        buyer: s.buyer || s.counterparty || "-",
+                        supplier: s.supplier || s.source || "-",
                         vessel_name: s.vesselName || s.mvProjectName || "-",
                         barge_name: s.bargeName || s.nomination || "-",
                         loading_port: s.loadingPort || s.jettyLoadingPort || "-",
