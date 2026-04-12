@@ -4,8 +4,6 @@ import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuthStore } from "@/store/auth-store";
 import { useTaskStore } from "@/store/task-store";
-import { useSalesStore } from "@/store/sales-store";
-import { usePurchaseStore } from "@/store/purchase-store";
 import { useCommercialStore } from "@/store/commercial-store";
 import { formatRupiah, cn } from "@/lib/utils";
 import { TASK_STATUSES, TASK_PRIORITIES, SALES_DEAL_STATUSES, SHIPMENT_STATUSES } from "@/lib/constants";
@@ -17,6 +15,107 @@ import {
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
+const CURRENT_YEAR = new Date().getFullYear();
+
+const MONTH_INDEX: Record<string, number> = {
+    JAN: 0,
+    FEB: 1,
+    MAR: 2,
+    APR: 3,
+    MAY: 4,
+    MEI: 4,
+    JUN: 5,
+    JUL: 6,
+    AUG: 7,
+    AGU: 7,
+    SEP: 8,
+    SEPT: 8,
+    OCT: 9,
+    OKT: 9,
+    NOV: 10,
+    DEC: 11,
+    DES: 11,
+};
+
+const normalizeStatus = (value?: string): string => (value || "").toLowerCase().trim().replace(/\s+/g, "_");
+const normalizeKey = (value?: string): string => (value || "").trim().toUpperCase().replace(/\s+/g, " ");
+
+const asDate = (value: unknown): Date | null => {
+    if (!value) return null;
+    const d = new Date(String(value));
+    return Number.isNaN(d.getTime()) ? null : d;
+};
+
+function parseLaycanStart(value?: string, yearHint?: number): Date | null {
+    if (!value) return null;
+    const raw = String(value).toUpperCase().replace(/\./g, " ").replace(/\s+/g, " ").trim();
+
+    const patternA = raw.match(/(\d{1,2})\s*([A-Z]{3,9})\s*(?:-|TO|\/)\s*(\d{1,2})\s*([A-Z]{3,9})/);
+    if (patternA) {
+        const day = Number(patternA[1]);
+        const month = MONTH_INDEX[patternA[2]];
+        if (month !== undefined) return new Date(yearHint || CURRENT_YEAR, month, day);
+    }
+
+    const patternB = raw.match(/(\d{1,2})\s*(?:-|TO|\/)\s*(\d{1,2})\s*([A-Z]{3,9})/);
+    if (patternB) {
+        const day = Number(patternB[1]);
+        const month = MONTH_INDEX[patternB[3]];
+        if (month !== undefined) return new Date(yearHint || CURRENT_YEAR, month, day);
+    }
+
+    const patternC = raw.match(/(\d{1,2})\s*([A-Z]{3,9})/);
+    if (patternC) {
+        const day = Number(patternC[1]);
+        const month = MONTH_INDEX[patternC[2]];
+        if (month !== undefined) return new Date(yearHint || CURRENT_YEAR, month, day);
+    }
+
+    return null;
+}
+
+function getShipmentEtaDate(sh: any): Date | null {
+    const yearHint = Number(sh.year) || CURRENT_YEAR;
+    return (
+        asDate(sh.eta) ||
+        asDate(sh.laycan_start) ||
+        asDate(sh.laycan_end) ||
+        asDate(sh.laycanStart) ||
+        asDate(sh.laycanEnd) ||
+        parseLaycanStart(sh.laycan, yearHint)
+    );
+}
+
+function inferShipmentType(sh: any): "local" | "export" {
+    const explicit = String(sh.type || "").toLowerCase();
+    if (explicit.includes("local") || explicit.includes("dmo") || explicit.includes("domestic") || explicit.includes("loco")) return "local";
+
+    const exportDmo = String(sh.export_dmo || "").toLowerCase();
+    if (exportDmo.includes("local") || exportDmo.includes("dmo") || exportDmo.includes("domestic")) return "local";
+
+    const shippingTerm = String(sh.shipping_term || "").toLowerCase();
+    if (shippingTerm.includes("loco")) return "local";
+
+    return "export";
+}
+
+function getShipmentQty(sh: any): number {
+    return safeNum(sh.quantity_loaded) || safeNum(sh.qty_plan) || safeNum(sh.qty_cob);
+}
+
+function getShipmentRevenuePrice(sh: any): number {
+    return safeNum(sh.sales_price) || safeNum(sh.sp) || safeNum(sh.harga_actual_fob_mv) || safeNum(sh.harga_actual_fob);
+}
+
+function getShipmentMargin(sh: any): number {
+    const margin = safeNum(sh.margin_mt);
+    if (margin !== 0) return margin;
+
+    const selling = getShipmentRevenuePrice(sh);
+    const cost = safeNum(sh.harga_actual_fob) || safeNum(sh.hpb);
+    if (selling > 0 && cost > 0) return selling - cost;
+    return 0;
+}
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSession } from "next-auth/react";
 import {
@@ -456,17 +555,13 @@ function ChartSkeleton({ short }: { short?: boolean }) {
 /* MAIN DASHBOARD                                             */
 /* ═══════════════════════════════════════════════════════════ */
 export default function DashboardPage() {
-    const { data: session } = useSession();
+    const { data: session, status: sessionStatus } = useSession();
     const currentUser = session?.user as any;
     const syncTasks = useTaskStore((s) => s.syncFromMemory);
-    const syncSales = useSalesStore((s) => s.syncFromMemory);
-    const syncPurchases = usePurchaseStore((s) => s.syncFromMemory);
     const syncCommercial = useCommercialStore((s) => s.syncFromMemory);
     const deals = useCommercialStore((s) => s.deals);
     const shipments = useCommercialStore((s) => s.shipments);
     const tasks = useTaskStore((s) => s.tasks);
-    const salesOrders = useSalesStore((s) => s.orders);
-    const purchaseRequests = usePurchaseStore((s) => s.purchases);
     const [timeRange, setTimeRange] = React.useState<FilterRange>("all");
     const [customFrom, setCustomFrom] = React.useState("");
     const [customTo, setCustomTo] = React.useState("");
@@ -481,6 +576,8 @@ export default function DashboardPage() {
     const [isLoading, setIsLoading] = React.useState(true);
 
     React.useEffect(() => {
+        if (sessionStatus === "loading") return;
+
         let cancelled = false;
         const timeoutWrap = (p: Promise<unknown>, ms = 15000) =>
             Promise.race([
@@ -489,16 +586,26 @@ export default function DashboardPage() {
             ]);
 
         const runInitialSync = async () => {
+            if (sessionStatus !== "authenticated") {
+                if (!cancelled) setIsLoading(false);
+                return;
+            }
+
             const startedAt = Date.now();
             await Promise.allSettled([
                 timeoutWrap(syncTasks()),
-                timeoutWrap(syncSales()),
-                timeoutWrap(syncPurchases()),
-                timeoutWrap(syncCommercial()),
+                timeoutWrap(syncCommercial(), 30000),
             ]);
 
+            const state = useCommercialStore.getState();
+            if ((state.shipments?.length || 0) === 0 && (state.deals?.length || 0) === 0) {
+                await Promise.allSettled([
+                    timeoutWrap(syncCommercial(), 30000),
+                ]);
+            }
+
             // Keep a tiny minimum skeleton to avoid jarring flash.
-            const minSkeletonMs = 450;
+            const minSkeletonMs = 500;
             const elapsed = Date.now() - startedAt;
             if (elapsed < minSkeletonMs) {
                 await new Promise((resolve) => setTimeout(resolve, minSkeletonMs - elapsed));
@@ -514,7 +621,7 @@ export default function DashboardPage() {
         return () => {
             cancelled = true;
         };
-    }, [syncTasks, syncSales, syncPurchases, syncCommercial]);
+    }, [sessionStatus, syncTasks, syncCommercial]);
 
     // Master Filter logic
     const filterData = <T extends { created_at?: string; type?: string; region?: string; status?: string; buyer_country?: string; buyer?: string; vessel_name?: string; shipment_number?: string }>(data: T[]): T[] => {
@@ -567,16 +674,15 @@ export default function DashboardPage() {
 
     // Financial calculations: Combined from Confirmed/Contracted/Executed Deals + Active Shipments
     // We include all "successful" deal statuses for revenue visibility
-    const confirmedDeals = filteredDeals.filter(d =>
-        (d.status as string) === "confirmed" ||
-        (d.status as string) === "contracted" ||
-        (d.status as string).toLowerCase() === "executed"
-    );
-    const activeShipments = filteredShipments.filter(s => s.status !== "cancelled" && s.status !== "draft");
-
+    const confirmedDeals = filteredDeals.filter((d) => {
+        const st = normalizeStatus(d.status as string);
+        return st === "confirmed" || st === "contracted" || st === "executed";
+    });
     // Shipments are used for operational tracking and volume reporting
-    const totalQty = filteredShipments.reduce((s, sh) => s + safeNum(sh.quantity_loaded), 0);
-    const localQty = filteredShipments.filter(s => s.type === "local").reduce((s, sh) => s + safeNum(sh.quantity_loaded), 0);
+    const totalQty = filteredShipments.reduce((s, sh) => s + getShipmentQty(sh), 0);
+    const localQty = filteredShipments
+        .filter((sh) => inferShipmentType(sh) === "local")
+        .reduce((s, sh) => s + getShipmentQty(sh), 0);
     const exportQty = totalQty - localQty;
 
     const totalRevenue = confirmedDeals.reduce((s, d) => s + (safeNum(d.quantity) * safeNum(d.price_per_mt)), 0);
@@ -622,6 +728,79 @@ export default function DashboardPage() {
         const eta = new Date(sh.eta);
         return eta > now30 && eta <= now60;
     });
+
+    // DB-first fallback metrics (MV/Project-centric) so dashboard remains meaningful even when deals table is empty.
+    const fallbackMonetizedShipments = filteredShipments.filter((sh) => {
+        const st = normalizeStatus(sh.status);
+        return st !== "cancelled" && st !== "draft" && getShipmentQty(sh) > 0 && getShipmentRevenuePrice(sh) > 0;
+    });
+    const fallbackRevenueTotal = fallbackMonetizedShipments.reduce((s, sh) => s + (getShipmentQty(sh) * getShipmentRevenuePrice(sh)), 0);
+    const fallbackRevenueLocal = fallbackMonetizedShipments
+        .filter((sh) => inferShipmentType(sh) === "local")
+        .reduce((s, sh) => s + (getShipmentQty(sh) * getShipmentRevenuePrice(sh)), 0);
+    const fallbackRevenueExport = fallbackRevenueTotal - fallbackRevenueLocal;
+
+    const fallbackGrossProfitTotal = fallbackMonetizedShipments.reduce((s, sh) => s + (getShipmentQty(sh) * getShipmentMargin(sh)), 0);
+    const fallbackGrossProfitLocal = fallbackMonetizedShipments
+        .filter((sh) => inferShipmentType(sh) === "local")
+        .reduce((s, sh) => s + (getShipmentQty(sh) * getShipmentMargin(sh)), 0);
+    const fallbackGrossProfitExport = fallbackGrossProfitTotal - fallbackGrossProfitLocal;
+
+    const hasDealFinancials = totalRevenue > 0 || confirmedDeals.length > 0;
+    const metricRevenueTotal = hasDealFinancials ? totalRevenue : fallbackRevenueTotal;
+    const metricRevenueLocal = hasDealFinancials ? localRevenue : fallbackRevenueLocal;
+    const metricRevenueExport = hasDealFinancials ? exportRevenue : fallbackRevenueExport;
+    const metricGrossProfitTotal = hasDealFinancials ? totalGrossProfit : fallbackGrossProfitTotal;
+
+    const metricLocalGpPerMt = localQty > 0
+        ? (hasDealFinancials ? localGP : (fallbackGrossProfitLocal / localQty))
+        : 0;
+    const metricExportGpPerMt = exportQty > 0
+        ? (hasDealFinancials ? exportGP : (fallbackGrossProfitExport / exportQty))
+        : 0;
+    const metricTotalGpPerMt = totalQty > 0 ? metricGrossProfitTotal / totalQty : 0;
+
+    const completedStatuses = new Set(["completed", "done_shipment", "complete_discharge", "complete_discharged", "discharged"]);
+    const normalizedActiveShipments = filteredShipments.filter((sh) => {
+        const st = normalizeStatus(sh.status);
+        return st !== "cancelled" && !completedStatuses.has(st);
+    });
+    const ongoingStatuses = new Set(["loading", "in_transit", "anchorage", "discharging", "loading_proses", "loading_process"]);
+    const normalizedOngoingShipments = normalizedActiveShipments.filter((sh) => ongoingStatuses.has(normalizeStatus(sh.status)));
+
+    const upcomingStatuses = new Set(["upcoming", "waiting_loading", "draft", "planned", "waiting", "waiting_for_loading"]);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const horizon30 = new Date(today);
+    horizon30.setDate(horizon30.getDate() + 30);
+    const horizon60 = new Date(today);
+    horizon60.setDate(horizon60.getDate() + 60);
+
+    const normalizedUpcomingCandidates = normalizedActiveShipments.filter((sh) => {
+        const st = normalizeStatus(sh.status);
+        if (upcomingStatuses.has(st)) return true;
+        const eta = getShipmentEtaDate(sh);
+        return Boolean(eta && eta >= today);
+    });
+    const normalizedUpcoming30 = normalizedUpcomingCandidates.filter((sh) => {
+        const eta = getShipmentEtaDate(sh);
+        return Boolean(eta && eta <= horizon30);
+    });
+    const normalizedUpcoming60 = normalizedUpcomingCandidates.filter((sh) => {
+        const eta = getShipmentEtaDate(sh);
+        if (!eta) return true;
+        return eta > horizon30 && eta <= horizon60;
+    });
+
+    const fallbackActiveDeals = new Set(
+        normalizedActiveShipments
+            .map((sh) => normalizeKey(sh.mv_project_name || sh.vessel_name || sh.nomination))
+            .filter(Boolean)
+    ).size;
+    const hasDealRows = filteredDeals.length > 0;
+    const metricActiveDeals = hasDealRows ? (preSaleCount + confirmedCount + forecastCount) : fallbackActiveDeals;
+    const metricActiveDealsSub = hasDealRows ? `${confirmedCount} confirmed` : `${fallbackActiveDeals} MV/Project active`;
+
     const pendingTasks = tasks.filter((t) => t.status === "review").length;
 
     const formatUSD = (v: number) => {
@@ -713,22 +892,22 @@ export default function DashboardPage() {
 
                         {/* Top Metrics - Row 1 */}
                         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-                            {isCeo && <MetricCard label="Total Revenue (USD)" value={formatUSD(totalRevenue)} sub="YTD Confirmed" icon={DollarSign} color="bg-emerald-500/10" delay={1} restricted hasAccess={isCeo} />}
-                            {isCeo && <MetricCard label="Gross Profit (USD)" value={formatUSD(totalGrossProfit)} sub={`$${safeFmt(avgGrossProfit)}/MT avg`} icon={TrendingUp} color="bg-violet-500/10" delay={2} restricted hasAccess={isCeo} />}
+                            {isCeo && <MetricCard label="Total Revenue (USD)" value={formatUSD(metricRevenueTotal)} sub={hasDealFinancials ? "YTD Confirmed" : "From Shipment Data"} icon={DollarSign} color="bg-emerald-500/10" delay={1} restricted hasAccess={isCeo} />}
+                            {isCeo && <MetricCard label="Gross Profit (USD)" value={formatUSD(metricGrossProfitTotal)} sub={`$${safeFmt(metricTotalGpPerMt)}/MT avg`} icon={TrendingUp} color="bg-violet-500/10" delay={2} restricted hasAccess={isCeo} />}
                             <MetricCard label="Total Volume" value={`${safeFmt(totalQty / 1000, 0)}K MT`} sub={`${safeFmt(localQty / 1000, 0)}K Local · ${safeFmt(exportQty / 1000, 0)}K Export`} icon={Layers} color="bg-cyan-500/10" delay={3} />
-                            <MetricCard label="Active Deals" value={preSaleCount + confirmedCount + forecastCount} sub={`${confirmedCount} confirmed`} icon={BarChart3} color="bg-blue-500/10" delay={isCeo ? 4 : 1} />
-                            <MetricCard label="Active Shipments" value={activeShipmentsList.length} sub={`${pendingTasks} tasks pending`} icon={Ship} color="bg-amber-500/10" delay={isCeo ? 5 : 2} />
+                            <MetricCard label="Active Deals" value={metricActiveDeals} sub={metricActiveDealsSub} icon={BarChart3} color="bg-blue-500/10" delay={isCeo ? 4 : 1} />
+                            <MetricCard label="Active Shipments" value={normalizedActiveShipments.length} sub={`${pendingTasks} tasks pending`} icon={Ship} color="bg-amber-500/10" delay={isCeo ? 5 : 2} />
                         </div>
 
                         {/* CEO-Only Revenue Split */}
                         {isCeo && (
                             <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-                                <SmallStat label="Revenue Local" value={formatUSD(localRevenue)} color="text-blue-500" />
-                                <SmallStat label="Revenue Export" value={formatUSD(exportRevenue)} color="text-violet-500" />
-                                <SmallStat label="GP Total" value={formatUSD(totalGrossProfit)} color="text-emerald-500" />
-                                <SmallStat label="GP Local/MT" value={`$${safeFmt(localGP)}`} color="text-emerald-500" />
-                                <SmallStat label="GP Export/MT" value={`$${safeFmt(exportGP)}`} color="text-emerald-500" />
-                                <SmallStat label="GP Total/MT" value={`$${safeFmt(avgGrossProfit)}`} color="text-emerald-600" />
+                                <SmallStat label="Revenue Local" value={formatUSD(metricRevenueLocal)} color="text-blue-500" />
+                                <SmallStat label="Revenue Export" value={formatUSD(metricRevenueExport)} color="text-violet-500" />
+                                <SmallStat label="GP Total" value={formatUSD(metricGrossProfitTotal)} color="text-emerald-500" />
+                                <SmallStat label="GP Local/MT" value={`$${safeFmt(metricLocalGpPerMt)}`} color="text-emerald-500" />
+                                <SmallStat label="GP Export/MT" value={`$${safeFmt(metricExportGpPerMt)}`} color="text-emerald-500" />
+                                <SmallStat label="GP Total/MT" value={`$${safeFmt(metricTotalGpPerMt)}`} color="text-emerald-600" />
                             </div>
                         )}
 
@@ -748,9 +927,9 @@ export default function DashboardPage() {
 
                         {/* Row 5: Shipment Timelines (3 sections) */}
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                            <ShipmentTimeline shipmentItems={onGoingShipments} label="On-going Shipments" />
-                            <ShipmentTimeline shipmentItems={upcoming30} label="Upcoming (30 Days)" />
-                            <ShipmentTimeline shipmentItems={upcoming60} label="Upcoming (60 Days)" />
+                            <ShipmentTimeline shipmentItems={normalizedOngoingShipments} label="On-going Shipments" />
+                            <ShipmentTimeline shipmentItems={normalizedUpcoming30} label="Upcoming (30 Days)" />
+                            <ShipmentTimeline shipmentItems={normalizedUpcoming60} label="Upcoming (60 Days)" />
                         </div>
 
                         {/* Row 6: Priority Tasks */}

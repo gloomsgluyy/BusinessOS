@@ -35,12 +35,25 @@ function SessionWatcher() {
 function AutoSyncListener() {
     React.useEffect(() => {
         let isPulling = false;
-        let isFirstLoad = true;
 
         const doPull = async () => {
             if (isPulling) return;
+            if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+            if (typeof navigator !== "undefined" && !navigator.onLine) return;
+
+            const now = Date.now();
+            const lastSyncTimes = [
+                Date.parse(useTaskStore.getState().lastSyncTime || ""),
+                Date.parse(useSalesStore.getState().lastSyncTime || ""),
+                Date.parse(usePurchaseStore.getState().lastSyncTime || ""),
+                Date.parse(useCommercialStore.getState().lastSyncTime || ""),
+            ].filter((x) => Number.isFinite(x)) as number[];
+            const latestSync = lastSyncTimes.length ? Math.max(...lastSyncTimes) : 0;
+
+            // Avoid duplicate pull storms from AppShell + page-level sync
+            if (latestSync && now - latestSync < 30000) return;
+
             isPulling = true;
-            console.log("[AppShell] Melakukan Pull dari Memory B backend server...");
             try {
                 await Promise.all([
                     useTaskStore.getState().syncFromMemory(),
@@ -51,17 +64,17 @@ function AutoSyncListener() {
             } catch (e) {
                 console.error("[AppShell] Pull Error:", e);
             }
-            console.log("[AppShell] Pull Selesai.");
             isPulling = false;
-            isFirstLoad = false;
         };
 
-        doPull();
+        // Delay first pull slightly; page-level sync handles initial load.
+        const firstTimer = setTimeout(doPull, 5000);
 
-        // Polling memory B changes (e.g., 20 sec interval to feel instantaneous)
-        const pollInterval = setInterval(doPull, 20000);
+        // Poll less aggressively to reduce API pressure and UI flicker.
+        const pollInterval = setInterval(doPull, 120000);
 
         return () => {
+            clearTimeout(firstTimer);
             clearInterval(pollInterval);
         };
     }, []);

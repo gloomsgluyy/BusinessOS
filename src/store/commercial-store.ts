@@ -194,6 +194,10 @@ interface CommercialState {
     syncFromMemory: () => Promise<void>;
 }
 
+const COMMERCIAL_MIN_SYNC_INTERVAL_MS = 20_000;
+let commercialSyncInFlight: Promise<void> | null = null;
+let commercialLastSyncStartedAt = 0;
+
 export const useCommercialStore = create<CommercialState>((set, get) => ({
     // ── Sales Deals ──────────────────────────────────────────
     _rawDeals: [],
@@ -916,7 +920,16 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
 
     // ── Sync Integration ─────────────────────────────────────
     syncFromMemory: async () => {
-        try {
+        if (commercialSyncInFlight) return commercialSyncInFlight;
+
+        const now = Date.now();
+        if (commercialLastSyncStartedAt && now - commercialLastSyncStartedAt < COMMERCIAL_MIN_SYNC_INTERVAL_MS) {
+            return;
+        }
+        commercialLastSyncStartedAt = now;
+
+        commercialSyncInFlight = (async () => {
+            try {
             const ts = Date.now();
             const fetchOpts = { cache: 'no-store' as RequestCache, headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } };
             const endpoints = [
@@ -949,7 +962,7 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
             const dealRes = toPayload(6);
             const blendRes = toPayload(7);
 
-            set((state) => {
+                set((state) => {
                 const updates: Partial<CommercialState> = {};
 
                 // Shipments merge
@@ -1121,9 +1134,14 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
 
                 updates.lastSyncTime = new Date().toISOString();
                 return Object.keys(updates).length > 0 ? updates : state;
-            });
-        } catch (error) {
-            console.error("syncFromMemory error:", error);
-        }
+                });
+            } catch (error) {
+                console.error("syncFromMemory error:", error);
+            } finally {
+                commercialSyncInFlight = null;
+            }
+        })();
+
+        return commercialSyncInFlight;
     }
 }));
