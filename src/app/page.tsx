@@ -2,6 +2,7 @@
 
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
+import { DISABLE_SKELETON_LOADERS } from "@/lib/feature-flags";
 import { useAuthStore } from "@/store/auth-store";
 import { useTaskStore } from "@/store/task-store";
 import { useCommercialStore } from "@/store/commercial-store";
@@ -815,10 +816,12 @@ export default function DashboardPage() {
         );
     }
 
+    const showDashboardSkeleton = isLoading && !DISABLE_SKELETON_LOADERS;
+
     return (
         <AppShell>
             <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto space-y-6">
-                {isLoading ? (
+                {showDashboardSkeleton ? (
                     <>
                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                             <div>
