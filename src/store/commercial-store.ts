@@ -1146,34 +1146,29 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                     return res.json();
                 };
 
-                const primaryKeys = new Set<EndpointKey>(["shipments", "sales-deals"]);
-                const primaryEndpoints = endpoints.filter((e) => primaryKeys.has(e.key));
-                const secondaryEndpoints = endpoints.filter((e) => !primaryKeys.has(e.key));
+                const shipmentsEndpoint = endpoints.find((e) => e.key === "shipments");
+                if (shipmentsEndpoint) {
+                    try {
+                        const shipmentPayload = await fetchEndpoint(shipmentsEndpoint);
+                        applyPayloads({ shipments: shipmentPayload });
+                    } catch (err: any) {
+                        applyPayloads({ shipments: { success: false, error: err?.message || "request failed" } });
+                    }
+                }
 
-                const primaryPayloads: Partial<Record<EndpointKey, any>> = {};
-                await Promise.allSettled(
-                    primaryEndpoints.map(async (e) => {
-                        try {
-                            primaryPayloads[e.key] = await fetchEndpoint(e);
-                        } catch (err: any) {
-                            primaryPayloads[e.key] = { success: false, error: err?.message || "request failed" };
-                        }
-                    })
-                );
-                applyPayloads(primaryPayloads);
-
-                if (secondaryEndpoints.length) {
-                    const secondaryPayloads: Partial<Record<EndpointKey, any>> = {};
+                const remainingEndpoints = endpoints.filter((e) => e.key !== "shipments");
+                if (remainingEndpoints.length) {
+                    const remainingPayloads: Partial<Record<EndpointKey, any>> = {};
                     await Promise.allSettled(
-                        secondaryEndpoints.map(async (e) => {
+                        remainingEndpoints.map(async (e) => {
                             try {
-                                secondaryPayloads[e.key] = await fetchEndpoint(e);
+                                remainingPayloads[e.key] = await fetchEndpoint(e);
                             } catch (err: any) {
-                                secondaryPayloads[e.key] = { success: false, error: err?.message || "request failed" };
+                                remainingPayloads[e.key] = { success: false, error: err?.message || "request failed" };
                             }
                         })
                     );
-                    applyPayloads(secondaryPayloads);
+                    applyPayloads(remainingPayloads);
                 }
                 commercialLastSyncSucceededAt = Date.now();
             } catch (error) {
