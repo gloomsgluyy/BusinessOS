@@ -40,7 +40,10 @@ function AutoSyncListener({ onBootSyncChange }: { onBootSyncChange?: (loading: b
     const pathname = usePathname();
 
     React.useEffect(() => {
-        if (status !== "authenticated") return;
+        if (status !== "authenticated") {
+            onBootSyncChange?.(false);
+            return;
+        }
 
         let isPulling = false;
 
@@ -113,7 +116,7 @@ interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
-    const [isBootSyncing, setIsBootSyncing] = React.useState(false);
+    const [isBootSyncing, setIsBootSyncing] = React.useState(true);
     const taskCount = useTaskStore((s) => s.tasks.length);
     const salesCount = useSalesStore((s) => s.orders.length);
     const purchaseCount = usePurchaseStore((s) => s.purchases.length);
