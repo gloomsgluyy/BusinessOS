@@ -66,6 +66,7 @@ export async function GET(req: Request) {
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         const { searchParams } = new URL(req.url);
         const lite = ["1", "true", "yes"].includes((searchParams.get("lite") || "").toLowerCase());
+        const includeTimeline = ["1", "true", "yes"].includes((searchParams.get("timeline") || "").toLowerCase());
 
         // DATABASE-FIRST: Read directly from database
         const shipments = await prisma.shipmentDetail.findMany({
@@ -115,7 +116,7 @@ export async function GET(req: Request) {
         });
 
         const shipmentIds = shipments.map((s) => s.id);
-        const timeline = !lite && shipmentIds.length
+        const timeline = includeTimeline && !lite && shipmentIds.length
             ? await prisma.timelineMilestone.findMany({
                 where: { shipmentId: { in: shipmentIds } },
                 orderBy: { date: "asc" }
@@ -178,12 +179,14 @@ export async function GET(req: Request) {
                 supplier: inferredSupplier,
                 counterpartyRole,
                 counterparty,
-                milestones: milestones.map((m) => ({
-                    title: m.title,
-                    subtitle: `${m.date.toISOString().slice(0, 10)}${m.description ? ` - ${m.description}` : ""}`,
-                    status: "completed",
-                    date: m.date
-                }))
+                milestones: includeTimeline
+                    ? milestones.map((m) => ({
+                        title: m.title,
+                        subtitle: `${m.date.toISOString().slice(0, 10)}${m.description ? ` - ${m.description}` : ""}`,
+                        status: "completed",
+                        date: m.date
+                    }))
+                    : []
             };
         });
 

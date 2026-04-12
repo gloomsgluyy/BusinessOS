@@ -10,6 +10,7 @@ import { useTaskStore } from "@/store/task-store";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useSession } from "next-auth/react";
 import { useAuthStore } from "@/store/auth-store";
+import { usePathname } from "next/navigation";
 
 function SessionWatcher() {
     const { data: session } = useSession();
@@ -34,6 +35,7 @@ function SessionWatcher() {
 
 function AutoSyncListener() {
     const { status } = useSession();
+    const pathname = usePathname();
 
     React.useEffect(() => {
         if (status !== "authenticated") return;
@@ -59,20 +61,24 @@ function AutoSyncListener() {
 
             isPulling = true;
             try {
-                await Promise.all([
+                const syncJobs: Promise<void>[] = [
                     useTaskStore.getState().syncFromMemory(),
                     useSalesStore.getState().syncFromMemory(),
                     usePurchaseStore.getState().syncFromMemory(),
-                    useCommercialStore.getState().syncFromMemory()
-                ]);
+                ];
+
+                // Dashboard has its own fast-first sync sequence on initial load.
+                // Avoid racing it with an immediate full commercial pull.
+                if (pathname !== "/") {
+                    syncJobs.push(useCommercialStore.getState().syncFromMemory());
+                }
+
+                await Promise.all(syncJobs);
             } catch (e) {
                 console.error("[AppShell] Pull Error:", e);
             }
             isPulling = false;
         };
-
-        // Pull immediately once session is authenticated.
-        doPull();
 
         // Poll less aggressively to reduce API pressure and UI flicker.
         const pollInterval = setInterval(doPull, 60000);
@@ -89,7 +95,7 @@ function AutoSyncListener() {
             window.removeEventListener("focus", onFocus);
             document.removeEventListener("visibilitychange", onVisible);
         };
-    }, [status]);
+    }, [status, pathname]);
 
     return null;
 }

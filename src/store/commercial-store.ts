@@ -199,9 +199,9 @@ interface CommercialState {
     syncFromMemory: (options?: CommercialSyncOptions) => Promise<void>;
 }
 
-const COMMERCIAL_MIN_SYNC_INTERVAL_MS = 20_000;
+const COMMERCIAL_MIN_SYNC_INTERVAL_MS = 5_000;
 let commercialSyncInFlight: Promise<void> | null = null;
-let commercialLastSyncStartedAt = 0;
+let commercialLastSyncSucceededAt = 0;
 
 export const useCommercialStore = create<CommercialState>((set, get) => ({
     // ── Sales Deals ──────────────────────────────────────────
@@ -928,10 +928,9 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
         if (commercialSyncInFlight) return commercialSyncInFlight;
 
         const now = Date.now();
-        if (!options.force && commercialLastSyncStartedAt && now - commercialLastSyncStartedAt < COMMERCIAL_MIN_SYNC_INTERVAL_MS) {
+        if (!options.force && commercialLastSyncSucceededAt && now - commercialLastSyncSucceededAt < COMMERCIAL_MIN_SYNC_INTERVAL_MS) {
             return;
         }
-        commercialLastSyncStartedAt = now;
 
         commercialSyncInFlight = (async () => {
             try {
@@ -956,35 +955,17 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                         { key: "blending", url: `/api/memory/blending?t=${ts}` },
                     ];
 
-                const settled = await Promise.allSettled(
-                    endpoints.map(async (e) => {
-                        const res = await fetch(e.url, fetchOpts);
-                        if (!res.ok) throw new Error(`${e.url} -> ${res.status}`);
-                        const payload = await res.json();
-                        return { key: e.key, payload };
-                    })
-                );
+                const applyPayloads = (payloads: Partial<Record<EndpointKey, any>>) => {
+                    const shipRes = payloads["shipments"];
+                    const srcRes = payloads["sources"];
+                    const qRes = payloads["quality"];
+                    const mpRes = payloads["market-prices"];
+                    const mtgRes = payloads["meetings"];
+                    const plRes = payloads["pl-forecasts"];
+                    const dealRes = payloads["sales-deals"];
+                    const blendRes = payloads["blending"];
 
-                const payloads: Partial<Record<EndpointKey, any>> = {};
-                settled.forEach((entry, idx) => {
-                    const key = endpoints[idx].key;
-                    if (entry.status === "fulfilled") {
-                        payloads[key] = entry.value.payload;
-                    } else {
-                        payloads[key] = { success: false, error: (entry as PromiseRejectedResult).reason?.message || "request failed" };
-                    }
-                });
-
-                const shipRes = payloads["shipments"];
-                const srcRes = payloads["sources"];
-                const qRes = payloads["quality"];
-                const mpRes = payloads["market-prices"];
-                const mtgRes = payloads["meetings"];
-                const plRes = payloads["pl-forecasts"];
-                const dealRes = payloads["sales-deals"];
-                const blendRes = payloads["blending"];
-
-                set((state) => {
+                    set((state) => {
                     const updates: Partial<CommercialState> = {};
 
                 // Shipments merge
@@ -1154,9 +1135,47 @@ export const useCommercialStore = create<CommercialState>((set, get) => ({
                     updates.deals = mappedDeals.filter(x => !x.is_deleted);
                 }
 
-                    updates.lastSyncTime = new Date().toISOString();
-                    return Object.keys(updates).length > 0 ? updates : state;
-                });
+                        updates.lastSyncTime = new Date().toISOString();
+                        return Object.keys(updates).length > 0 ? updates : state;
+                    });
+                };
+
+                const fetchEndpoint = async (e: { key: EndpointKey; url: string }) => {
+                    const res = await fetch(e.url, fetchOpts);
+                    if (!res.ok) throw new Error(`${e.url} -> ${res.status}`);
+                    return res.json();
+                };
+
+                const primaryKeys = new Set<EndpointKey>(["shipments", "sales-deals"]);
+                const primaryEndpoints = endpoints.filter((e) => primaryKeys.has(e.key));
+                const secondaryEndpoints = endpoints.filter((e) => !primaryKeys.has(e.key));
+
+                const primaryPayloads: Partial<Record<EndpointKey, any>> = {};
+                await Promise.allSettled(
+                    primaryEndpoints.map(async (e) => {
+                        try {
+                            primaryPayloads[e.key] = await fetchEndpoint(e);
+                        } catch (err: any) {
+                            primaryPayloads[e.key] = { success: false, error: err?.message || "request failed" };
+                        }
+                    })
+                );
+                applyPayloads(primaryPayloads);
+
+                if (secondaryEndpoints.length) {
+                    const secondaryPayloads: Partial<Record<EndpointKey, any>> = {};
+                    await Promise.allSettled(
+                        secondaryEndpoints.map(async (e) => {
+                            try {
+                                secondaryPayloads[e.key] = await fetchEndpoint(e);
+                            } catch (err: any) {
+                                secondaryPayloads[e.key] = { success: false, error: err?.message || "request failed" };
+                            }
+                        })
+                    );
+                    applyPayloads(secondaryPayloads);
+                }
+                commercialLastSyncSucceededAt = Date.now();
             } catch (error) {
                 console.error("syncFromMemory error:", error);
             } finally {
