@@ -587,14 +587,16 @@ export default function DashboardPage() {
                 return;
             }
 
-            // Fast-first: only critical dashboard data for first paint.
+            // Stage 1: fetch critical dashboard data.
             await syncCommercial({ mode: "dashboard_fast", force: true });
 
-            if (!cancelled) setIsLoading(false);
+            // Stage 2: complete dashboard-required sync before turning loader off.
+            await Promise.all([
+                syncCommercial({ mode: "full", force: true }),
+                syncTasks(),
+            ]);
 
-            // Secondary data can sync in background after first paint.
-            syncCommercial({ mode: "full", force: true }).catch((e) => console.error("[Dashboard] background commercial sync failed:", e));
-            syncTasks().catch((e) => console.error("[Dashboard] background task sync failed:", e));
+            if (!cancelled) setIsLoading(false);
         };
 
         runInitialSync().catch(() => {
@@ -816,7 +818,8 @@ export default function DashboardPage() {
         );
     }
 
-    const showDashboardSkeleton = isLoading && !DISABLE_SKELETON_LOADERS;
+    const hasHydratedData = shipments.length > 0 || deals.length > 0 || sources.length > 0 || tasks.length > 0;
+    const showDashboardSkeleton = isLoading && !DISABLE_SKELETON_LOADERS && !hasHydratedData;
 
     return (
         <AppShell>
