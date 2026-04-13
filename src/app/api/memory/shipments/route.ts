@@ -10,6 +10,23 @@ async function triggerPush() {
     PushService.debouncedPush("shipmentDetail").catch(err => console.error("Optional Sheet push failed:", err));
 }
 
+async function tryAuditLog(userId: string, userName: string, action: string, entityId: string, details: string) {
+    try {
+        await prisma.auditLog.create({
+            data: {
+                userId,
+                userName,
+                action,
+                entity: "ShipmentDetail",
+                entityId,
+                details,
+            },
+        });
+    } catch (error: any) {
+        console.warn("[shipments] audit skipped:", error?.code || error?.message);
+    }
+}
+
 function parseNum(v: any): number | null {
     if (v === null || v === undefined || v === "") return null;
     const n = parseFloat(String(v));
@@ -329,9 +346,8 @@ export async function POST(req: Request) {
         const data = await req.json();
 
         // DATABASE-FIRST: Write to database as primary source
-        const shipment = await prisma.$transaction(async (tx) => {
-            const newShipment = await tx.shipmentDetail.create({
-                data: {
+        const shipment = await prisma.shipmentDetail.create({
+            data: {
                     no: data.no ? parseInt(data.no) : null,
                     exportDmo: data.exportDmo,
                     status: data.status || "upcoming",
@@ -389,21 +405,14 @@ export async function POST(req: Request) {
                     analysisMethod: data.analysis_method ?? data.analysisMethod,
                     type: data.type || "export",
                 }
-            });
-
-            await tx.auditLog.create({
-                data: {
-                    userId: session.user.id,
-                    userName: session.user.name || "Unknown",
-                    action: "CREATE",
-                    entity: "ShipmentDetail",
-                    entityId: newShipment.id,
-                    details: JSON.stringify({ mvProjectName: newShipment.mvProjectName, status: newShipment.status })
-                }
-            });
-
-            return newShipment;
         });
+        await tryAuditLog(
+            session.user.id,
+            session.user.name || "Unknown",
+            "CREATE",
+            shipment.id,
+            JSON.stringify({ mvProjectName: shipment.mvProjectName, status: shipment.status })
+        );
 
         // Optional push to Sheets for backup/export
         await triggerPush();
@@ -411,7 +420,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: true, shipment });
     } catch (error) {
         console.error("POST /api/memory/shipments error:", error);
-        return NextResponse.json({ error: "Failed to create shipment" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to create shipment", details: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
 }
 
@@ -427,10 +436,9 @@ export async function PUT(req: Request) {
         if (!existing || existing.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
         // DATABASE-FIRST: Update database as primary source
-        const shipment = await prisma.$transaction(async (tx) => {
-            const updated = await tx.shipmentDetail.update({
-                where: { id: data.id },
-                data: {
+        const shipment = await prisma.shipmentDetail.update({
+            where: { id: data.id },
+            data: {
                     no: data.no !== undefined ? (data.no ? parseInt(data.no) : null) : undefined,
                     exportDmo: data.exportDmo, status: data.status, origin: data.origin,
                     mvProjectName: data.mvProjectName, source: data.source, iupOp: data.iupOp,
@@ -479,18 +487,14 @@ export async function PUT(req: Request) {
                     analysisMethod: data.analysis_method !== undefined ? data.analysis_method : (data.analysisMethod !== undefined ? data.analysisMethod : undefined),
                     type: data.type !== undefined ? data.type : undefined,
                 }
-            });
-
-            await tx.auditLog.create({
-                data: {
-                    userId: session.user.id, userName: session.user.name || "Unknown",
-                    action: "UPDATE", entity: "ShipmentDetail", entityId: updated.id,
-                    details: JSON.stringify(data)
-                }
-            });
-
-            return updated;
         });
+        await tryAuditLog(
+            session.user.id,
+            session.user.name || "Unknown",
+            "UPDATE",
+            shipment.id,
+            JSON.stringify(data)
+        );
 
         // Optional push to Sheets for backup/export
         await triggerPush();
@@ -498,7 +502,7 @@ export async function PUT(req: Request) {
         return NextResponse.json({ success: true, shipment });
     } catch (error) {
         console.error("PUT /api/memory/shipments error:", error);
-        return NextResponse.json({ error: "Failed to update shipment" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to update shipment", details: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
 }
 
@@ -515,16 +519,14 @@ export async function DELETE(req: Request) {
         if (!existing || existing.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
         // DATABASE-FIRST: Delete from database as primary source
-        await prisma.$transaction(async (tx) => {
-            await tx.shipmentDetail.update({ where: { id }, data: { isDeleted: true } });
-            await tx.auditLog.create({
-                data: {
-                    userId: session.user.id, userName: session.user.name || "Unknown",
-                    action: "DELETE", entity: "ShipmentDetail", entityId: id,
-                    details: JSON.stringify({ isDeleted: true })
-                }
-            });
-        });
+        await prisma.shipmentDetail.update({ where: { id }, data: { isDeleted: true } });
+        await tryAuditLog(
+            session.user.id,
+            session.user.name || "Unknown",
+            "DELETE",
+            id,
+            JSON.stringify({ isDeleted: true })
+        );
 
         // Optional push to Sheets for backup/export
         await triggerPush();
@@ -532,6 +534,6 @@ export async function DELETE(req: Request) {
         return NextResponse.json({ success: true });
     } catch (error) {
         console.error("DELETE /api/memory/shipments error:", error);
-        return NextResponse.json({ error: "Failed to delete shipment" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to delete shipment", details: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
 }
