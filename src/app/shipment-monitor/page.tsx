@@ -16,6 +16,7 @@ import { AIAgent } from "@/lib/ai-agent";
 import { ReportModal } from "@/components/shared/report-modal";
 import { Toast, ToastType } from "@/components/shared/toast";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts";
+import { useSearchParams } from "next/navigation";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
@@ -130,6 +131,8 @@ const normalizeShipmentStatus = (raw?: string | null): SummaryStatus => {
 
 export default function ShipmentMonitorPage() {
     const [, setIsInitializing] = React.useState(false);
+    const searchParams = useSearchParams();
+    const didApplyDeepLinkRef = React.useRef<string | null>(null);
 
     const { shipments, syncFromMemory, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
     const { dailyDeliveries, syncDeliveries, addDelivery, updateDelivery, deleteDelivery } = useDailyDeliveryStore();
@@ -152,6 +155,31 @@ export default function ShipmentMonitorPage() {
     const [dateTo, setDateTo] = React.useState("");
     const [sortBy, setSortBy] = React.useState<"latest" | "oldest" | "qty_desc" | "qty_asc">("latest");
     const [showReportModal, setShowReportModal] = React.useState(false);
+
+    React.useEffect(() => {
+        const tabParam = (searchParams.get("tab") || "").toLowerCase();
+        const validTabs = new Set(["all", "upcoming", "loading", "in_transit", "completed", "cancelled"]);
+        if (validTabs.has(tabParam)) {
+            setActiveTab(tabParam as "all" | "upcoming" | "loading" | "in_transit" | "completed" | "cancelled");
+        }
+    }, [searchParams]);
+
+    React.useEffect(() => {
+        const openId = searchParams.get("open");
+        if (!openId) return;
+        if (shipments.length === 0) return;
+        if (didApplyDeepLinkRef.current === openId) return;
+
+        const target =
+            shipments.find((s) => String(s.id) === openId) ||
+            shipments.find((s) => String(s.no || "") === openId);
+
+        if (!target) return;
+
+        setMainTab("MV Barge");
+        setDetailShipment(target);
+        didApplyDeepLinkRef.current = openId;
+    }, [searchParams, shipments]);
 
     // Interactive Modal States
     const [showDailyForm, setShowDailyForm] = React.useState(false);

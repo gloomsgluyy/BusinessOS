@@ -87,6 +87,20 @@ function getShipmentEtaDate(sh: any): Date | null {
     );
 }
 
+function formatLaycanWithYear(sh: any): string {
+    const laycan = cleanText(sh.laycan);
+    if (laycan && /\b(19|20)\d{2}\b/.test(laycan)) return laycan;
+
+    const date = getShipmentEtaDate(sh) || asDate(sh.bl_date);
+    const year = date?.getFullYear() || Number(sh.year) || null;
+
+    if (laycan && year) return `${laycan} ${year}`;
+    if (laycan) return laycan;
+    if (!date) return "-";
+
+    return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 function inferShipmentType(sh: any): "local" | "export" {
     const explicit = String(sh.type || "").toLowerCase();
     if (explicit.includes("local") || explicit.includes("dmo") || explicit.includes("domestic") || explicit.includes("loco")) return "local";
@@ -168,6 +182,12 @@ function normalizeShipmentStatus(raw?: string): CanonicalShipmentStatus {
     if (src.includes("in_transit") || src.includes("anchorage") || src.includes("discharging") || src.includes("transit")) return "in_transit";
     if (src.includes("upcoming") || src.includes("waiting") || src.includes("draft") || src.includes("planned")) return "upcoming";
     return "unknown";
+}
+
+function toShipmentMonitorTab(raw?: string): "all" | "upcoming" | "loading" | "in_transit" | "completed" | "cancelled" {
+    const canonical = normalizeShipmentStatus(raw);
+    if (canonical === "unknown") return "all";
+    return canonical;
 }
 
 const REGION_ALIAS: Record<string, string[]> = {
@@ -355,56 +375,54 @@ function SmallStat({ label, value, color }: { label: string; value: string | num
 /* ─── Market Price Mini Chart ─────────────────────────────── */
 function MarketPriceMini() {
     const prices = useCommercialStore((s) => s.marketPrices);
-    const [mounted, setMounted] = React.useState(false);
-    const [weeks, setWeeks] = React.useState(4);
+    const latest = prices[0];
+    const prev = prices[1];
 
-    React.useEffect(() => setMounted(true), []);
+    const metricCards = [
+        { label: "ICI 1 (6500)", key: "ici_1", color: "text-red-500" },
+        { label: "ICI 2 (5800)", key: "ici_2", color: "text-orange-500" },
+        { label: "ICI 3 (5000)", key: "ici_3", color: "text-blue-500" },
+        { label: "ICI 4 (4200)", key: "ici_4", color: "text-violet-500" },
+        { label: "ICI 5 (3400)", key: "ici_5", color: "text-indigo-500" },
+        { label: "NEWCASTLE", key: "newcastle", color: "text-pink-500" },
+        { label: "HBA", key: "hba", color: "text-emerald-600" },
+        { label: "HBA I (5300)", key: "hba_1", color: "text-cyan-500" },
+        { label: "HBA II (4100)", key: "hba_2", color: "text-teal-500" },
+        { label: "HBA III (3400)", key: "hba_3", color: "text-sky-500" },
+    ] as const;
 
-    // Filter to last N weeks (7 days/week)
-    // Assume prices is descending (newest first)
-    const filteredPrices = [...prices].slice(0, weeks * 7).reverse();
-
-    const data = filteredPrices.map((p) => ({
-        week: new Date(p.date).toLocaleDateString("en", { month: "short", day: "numeric" }),
-        ICI4: p.ici_4, Newc: p.newcastle, HBA: p.hba,
-    }));
+    const asValue = (entry: any, key: string) => safeNum(entry?.[key as keyof typeof entry] as any);
+    const fmtUsd = (v: number) => `$${safeFmt(v, 2)}`;
 
     return (
-        <div className="card-elevated p-5 animate-slide-up delay-5 flex flex-col">
+        <div className="card-elevated p-5 animate-slide-up delay-5">
             <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold whitespace-nowrap">Market Price</h3>
-                    <select
-                        value={weeks}
-                        onChange={(e) => setWeeks(Number(e.target.value))}
-                        className="px-2 py-0.5 rounded-md bg-accent/50 border border-border text-[10px] outline-none focus:border-primary/50 text-muted-foreground w-auto cursor-pointer"
-                    >
-                        <option value={1}>1 Week</option>
-                        <option value={2}>2 Weeks</option>
-                        <option value={3}>3 Weeks</option>
-                        <option value={4}>4 Weeks</option>
-                        <option value={8}>8 Weeks</option>
-                    </select>
+                <div>
+                    <h3 className="text-sm font-semibold">Market Price</h3>
+                    <p className="text-[10px] text-muted-foreground">
+                        {latest?.date ? `Latest: ${new Date(latest.date).toLocaleDateString("en-GB")}` : "No market price data yet"}
+                    </p>
                 </div>
                 <a href="/market-price" className="text-xs text-primary hover:underline flex items-center gap-1 group whitespace-nowrap">
                     Detail <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
                 </a>
             </div>
-            <div className="h-[220px]">
-                {mounted && (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(128,128,128,0.1)" />
-                            <XAxis dataKey="week" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }} />
-                            <Legend wrapperStyle={{ fontSize: '11px' }} />
-                            <Line type="monotone" dataKey="ICI4" name="ICI 4 (4200)" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
-                            <Line type="monotone" dataKey="Newc" name="Newcastle" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
-                            <Line type="monotone" dataKey="HBA" name="HBA" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
-                        </LineChart>
-                    </ResponsiveContainer>
-                )}
+
+            <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-2">
+                {metricCards.map((item) => {
+                    const value = asValue(latest, item.key);
+                    const delta = value - asValue(prev, item.key);
+                    const positive = delta >= 0;
+                    return (
+                        <div key={item.key} className="rounded-xl border border-border bg-accent/20 px-3 py-2">
+                            <p className="text-[9px] uppercase tracking-wide text-muted-foreground">{item.label}</p>
+                            <p className={`text-2xl font-black leading-tight mt-1 ${item.color}`}>{fmtUsd(value)}</p>
+                            <p className={`text-[10px] mt-1 font-semibold ${positive ? "text-emerald-500" : "text-red-500"}`}>
+                                {positive ? "UP" : "DOWN"} {delta >= 0 ? "+" : ""}{safeFmt(delta, 2)}
+                            </p>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );
@@ -473,11 +491,22 @@ function ShipmentTimeline({ shipmentItems, label }: { shipmentItems: any[]; labe
         <div className="card-elevated p-5 animate-slide-up">
             <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold">{label}</h3>
+                <a
+                    href="/shipment-monitor"
+                    className="text-[10px] text-primary hover:underline flex items-center gap-1 group"
+                >
+                    Open Monitor
+                    <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                </a>
+            </div>
+            <div className="flex items-center justify-between mb-3">
                 <span className="text-[10px] text-muted-foreground bg-accent/50 px-2 py-0.5 rounded-full">{shipmentItems.length} shipments</span>
             </div>
             <div className="space-y-2">
                 {shipmentItems.slice(0, 4).map((sh) => {
-                    const statusCfg = SHIPMENT_STATUSES.find((s) => s.value === sh.status);
+                    const statusTab = toShipmentMonitorTab(sh.status);
+                    const statusCfg = SHIPMENT_STATUSES.find((s) => s.value === statusTab) || SHIPMENT_STATUSES[0];
+                    const detailUrl = `/shipment-monitor?tab=${statusTab}&open=${encodeURIComponent(sh.id)}`;
                     return (
                         <div key={sh.id} className="flex items-center gap-3 p-3 rounded-xl bg-accent/30 hover:bg-accent/50 transition-colors">
                             <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${statusCfg?.color}15` }}>
@@ -485,6 +514,7 @@ function ShipmentTimeline({ shipmentItems, label }: { shipmentItems: any[]; labe
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-xs font-semibold truncate">{cleanText(sh.buyer || sh.source || "Unknown")}</p>
+                                <p className="text-[10px] text-muted-foreground">Laycan: {formatLaycanWithYear(sh)}</p>
                                 <p className="text-[10px] text-muted-foreground">
                                     {cleanText(sh.vessel_name || sh.vesselName || sh.mv_project_name || sh.mvProjectName || sh.barge_name || sh.bargeName || "Vessel N/A")}
                                     {" · "}
@@ -495,6 +525,15 @@ function ShipmentTimeline({ shipmentItems, label }: { shipmentItems: any[]; labe
                                 <span className="status-badge text-[10px]" style={{ color: statusCfg?.color, backgroundColor: `${statusCfg?.color}15` }}>
                                     {statusCfg?.label}
                                 </span>
+                                <div className="mt-1">
+                                    <a
+                                        href={detailUrl}
+                                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline"
+                                    >
+                                        Open Detail
+                                        <ArrowUpRight className="w-3 h-3" />
+                                    </a>
+                                </div>
                                 {sh.pending_items && sh.pending_items.length > 0 && (
                                     <div className="mt-0.5">
                                         {sh.pending_items.slice(0, 2).map((item: string, j: number) => (
@@ -1172,7 +1211,7 @@ export default function DashboardPage() {
                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fade-in">
                             <div>
                                 <h1 className="text-xl md:text-2xl font-bold">Dashboard</h1>
-                                <p className="text-sm text-muted-foreground">Commercial Team Overview · {currentUser?.job_title || currentUser?.role || "Guest"}</p>
+                                <p className="text-sm text-muted-foreground">Commercial Team Overview - {currentUser?.job_title || currentUser?.role || "Guest"}</p>
                             </div>
                             <DashboardFilters
                                 range={timeRange} setRange={setTimeRange}
@@ -1208,10 +1247,9 @@ export default function DashboardPage() {
                             </div>
                         )}
 
-                        {/* Row 2: Market Price + Meetings */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {/* Row 2: Market Price */}
+                        <div className="grid grid-cols-1 gap-4">
                             <MarketPriceMini />
-                            <UpcomingMeetings />
                         </div>
 
                         {/* Row 3: Quantity per Month */}
@@ -1219,18 +1257,21 @@ export default function DashboardPage() {
                             <QuantityPerMonth shipments={filteredShipments} />
                         </div>
 
-                        {/* Row 4: Stock Inventory */}
-                        <StockInventory sources={filteredSources} />
-
-                        {/* Row 5: Shipment Timelines (3 sections) */}
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                            <ShipmentTimeline shipmentItems={normalizedOngoingShipments} label="On-going Shipments" />
-                            <ShipmentTimeline shipmentItems={normalizedUpcoming30} label="Upcoming (30 Days)" />
-                            <ShipmentTimeline shipmentItems={normalizedUpcoming60} label="Upcoming (60 Days)" />
+                        {/* Row 4: Meetings + Priority + Shipment Timelines */}
+                        <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
+                            <div className="xl:col-span-1 space-y-4">
+                                <UpcomingMeetings />
+                                <PriorityTasks />
+                            </div>
+                            <div className="xl:col-span-3 grid grid-cols-1 lg:grid-cols-3 gap-4">
+                                <ShipmentTimeline shipmentItems={normalizedOngoingShipments} label="On-going Shipments" />
+                                <ShipmentTimeline shipmentItems={normalizedUpcoming30} label="Upcoming (30 Days)" />
+                                <ShipmentTimeline shipmentItems={normalizedUpcoming60} label="Upcoming (60 Days)" />
+                            </div>
                         </div>
 
-                        {/* Row 6: Priority Tasks */}
-                        <PriorityTasks />
+                        {/* Row 5: Stock Inventory */}
+                        <StockInventory sources={filteredSources} />
                     </>)}
             </div>
         </AppShell>
