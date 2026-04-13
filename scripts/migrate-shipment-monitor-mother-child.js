@@ -16,6 +16,7 @@ const xlsx = require("xlsx");
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
+const RETRYABLE_DB_CODES = new Set(["P1001", "P1017", "P2024"]);
 
 const args = process.argv.slice(2);
 const appendMode = args.includes("--append");
@@ -31,6 +32,43 @@ const DEFAULT_CHILD_FILE = path.resolve(process.cwd(), "00. MV_Barge&Source 2021
 
 const motherFile = getArg("--mother", DEFAULT_MOTHER_FILE);
 const childFile = getArg("--child", DEFAULT_CHILD_FILE);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableDbError(error) {
+  const code = error?.code;
+  const msg = String(error?.message || "").toLowerCase();
+  return (
+    RETRYABLE_DB_CODES.has(code) ||
+    msg.includes("server has closed the connection") ||
+    msg.includes("connection") ||
+    msg.includes("socket")
+  );
+}
+
+async function withDbRetry(fn, label, maxAttempts = 6) {
+  let attempt = 1;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt >= maxAttempts || !isRetryableDbError(error)) throw error;
+      const waitMs = Math.min(12000, 1000 * (2 ** (attempt - 1)));
+      console.warn(`Retrying ${label} (attempt ${attempt + 1}/${maxAttempts}) after ${waitMs}ms: ${error?.code || error?.message}`);
+      await sleep(waitMs);
+      try {
+        await prisma.$disconnect();
+      } catch (_) {}
+      try {
+        await prisma.$connect();
+      } catch (_) {}
+      attempt += 1;
+    }
+  }
+}
 
 function cleanStr(val) {
   if (val === null || val === undefined) return null;
@@ -72,6 +110,14 @@ function parseFloatLocalized(raw) {
     }
   } else if (dotCount > 1) {
     s = s.replace(/\./g, "");
+  } else if (dotCount === 1 && commaCount === 0) {
+    const parts = s.split(".");
+    const left = parts[0] || "";
+    const right = parts[1] || "";
+    // Indonesian formatted thousands (e.g. 16.300, 77.500) should be 16300 / 77500.
+    if (right.length === 3 && left.length >= 1) {
+      s = `${left}${right}`;
+    }
   }
 
   const n = parseFloat(s);
@@ -172,12 +218,13 @@ function extractProjectHint(raw) {
 }
 
 function statusToInternal(status, shipmentStatus) {
-  const src = normalizeText(status || shipmentStatus || "");
+  const src = normalizeText(`${status || ""} ${shipmentStatus || ""}`);
   if (src.includes("CANCEL")) return "cancelled";
+  if (src.includes("DONE") || src.includes("COMPLETE") || src.includes("COMPLETELY") || src.includes("DISCHARGED")) return "completed";
   if (src.includes("UPCOMING") || src.includes("WAITING")) return "upcoming";
+  if (src.includes("LOADING PROSES") || src.includes("LOADING PROCESS")) return "loading";
   if (src.includes("LOAD")) return "loading";
   if (src.includes("TRANSIT") || src.includes("ANCHORAGE") || src.includes("DISCH")) return "in_transit";
-  if (src.includes("DONE") || src.includes("COMPLETE")) return "completed";
   return "upcoming";
 }
 
@@ -193,6 +240,39 @@ function buildMatchKey(year, vessel, project) {
     normalizeText(vessel || ""),
     normalizeText(project || "")
   ].join("|");
+}
+
+const HEADER_TOKENS = new Set([
+  "NO",
+  "NO.",
+  "STATUS",
+  "ORIGIN",
+  "MV PROJECT NAME",
+  "MV NAME",
+  "MV PROJECT",
+  "SOURCE",
+  "IUP OP",
+  "SHIPMENT FLOW",
+  "JETTY LOADING PORT",
+  "JETTY",
+  "LAYCAN",
+  "NOMINATION",
+  "QTY MT",
+  "QTY",
+  "PLAN",
+  "COB",
+  "REMARKS",
+  "SHIPMENT STATUS",
+  "ISSUE",
+  "BL DATE",
+  "BUYER",
+  "EXPORT",
+  "EXPORT DMO"
+]);
+
+function isHeaderToken(val) {
+  const n = normalizeText(cleanStr(val) || "");
+  return !!n && HEADER_TOKENS.has(n);
 }
 
 function isChildDataRow(rowText) {
@@ -256,6 +336,104 @@ function buildLegacyHeaderLabels(rows) {
   return labels;
 }
 
+function findCols(headers, patterns) {
+  const out = [];
+  for (let i = 0; i < headers.length; i += 1) {
+    const h = normalizeText(headers[i] || "");
+    if (!h) continue;
+    if (patterns.some((p) => p.test(h))) out.push(i);
+  }
+  return out;
+}
+
+function scoreDateDensity(rows, colIdx, fallbackYear) {
+  if (colIdx < 0) return 0;
+  let hit = 0;
+  let seen = 0;
+  for (let r = 2; r < Math.min(rows.length, 200); r += 1) {
+    const raw = rows[r]?.[colIdx];
+    if (raw === null || raw === undefined || raw === "") continue;
+    seen += 1;
+    if (parseDate(raw, fallbackYear)) hit += 1;
+  }
+  return seen === 0 ? 0 : hit / seen;
+}
+
+function scoreStatusDensity(rows, colIdx) {
+  if (colIdx < 0) return 0;
+  let hit = 0;
+  let seen = 0;
+  for (let r = 2; r < Math.min(rows.length, 200); r += 1) {
+    const raw = cleanStr(rows[r]?.[colIdx]);
+    if (!raw) continue;
+    seen += 1;
+    const t = normalizeText(raw);
+    if (
+      t.includes("DONE") ||
+      t.includes("COMPLETE") ||
+      t.includes("UPCOMING") ||
+      t.includes("WAITING") ||
+      t.includes("LOAD") ||
+      t.includes("DISCH")
+    ) {
+      hit += 1;
+    }
+  }
+  return seen === 0 ? 0 : hit / seen;
+}
+
+function scoreNumericDensity(rows, colIdx, min = 0, max = Number.POSITIVE_INFINITY) {
+  if (colIdx < 0) return 0;
+  let hit = 0;
+  let seen = 0;
+  for (let r = 2; r < Math.min(rows.length, 300); r += 1) {
+    const raw = rows[r]?.[colIdx];
+    if (raw === null || raw === undefined || raw === "") continue;
+    seen += 1;
+    const n = toFloat(raw);
+    if (n !== null && n > min && n < max) hit += 1;
+  }
+  return seen === 0 ? 0 : hit / seen;
+}
+
+function pickBestIndex(candidates, scoreFn) {
+  if (!candidates || candidates.length === 0) return -1;
+  let bestIdx = candidates[0];
+  let bestScore = scoreFn(bestIdx);
+  for (let i = 1; i < candidates.length; i += 1) {
+    const idx = candidates[i];
+    const sc = scoreFn(idx);
+    if (sc > bestScore) {
+      bestScore = sc;
+      bestIdx = idx;
+    }
+  }
+  return bestIdx;
+}
+
+function pickFirstNumber(row, indexes) {
+  for (const idx of indexes) {
+    if (idx === null || idx === undefined || idx < 0) continue;
+    const n = toFloat(row[idx]);
+    if (n !== null && n > 0) return n;
+  }
+  return null;
+}
+
+function asPlausibleUsdPerMt(v) {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return n >= 5 && n <= 250 ? n : null;
+}
+
+function asPlausibleMarginUsd(v) {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return n >= -100 && n <= 100 ? n : null;
+}
+
 function isLegacyMilestoneHeader(label) {
   const h = normalizeText(label || "");
   if (!h) return false;
@@ -309,14 +487,39 @@ function findHeaderRow(rows) {
   return -1;
 }
 
-function buildMergedHeaders(rows, headerRow) {
+function isLikelyHeaderContinuationRow(row) {
+  if (!row) return false;
+  const cells = row.map((v) => cleanStr(v)).filter(Boolean);
+  if (cells.length === 0) return false;
+
+  const text = normalizeText(cells.join(" | "));
+  if (!text) return false;
+
+  // If the row already looks like a shipment line (starts with number and has vessel/project words),
+  // treat as data, not header continuation.
+  const first = cleanStr(row[0]);
+  if (typeof row[0] === "number" || /^\d+$/.test(String(first || ""))) {
+    if (/(MV|PROJECT|TB|BG|DONE|UPCOMING|FOB|CIF)/.test(text)) return false;
+  }
+
+  if (/(TB|BG|OR SUBS|DONE SHIPMENT|UPCOMING SHIPMENT)/.test(text)) return false;
+
+  return /(PLAN|JETTY|TERM|INVOICE|APPROVAL|PAID|PRICE|MARKET|BASE|DEVIASI|COMPARISON|OPS|QA|LEGAL|TANGGAL|JAM|SOURCE|CONTRACT|KURS|IDR|USD|TRACKKER|BILLING|ROYALTI)/.test(text);
+}
+
+function detectHeaderDepth(rows, headerRow) {
+  const r2 = rows[headerRow + 2] || [];
+  return isLikelyHeaderContinuationRow(r2) ? 3 : 2;
+}
+
+function buildMergedHeaders(rows, headerRow, depth = 3) {
   const r1 = rows[headerRow] || [];
   const r2 = rows[headerRow + 1] || [];
-  const r3 = rows[headerRow + 2] || [];
-  const maxLen = Math.max(r1.length, r2.length, r3.length);
+  const r3 = depth >= 3 ? (rows[headerRow + 2] || []) : [];
+  const maxLen = Math.max(r1.length, r2.length, r3.length || 0);
   const out = [];
   for (let c = 0; c < maxLen; c += 1) {
-    const parts = [r1[c], r2[c], r3[c]]
+    const parts = [r1[c], r2[c], depth >= 3 ? r3[c] : null]
       .map((v) => cleanStr(v))
       .filter(Boolean);
     out.push(parts.join(" > "));
@@ -363,59 +566,130 @@ function milestoneRowsFromChild(row, idx, year, sourceSheet) {
   return milestones.sort((a, b) => a._sequence - b._sequence);
 }
 
-function legacyColumnMap(year) {
-  if (year === 2023) {
-    return {
+function legacyColumnMap(year, rows, headers) {
+  // Static fallback map (used when legacy headers are inconsistent)
+  const map = (year === 2023)
+    ? {
       no: 0,
       mvProjectName: 1,
       laycan: 2,
       buyer: 3,
       iupOp: 4,
       source: 7,
-      jettyLoadingPort: 10,
+      jettyLoadingPort: 11,
       nomination: 13,
       qtyPlan: 14,
-      qtyCob: 17,
+      qtyCob: 15,
+      qtyLoaded: 15,
       shipmentStatus: 19,
       surveyorLhv: 20,
-      blDate: 22
-    };
-  }
-  if (year === 2022) {
-    return {
-      no: 1,
-      mvProjectName: 2,
-      laycan: 3,
-      buyer: 4,
-      iupOp: 5,
-      source: 7,
-      jettyLoadingPort: 9,
-      nomination: 10,
-      qtyPlan: 12,
-      qtyCob: 15,
-      shipmentStatus: 16,
-      blDate: 17
-    };
-  }
-  return {
-    no: 1,
-    mvProjectName: 2,
-    laycan: 3,
-    blDate: 17,
-    buyer: 5,
-    iupOp: 10,
-    source: 11,
-    jettyLoadingPort: 12,
-    nomination: 13,
-    qtyPlan: 14,
-    qtyCob: 15,
-    shipmentStatus: 16
-  };
+      blDate: 22,
+      sp: 24,
+      deadfreight: 26,
+      lossGainCargo: 23
+    }
+    : (year === 2022)
+      ? {
+        no: 1,
+        mvProjectName: 2,
+        laycan: 3,
+        buyer: 4,
+        iupOp: 5,
+        source: 7,
+        jettyLoadingPort: 9,
+        nomination: 10,
+        qtyPlan: 12,
+        qtyCob: 13,
+        qtyLoaded: 14,
+        shipmentStatus: 15,
+        blDate: 16,
+        sp: 19,
+        deadfreight: 20,
+        lossGainCargo: 18
+      }
+      : {
+        no: 1,
+        mvProjectName: 2,
+        laycan: 3,
+        buyer: 5,
+        iupOp: 10,
+        source: 11,
+        jettyLoadingPort: 12,
+        nomination: 13,
+        qtyPlan: 14,
+        qtyCob: 15,
+        qtyLoaded: 15,
+        shipmentStatus: 16,
+        blDate: 17,
+        sp: 6,
+        deadfreight: 9,
+        lossGainCargo: 8
+      };
+
+  if (!headers || headers.length === 0) return map;
+
+  const normLabel = (idx) => normalizeText(headers[idx] || "");
+  const firstNonContract = (arr) => arr.find((idx) => !normLabel(idx).includes("CONTRACT")) ?? arr[0];
+  const preferActual = (arr) => arr.find((idx) => normLabel(idx).includes("ACTUAL")) ?? arr[0];
+
+  const noCols = findCols(headers, [/^NO$/, /^NO\.$/]);
+  if (noCols.length > 0) map.no = pickBestIndex(noCols, (idx) => scoreNumericDensity(rows, idx, 0, 10000));
+
+  const mvCols = findCols(headers, [/MV\s+NAME/, /MV\s+PROJECT\s+NAME/]);
+  if (mvCols.length > 0) map.mvProjectName = mvCols[0];
+
+  const laycanCols = findCols(headers, [/^LAYCAN$/]);
+  if (laycanCols.length > 0) map.laycan = laycanCols[0];
+
+  const buyerCols = findCols(headers, [/^BUYER$/]);
+  if (buyerCols.length > 0) map.buyer = buyerCols[0];
+
+  const iupCols = findCols(headers, [/^IUP\s+OP$/]);
+  if (iupCols.length > 0) map.iupOp = iupCols[0];
+
+  const sourceCols = findCols(headers, [/^SOURCE$/, /SOURCE\s+CONTRACT/]);
+  if (sourceCols.length > 0) map.source = firstNonContract(sourceCols);
+
+  const jettyCols = findCols(headers, [/^JETTY$/, /JETTY\s+ACTUAL/, /LOADING\s+PORT/]);
+  if (jettyCols.length > 0) map.jettyLoadingPort = preferActual(jettyCols);
+
+  const nominationCols = findCols(headers, [/NOMINATION/]);
+  if (nominationCols.length > 0) map.nomination = nominationCols[0];
+
+  const qtyPlanCols = findCols(headers, [/QTY.*PLAN/]);
+  if (qtyPlanCols.length > 0) map.qtyPlan = pickBestIndex(qtyPlanCols, (idx) => scoreNumericDensity(rows, idx, 0, 100000));
+
+  const qtyCobCols = findCols(headers, [/STOCK\s+JETTY/, /\bCOB\b/]);
+  if (qtyCobCols.length > 0) map.qtyCob = pickBestIndex(qtyCobCols, (idx) => scoreNumericDensity(rows, idx, 0, 100000));
+
+  const qtyLoadedCols = findCols(headers, [/BL\s+QUANTITY/, /QTY.*BARGE/, /^DSR$/, /QTY.*ACTUAL/]);
+  if (qtyLoadedCols.length > 0) map.qtyLoaded = pickBestIndex(qtyLoadedCols, (idx) => scoreNumericDensity(rows, idx, 0, 100000));
+
+  const statusCols = findCols(headers, [/^STATUS$/, /SHIPMENT\s+STATUS/]);
+  if (statusCols.length > 0) map.shipmentStatus = pickBestIndex(statusCols, (idx) => scoreStatusDensity(rows, idx));
+
+  const blDateCols = findCols(headers, [/BL\s+DATE/]).filter((idx) => !normLabel(idx).includes("SOURCE CONTRACT"));
+  if (blDateCols.length > 0) map.blDate = pickBestIndex(blDateCols, (idx) => scoreDateDensity(rows, idx, year));
+
+  const surveyorCols = findCols(headers, [/SURVEYOR\s+LHV/]);
+  if (surveyorCols.length > 0) map.surveyorLhv = surveyorCols[0];
+
+  const spCols = findCols(headers, [/^SP$/]);
+  if (spCols.length > 0) map.sp = pickBestIndex(spCols, (idx) => scoreNumericDensity(rows, idx, 0, 1000000));
+
+  const deadfreightCols = findCols(headers, [/DEADFREIGHT/]);
+  if (deadfreightCols.length > 0) map.deadfreight = deadfreightCols[0];
+
+  const lossGainCols = findCols(headers, [/LOSS.*GAIN/]);
+  if (lossGainCols.length > 0) map.lossGainCargo = lossGainCols[0];
+
+  return map;
 }
 
 async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
-  const col = legacyColumnMap(year);
   const legacyHeaders = buildLegacyHeaderLabels(rows);
+  const col = legacyColumnMap(year, rows, legacyHeaders);
+  console.log(`  legacy-map ${sheetName} => no:${col.no} mv:${col.mvProjectName} laycan:${col.laycan} qtyPlan:${col.qtyPlan} qtyCob:${col.qtyCob} qtyLoaded:${col.qtyLoaded} status:${col.shipmentStatus} blDate:${col.blDate} sp:${col.sp}`);
   let inserted = 0;
   let milestones = 0;
   const carry = {
@@ -423,7 +697,7 @@ async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
     laycan: null
   };
 
-  for (let r = 1; r < rows.length; r += 1) {
+  for (let r = 2; r < rows.length; r += 1) {
     const row = rows[r] || [];
     const line = row.map((v) => (v == null ? "" : String(v))).join(" | ");
     if (!isChildDataRow(line)) continue;
@@ -442,7 +716,15 @@ async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
     const shipmentStatusRaw = cleanStr(row[col.shipmentStatus]);
     const mvNorm = normalizeText(mvProjectName || "");
     const nomNorm = normalizeText(nomination || "");
-    if (mvNorm === "MV NAME" || mvNorm === "MV PROJECT NAME" || nomNorm === "NOMINATION") continue;
+    if (
+      isHeaderToken(mvProjectName) ||
+      isHeaderToken(nomination) ||
+      isHeaderToken(sourceRaw) ||
+      isHeaderToken(shipmentStatusRaw) ||
+      mvNorm === "MV NAME" ||
+      mvNorm === "MV PROJECT NAME" ||
+      nomNorm === "NOMINATION"
+    ) continue;
     if (!no && !mvProjectName && !nomination) continue;
     if (
       !no &&
@@ -456,7 +738,15 @@ async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
       mother = [...motherIndex.values()].find((m) => m.year === year && m.vesselNorm && (m.vesselNorm.includes(vesselNorm) || vesselNorm.includes(m.vesselNorm)));
     }
 
-    const shipment = await prisma.shipmentDetail.create({
+    const qtyPlan = toFloat(row[col.qtyPlan]);
+    const qtyCob = pickFirstNumber(row, [col.qtyCob, col.qtyLoaded, col.qtyPlan]);
+    const quantityLoaded = pickFirstNumber(row, [col.qtyLoaded, col.qtyCob, col.qtyPlan]);
+    const spRaw = toFloat(row[col.sp]);
+    const spPlausible = spRaw && spRaw > 0 && spRaw < 500 ? spRaw : null;
+    const lossGainCargo = toFloat(row[col.lossGainCargo]);
+    const deadfreight = toFloat(row[col.deadfreight]);
+
+    const shipment = await withDbRetry(() => prisma.shipmentDetail.create({
       data: {
         no,
         exportDmo: "EXPORT",
@@ -468,33 +758,37 @@ async function migrateLegacySheet(rows, year, sheetName, motherIndex) {
         jettyLoadingPort: jettyRaw || mother?.pol || null,
         laycan: laycanRaw || carry.laycan || mother?.laycan || null,
         nomination,
-        qtyPlan: toFloat(row[col.qtyPlan]),
-        qtyCob: toFloat(row[col.qtyCob]),
+        qtyPlan,
+        qtyCob,
         shipmentStatus: cleanStr(row[col.shipmentStatus]),
         blDate: parseDate(row[col.blDate], year),
         surveyorLhv: cleanStr(row[col.surveyorLhv]),
+        lossGainCargo,
+        deadfreight,
+        sp: spPlausible,
         buyer: cleanStr(row[col.buyer]) || mother?.buyer || null,
         vesselName: mother?.vessel || vesselHint || mvProjectName || null,
         bargeName: nomination,
         loadingPort: jettyRaw || mother?.pol || null,
-        quantityLoaded: toFloat(row[col.qtyCob]) || toFloat(row[col.qtyPlan]),
+        quantityLoaded,
+        salesPrice: spPlausible || null,
         product: mother?.product || null,
         type: "export",
         year
       }
-    });
+    }), "shipmentDetail.create(legacy)");
     inserted += 1;
 
     const rowMilestones = milestoneRowsFromLegacy(row, year, sheetName, col, legacyHeaders);
     if (rowMilestones.length > 0) {
-      const created = await prisma.timelineMilestone.createMany({
+      const created = await withDbRetry(() => prisma.timelineMilestone.createMany({
         data: rowMilestones.map((m) => ({
           shipmentId: shipment.id,
           title: m.title,
           date: m.date,
           description: m.description
         }))
-      });
+      }), "timelineMilestone.createMany(legacy)");
       milestones += created.count;
     }
   }
@@ -519,9 +813,9 @@ async function migrate() {
 
   if (!appendMode) {
     console.log("Cleaning shipment tables...");
-    await prisma.timelineMilestone.deleteMany({});
-    await prisma.shipmentDetail.deleteMany({});
-    await prisma.dailyDelivery.deleteMany({});
+    await withDbRetry(() => prisma.timelineMilestone.deleteMany({}), "timelineMilestone.deleteMany");
+    await withDbRetry(() => prisma.shipmentDetail.deleteMany({}), "shipmentDetail.deleteMany");
+    await withDbRetry(() => prisma.dailyDelivery.deleteMany({}), "dailyDelivery.deleteMany");
   }
 
   console.log(`Loading mother rows: ${motherRows.length}`);
@@ -539,7 +833,7 @@ async function migrate() {
       ? "domestic"
       : "export";
 
-    const mother = await prisma.dailyDelivery.create({
+    const mother = await withDbRetry(() => prisma.dailyDelivery.create({
       data: {
         reportType,
         year,
@@ -557,7 +851,7 @@ async function migrate() {
         analysisMethod: cleanStr(raw.Sheet_Source),
         issue: `Mother shipment base (Record_ID: ${cleanStr(raw.Record_ID) || "-"})`
       }
-    });
+    }), "dailyDelivery.create");
 
     const key = buildMatchKey(year, normalizeVesselName(vessel), project);
     motherIndex.set(key, {
@@ -603,7 +897,8 @@ async function migrate() {
       continue;
     }
 
-    const headers = buildMergedHeaders(rows, headerRow);
+    const headerDepth = detectHeaderDepth(rows, headerRow);
+    const headers = buildMergedHeaders(rows, headerRow, headerDepth);
     const idx = {
       no: findCol(headers, [/^NO$/]),
       exportDmo: findCol(headers, [/EXPORT\s+DMO/]),
@@ -634,8 +929,11 @@ async function migrate() {
       lhvTerbit: findCol(headers, [/LHV\s+TERBIT/]),
       jarak: findCol(headers, [/JARAK/]),
       sp: findCol(headers, [/\bSP\b/]),
-      marketPriceUsd: findCol(headers, [/IN\s+USD.*MARKET\s+PRICE/]),
-      kurs: findCol(headers, [/KURS/]),
+      marketPriceUsd: findCol(headers, [/IN\s+USD.*MARKET\s+PRICE/, /MARKET\s+PRICE.*IN\s+USD/]),
+      marketPriceIdr: findCol(headers, [/IN\s+IDR.*MARKET\s+PRICE/, /MARKET\s+PRICE.*IDR/]),
+      kurs: findCol(headers, [/KURS/, /EST\s+KURS/]),
+      basePriceIdr: findCol(headers, [/BASE\s+PRICE/]),
+      priceAfterAdjustment: findCol(headers, [/PRICE\s+AFTER\s+ADJUST/]),
       priceComparison: findCol(headers, [/PRICE\s+COMPARISON/]),
       deadfreight: findCol(headers, [/DEADFREIGHT/]),
       arrivalPol: findCol(headers, [/ARRIVAL\s+POL/]),
@@ -648,8 +946,9 @@ async function migrate() {
       commDisch: findCol(headers, [/COMM\s+DISCH/]),
       compDisch: findCol(headers, [/COMP\s+DISCH/])
     };
+    console.log(`  map ${sheetName} => no:${idx.no} mv:${idx.mvProjectName} qtyPlan:${idx.qtyPlan} qtyCob:${idx.qtyCob} status:${idx.shipmentStatus} blDate:${idx.blDate} sp:${idx.sp} usd:${idx.marketPriceUsd} kurs:${idx.kurs} base:${idx.basePriceIdr} adj:${idx.priceAfterAdjustment}`);
 
-    const startRow = headerRow + 3;
+    const startRow = headerRow + headerDepth;
     let insertedThisSheet = 0;
     const carry = {
       mvProjectName: null,
@@ -685,6 +984,12 @@ async function migrate() {
       const sourceRaw = cleanStr(row[idx.source]);
       const iupRaw = cleanStr(row[idx.iupOp]);
       const shipmentStatusRaw = cleanStr(row[idx.shipmentStatus]);
+      if (
+        isHeaderToken(mvProjectName) ||
+        isHeaderToken(nomination) ||
+        isHeaderToken(sourceRaw) ||
+        isHeaderToken(shipmentStatusRaw)
+      ) continue;
       if (!mvProjectName && !nomination && !no) continue;
       if (
         !no &&
@@ -710,16 +1015,36 @@ async function migrate() {
           .find((m) => m.year === year && m.projectNorm && (m.projectNorm.includes(projectNorm) || projectNorm.includes(m.projectNorm)));
       }
 
-      const marketPriceUsd = toFloat(row[idx.marketPriceUsd]);
+      const marketPriceUsdRaw = toFloat(row[idx.marketPriceUsd]);
+      const marketPriceUsd = asPlausibleUsdPerMt(marketPriceUsdRaw);
+      const marketPriceIdr = toFloat(row[idx.marketPriceIdr]);
       const kurs = toFloat(row[idx.kurs]);
+      const kursValid = kurs && kurs >= 1000 && kurs <= 50000 ? kurs : null;
+      const basePriceIdr = toFloat(row[idx.basePriceIdr]);
+      const priceAfterAdjustmentIdr = toFloat(row[idx.priceAfterAdjustment]);
       const priceComparisonIdr = toFloat(row[idx.priceComparison]);
       const spRaw = toFloat(row[idx.sp]);
       const spPlausible = spRaw && spRaw > 0 && spRaw < 500 ? spRaw : null;
-      const marginMtUsd = (priceComparisonIdr && kurs && kurs > 0)
-        ? Number((priceComparisonIdr / kurs).toFixed(4))
+      const convertedMarketUsd = (!marketPriceUsd && marketPriceIdr && kursValid)
+        ? asPlausibleUsdPerMt(Number((marketPriceIdr / kursValid).toFixed(4)))
         : null;
+      const priceAfterAdjUsd = (priceAfterAdjustmentIdr && kursValid)
+        ? asPlausibleUsdPerMt(Number((priceAfterAdjustmentIdr / kursValid).toFixed(4)))
+        : null;
+      const basePriceUsd = (basePriceIdr && kursValid)
+        ? asPlausibleUsdPerMt(Number((basePriceIdr / kursValid).toFixed(4)))
+        : null;
+      // Prefer direct USD market price; converted IDR only as fallback.
+      const revenuePriceUsd = spPlausible || marketPriceUsd || convertedMarketUsd || priceAfterAdjUsd || null;
+      const marginMtUsd = (priceComparisonIdr && kursValid)
+        ? asPlausibleMarginUsd(Number((priceComparisonIdr / kursValid).toFixed(4)))
+        : (revenuePriceUsd && basePriceUsd ? Number((revenuePriceUsd - basePriceUsd).toFixed(4)) : null);
 
-      const shipment = await prisma.shipmentDetail.create({
+      const qtyPlan = toFloat(row[idx.qtyPlan]);
+      const qtyCob = toFloat(row[idx.qtyCob]);
+      const quantityLoaded = pickFirstNumber(row, [idx.qtyCob, idx.qtyPlan]);
+
+      const shipment = await withDbRetry(() => prisma.shipmentDetail.create({
         data: {
           no,
           exportDmo: exportDmoRaw || carry.exportDmo,
@@ -732,8 +1057,8 @@ async function migrate() {
           jettyLoadingPort: jettyRaw || carry.jettyLoadingPort || mother?.pol || null,
           laycan: laycanRaw || carry.laycan || mother?.laycan || null,
           nomination,
-          qtyPlan: toFloat(row[idx.qtyPlan]),
-          qtyCob: toFloat(row[idx.qtyCob]),
+          qtyPlan,
+          qtyCob,
           remarks: cleanStr(row[idx.remarks]),
           shipmentStatus: cleanStr(row[idx.shipmentStatus]),
           issueNotes: cleanStr(row[idx.issue]),
@@ -744,7 +1069,8 @@ async function migrate() {
           sp: spPlausible,
           deadfreight: toFloat(row[idx.deadfreight]),
           jarak: toFloat(row[idx.jarak]),
-          hargaActualFobMv: marketPriceUsd || null,
+          hargaActualFobMv: marketPriceUsd || convertedMarketUsd || priceAfterAdjUsd || null,
+          hargaActualFob: basePriceUsd || null,
           shippingTerm: cleanStr(row[idx.shippingTerm]) || mother?.shippingTerm || null,
           noSpal: cleanStr(row[idx.noSpal]),
           noSi: cleanStr(row[idx.noSi]),
@@ -756,14 +1082,14 @@ async function migrate() {
           vesselName: mother?.vessel || vesselHint || mvProjectName || null,
           bargeName: nomination,
           loadingPort: cleanStr(row[idx.jettyLoadingPort]) || mother?.pol || null,
-          quantityLoaded: toFloat(row[idx.qtyCob]) || toFloat(row[idx.qtyPlan]),
-          salesPrice: marketPriceUsd || spPlausible,
+          quantityLoaded,
+          salesPrice: revenuePriceUsd,
           marginMt: marginMtUsd,
           product: mother?.product || null,
           type: typeFromExportDmo(cleanStr(row[idx.exportDmo])),
           year: year || new Date().getFullYear()
         }
-      });
+      }), "shipmentDetail.create(child)");
 
       childInserted += 1;
       insertedThisSheet += 1;
@@ -776,7 +1102,7 @@ async function migrate() {
           date: m.date,
           description: m.description
         }));
-        const created = await prisma.timelineMilestone.createMany({ data: timelineRows });
+        const created = await withDbRetry(() => prisma.timelineMilestone.createMany({ data: timelineRows }), "timelineMilestone.createMany(child)");
         milestoneInserted += created.count;
       }
     }
@@ -785,9 +1111,9 @@ async function migrate() {
   }
 
   const counts = {
-    mothers: await prisma.dailyDelivery.count({ where: { isDeleted: false } }),
-    children: await prisma.shipmentDetail.count({ where: { isDeleted: false } }),
-    milestones: await prisma.timelineMilestone.count()
+    mothers: await withDbRetry(() => prisma.dailyDelivery.count({ where: { isDeleted: false } }), "dailyDelivery.count"),
+    children: await withDbRetry(() => prisma.shipmentDetail.count({ where: { isDeleted: false } }), "shipmentDetail.count"),
+    milestones: await withDbRetry(() => prisma.timelineMilestone.count(), "timelineMilestone.count")
   };
 
   console.log("-----------------------------------------------");
