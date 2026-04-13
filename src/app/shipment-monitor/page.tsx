@@ -105,6 +105,29 @@ const getCounterparty = (s: ShipmentDetail): { role: "Buyer" | "Vendor"; value: 
     return { role: "Vendor", value: vendor || buyer || "-" };
 };
 
+type SummaryStatus = "upcoming" | "loading" | "in_transit" | "completed" | "cancelled" | "unknown";
+
+const normalizeShipmentStatus = (raw?: string | null): SummaryStatus => {
+    const s = normalizeKey(raw);
+    if (!s) return "unknown";
+
+    if (s.includes("CANCEL")) return "cancelled";
+
+    if (
+        s.includes("DONE") ||
+        s.includes("COMPLETE") ||
+        s.includes("COMPLETELY") ||
+        s.includes("DISCHARGED") ||
+        s === "DONE SHIPMENT"
+    ) return "completed";
+
+    if (s.includes("IN TRANSIT") || s.includes("ANCHORAGE") || s.includes("DISCH")) return "in_transit";
+    if (s.includes("LOADING PROCESS") || s.includes("LOADING PROSES") || s === "LOADING") return "loading";
+    if (s.includes("UPCOMING") || s.includes("WAITING") || s.includes("DRAFT") || s.includes("PLANNED")) return "upcoming";
+
+    return "unknown";
+};
+
 export default function ShipmentMonitorPage() {
     const [, setIsInitializing] = React.useState(false);
 
@@ -116,7 +139,7 @@ export default function ShipmentMonitorPage() {
         syncDeliveries();
     }, [syncFromMemory, syncDeliveries]);
     const [mainTab, setMainTab] = React.useState<"MV Barge" | "Daily Delivery" | "Route Optimizer" | "Analytics" | "Risk Assessment">("MV Barge");
-    const [activeTab, setActiveTab] = React.useState<ShipmentStatus | "all">("all");
+    const [activeTab, setActiveTab] = React.useState<"all" | "upcoming" | "loading" | "in_transit" | "completed" | "cancelled">("all");
     const [activeView, setActiveView] = React.useState<"list" | "card" | "map">("list");
     const [detailShipment, setDetailShipment] = React.useState<ShipmentDetail | null>(null);
     const [detailModalTab, setDetailModalTab] = React.useState<"overview" | "blending" | "timeline" | "risk">("overview");
@@ -270,12 +293,29 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
         )).sort((a, b) => b - a);
     }, [shipments]);
 
+    const statusCounts = React.useMemo(() => {
+        const counts = {
+            upcoming: 0,
+            loading: 0,
+            in_transit: 0,
+            completed: 0,
+            cancelled: 0,
+            unknown: 0,
+        };
+        for (const s of shipments) {
+            const key = normalizeShipmentStatus(s.status);
+            counts[key] += 1;
+        }
+        return counts;
+    }, [shipments]);
+
     const filtered = React.useMemo(() => {
         const start = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null;
         const end = dateTo ? new Date(`${dateTo}T23:59:59`) : null;
 
         const rows = shipments.filter((s) => {
-            const matchesTab = activeTab === "all" || s.status === activeTab;
+            const canonicalStatus = normalizeShipmentStatus(s.status);
+            const matchesTab = activeTab === "all" || canonicalStatus === activeTab;
             if (!matchesTab) return false;
 
             if (searchQuery) {
@@ -356,12 +396,14 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
 
     const stats = {
         total: shipments.length,
-        loading: shipments.filter(s => s.status === "loading" || s.status === "waiting_loading").length,
-        intransit: shipments.filter(s => s.status === "in_transit" || s.status === "anchorage" || s.status === "discharging").length,
-        completed: shipments.filter(s => s.status === "completed").length,
-        revenue: shipments.reduce((sum, s) => sum + (safeNum(s.qty_plan || s.quantity_loaded) * safeNum(s.harga_actual_fob_mv || s.sales_price)), 0),
-        gp: shipments.reduce((sum, s) => sum + (safeNum(s.qty_plan || s.quantity_loaded) * safeNum(s.margin_mt)), 0),
-        volume: shipments.reduce((sum, s) => sum + safeNum(s.qty_plan || s.quantity_loaded), 0)
+        upcoming: statusCounts.upcoming,
+        loading: statusCounts.loading,
+        intransit: statusCounts.in_transit,
+        completed: statusCounts.completed,
+        cancelled: statusCounts.cancelled,
+        revenue: shipments.reduce((sum, s) => sum + (safeNum(s.quantity_loaded || s.qty_plan || s.qty_cob) * safeNum(s.harga_actual_fob_mv || s.sales_price || s.sp)), 0),
+        gp: shipments.reduce((sum, s) => sum + (safeNum(s.quantity_loaded || s.qty_plan || s.qty_cob) * safeNum(s.margin_mt)), 0),
+        volume: shipments.reduce((sum, s) => sum + safeNum(s.quantity_loaded || s.qty_plan || s.qty_cob), 0)
     };
 
 
@@ -389,10 +431,10 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                         {[
                             { label: "Total Shipments", value: stats.total, color: "text-blue-500", bg: "bg-blue-500/20", icon: Package },
                             { label: "Total Volume", value: `${(stats.volume / 1000).toFixed(0)}K MT`, color: "text-indigo-500", bg: "bg-indigo-500/20", icon: TrendingUp },
-                            { label: "Confirmed", value: shipments.filter(s => (s.status as any) === 'confirmed' || s.status === 'waiting_loading').length, color: "text-blue-500", bg: "bg-blue-500/20", icon: CheckCircle2 },
-                            { label: "Loading", value: shipments.filter(s => s.status === 'loading').length, color: "text-amber-500", bg: "bg-amber-500/20", icon: Anchor },
-                            { label: "In Transit", value: shipments.filter(s => s.status === 'in_transit').length, color: "text-purple-500", bg: "bg-purple-500/20", icon: Ship },
-                            { label: "Completed", value: shipments.filter(s => s.status === 'completed').length, color: "text-emerald-500", bg: "bg-emerald-500/20", icon: CheckCircle2 },
+                            { label: "Upcoming", value: stats.upcoming, color: "text-blue-500", bg: "bg-blue-500/20", icon: Clock },
+                            { label: "Loading", value: stats.loading, color: "text-amber-500", bg: "bg-amber-500/20", icon: Anchor },
+                            { label: "In Transit", value: stats.intransit, color: "text-purple-500", bg: "bg-purple-500/20", icon: Ship },
+                            { label: "Completed", value: stats.completed, color: "text-emerald-500", bg: "bg-emerald-500/20", icon: CheckCircle2 },
                         ].map((metric, i) => {
                             const Icon = metric.icon;
                             return (
@@ -756,16 +798,15 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                             <button onClick={() => setActiveTab("all")} className={cn("filter-chip text-white", activeTab === "all" ? "filter-chip-active text-white border-transparent" : "filter-chip-inactive bg-white/10")}>
                                 all ({stats.total})
                             </button>
-                            {["Done Shipment", "Upcoming", "Loading", "In Transit", "Completed"].map((s) => {
-                                const val = s.toLowerCase() === "in transit" ? "in_transit" : s === "Done Shipment" ? "done_shipment" : s.toLowerCase();
-                                const count = s === "Done Shipment" ? shipments.filter(sh => sh.status === "done_shipment").length :
-                                    s === "Upcoming" ? shipments.filter(sh => sh.status === "upcoming").length :
-                                        s === "Loading" ? shipments.filter(sh => sh.status === "loading").length :
-                                            s === "In Transit" ? shipments.filter(sh => sh.status === "in_transit").length :
-                                                shipments.filter(sh => sh.status === "completed").length;
+                            {[
+                                { label: "Upcoming", value: "upcoming" as const, count: stats.upcoming },
+                                { label: "Loading", value: "loading" as const, count: stats.loading },
+                                { label: "In Transit", value: "in_transit" as const, count: stats.intransit },
+                                { label: "Completed", value: "completed" as const, count: stats.completed },
+                            ].map((item) => {
                                 return (
-                                    <button key={s} onClick={() => setActiveTab(val as any)} className={cn("filter-chip", activeTab === val ? "bg-white text-black font-bold border-transparent" : "bg-white text-muted-foreground border-border")}>
-                                        {s} ({count})
+                                    <button key={item.value} onClick={() => setActiveTab(item.value)} className={cn("filter-chip", activeTab === item.value ? "bg-white text-black font-bold border-transparent" : "bg-white text-muted-foreground border-border")}>
+                                        {item.label} ({item.count})
                                     </button>
                                 );
                             })}
