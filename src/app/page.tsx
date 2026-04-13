@@ -477,22 +477,17 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const data = months.map((m, i) => {
         const monthItems = shipments.filter((sh) => {
-            const dateStr = sh.bl_date || sh.created_at || sh.updated_at;
-            if (!dateStr) return false;
-            try {
-                const d = new Date(dateStr);
-                return d.getMonth() === i;
-            } catch (e) {
-                return false;
-            }
+            const businessDate = getShipmentEtaDate(sh) || asDate(sh.bl_date);
+            if (!businessDate) return false;
+            return businessDate.getMonth() === i;
         });
 
         const domestic = monthItems
-            .filter((sh) => (sh.type as string) === "local")
-            .reduce((s, sh) => s + (Number(sh.quantity_loaded) || Number(sh.qty_plan) || 0), 0);
+            .filter((sh) => inferShipmentType(sh) === "local")
+            .reduce((s, sh) => s + getShipmentQty(sh), 0);
         const exportVol = monthItems
-            .filter((sh) => (sh.type as string) === "export")
-            .reduce((s, sh) => s + (Number(sh.quantity_loaded) || Number(sh.qty_plan) || 0), 0);
+            .filter((sh) => inferShipmentType(sh) === "export")
+            .reduce((s, sh) => s + getShipmentQty(sh), 0);
 
         return {
             month: m,
@@ -501,7 +496,7 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
         };
     });
 
-    const totalQty = shipments.reduce((s, sh) => s + (Number(sh.quantity_loaded) || Number(sh.qty_plan) || 0), 0);
+    const totalQty = shipments.reduce((s, sh) => s + getShipmentQty(sh), 0);
 
     return (
         <div className="card-elevated p-5 animate-slide-up delay-2">
