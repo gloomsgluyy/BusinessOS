@@ -1186,7 +1186,7 @@ export default function DashboardPage() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             {isCeo && <MetricCardSkeleton />}
                             {isCeo && <MetricCardSkeleton />}
                             <MetricCardSkeleton />
@@ -1226,14 +1226,20 @@ export default function DashboardPage() {
                             />
                         </div>
 
-                        {/* Top Metrics - Row 1 */}
-                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-                            {isCeo && <MetricCard label="Total Revenue (USD)" value={formatUSD(metricRevenueTotal)} sub={hasDealFinancials ? "YTD Confirmed" : "From Shipment Data"} icon={DollarSign} color="bg-emerald-500/10" delay={1} restricted hasAccess={isCeo} />}
-                            {isCeo && <MetricCard label="Gross Profit (USD)" value={formatUSD(metricGrossProfitTotal)} sub={`$${safeFmt(metricTotalGpPerMt)}/MT avg`} icon={TrendingUp} color="bg-violet-500/10" delay={2} restricted hasAccess={isCeo} />}
-                            <MetricCard label="Total Volume" value={`${safeFmt(totalQty / 1000, 0)}K MT`} sub={`${safeFmt(localQty / 1000, 0)}K Local · ${safeFmt(exportQty / 1000, 0)}K Export`} icon={Layers} color="bg-cyan-500/10" delay={3} />
-                            <MetricCard label="Active Deals" value={metricActiveDeals} sub={metricActiveDealsSub} icon={BarChart3} color="bg-blue-500/10" delay={isCeo ? 4 : 1} />
-                            <MetricCard label="Active Shipments" value={normalizedActiveShipments.length} sub={`${pendingTasks} tasks pending`} icon={Ship} color="bg-amber-500/10" delay={isCeo ? 5 : 2} />
+                        {/* Top Metrics - Row 1 (Operational Priority) */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <MetricCard label="Total Volume" value={`${safeFmt(totalQty / 1000, 0)}K MT`} sub={`${safeFmt(localQty / 1000, 0)}K Local | ${safeFmt(exportQty / 1000, 0)}K Export`} icon={Layers} color="bg-cyan-500/10" delay={1} />
+                            <MetricCard label="Active Deals" value={metricActiveDeals} sub={metricActiveDealsSub} icon={BarChart3} color="bg-blue-500/10" delay={2} />
+                            <MetricCard label="Active Shipments" value={normalizedActiveShipments.length} sub={`${pendingTasks} tasks pending`} icon={Ship} color="bg-amber-500/10" delay={3} />
                         </div>
+
+                        {/* Top Metrics - Row 2 (Financial) */}
+                        {isCeo && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <MetricCard label="Total Revenue (USD)" value={formatUSD(metricRevenueTotal)} sub={hasDealFinancials ? "YTD Confirmed" : "From Shipment Data"} icon={DollarSign} color="bg-emerald-500/10" delay={4} restricted hasAccess={isCeo} />
+                                <MetricCard label="Gross Profit (USD)" value={formatUSD(metricGrossProfitTotal)} sub={`$${safeFmt(metricTotalGpPerMt)}/MT avg`} icon={TrendingUp} color="bg-violet-500/10" delay={5} restricted hasAccess={isCeo} />
+                            </div>
+                        )}
 
                         {/* CEO-Only Revenue Split */}
                         {isCeo && (
