@@ -238,7 +238,7 @@ export default function ShipmentMonitorPage() {
     const didApplyTabFromUrlRef = React.useRef(false);
     const openedViaDeepLinkRef = React.useRef(false);
 
-    const { shipments, syncFromMemory, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
+    const { shipments, projects, syncFromMemory, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
     const { dailyDeliveries, syncDeliveries, addDelivery, updateDelivery, deleteDelivery } = useDailyDeliveryStore();
 
     React.useEffect(() => {
@@ -449,6 +449,43 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
         setEditForm({ ...sh });
     };
 
+    const openCreateShipment = () => {
+        setEditShipment({} as any);
+        setEditForm({
+            status: "upcoming",
+            year: new Date().getFullYear(),
+            type: "export",
+        });
+    };
+
+    const projectOptions = React.useMemo(() => {
+        const names = new Set<string>();
+        projects.forEach((p) => {
+            const name = (p.name || "").trim();
+            if (name) names.add(name);
+        });
+        shipments.forEach((s) => {
+            const name = (s.mv_project_name || "").trim();
+            if (name) names.add(name);
+        });
+        return Array.from(names).sort((a, b) => a.localeCompare(b));
+    }, [projects, shipments]);
+
+    const selectedProjectMeta = React.useMemo(() => {
+        const key = normalizeKey(editForm.mv_project_name || "");
+        if (!key) return null;
+        return projects.find((p) => normalizeKey(p.name) === key) || null;
+    }, [editForm.mv_project_name, projects]);
+
+    React.useEffect(() => {
+        if (!selectedProjectMeta) return;
+        setEditForm((prev) => {
+            if (prev.buyer) return prev;
+            if (!selectedProjectMeta.buyer) return prev;
+            return { ...prev, buyer: selectedProjectMeta.buyer };
+        });
+    }, [selectedProjectMeta]);
+
     const uniqueYears = React.useMemo(() => {
         return Array.from(new Set(
             shipments
@@ -587,7 +624,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                         </div>
                         <div className="flex gap-2 relative z-10">
                             <button onClick={() => setShowReportModal(true)} className="btn-outline text-xs h-9 hidden sm:flex"><Download className="w-3.5 h-3.5 mr-1.5" /> Download Report</button>
-                            <button onClick={() => setEditShipment({} as any)} className="btn-primary text-xs h-9 hidden sm:flex">+ Create Shipment</button>
+                            <button onClick={openCreateShipment} className="btn-primary text-xs h-9 hidden sm:flex">+ Create Shipment</button>
                         </div>
                     </div>
 
@@ -1835,8 +1872,25 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                     <h3 className="text-[10px] font-bold text-primary uppercase flex items-center gap-1.5"><Package className="w-3 h-3" /> Shipment Identity</h3>
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">MV / Project Name</label>
-                                    <input type="text" value={editForm.mv_project_name || ""} onChange={(e) => setEditForm({ ...editForm, mv_project_name: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs font-bold text-primary" />
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Select Project (Primary)</label>
+                                    <input
+                                        list="shipment-project-options"
+                                        type="text"
+                                        value={editForm.mv_project_name || ""}
+                                        onChange={(e) => setEditForm({ ...editForm, mv_project_name: e.target.value })}
+                                        placeholder="Type project name (e.g. SRE...)"
+                                        className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs font-bold text-primary"
+                                    />
+                                    <datalist id="shipment-project-options">
+                                        {projectOptions.map((name) => (
+                                            <option key={name} value={name} />
+                                        ))}
+                                    </datalist>
+                                    <p className="text-[10px] text-muted-foreground">
+                                        {selectedProjectMeta
+                                            ? `Project found • Segment: ${selectedProjectMeta.segment || "-"} • Buyer: ${selectedProjectMeta.buyer || "-"} • Created: ${selectedProjectMeta.created_at ? new Date(selectedProjectMeta.created_at).toLocaleDateString("en-GB") : "-"}`
+                                            : "Project not found in master yet. You can still save, or add this project first in Projects module."}
+                                    </p>
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Status</label>

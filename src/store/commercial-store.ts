@@ -4,7 +4,7 @@ import {
     SalesDeal, SalesDealStatus, ShipmentDetail, ShipmentStatus,
     SourceSupplier, QualityResult, MarketPriceEntry,
     MeetingItem, FreightInfo, BlendingResult, CoalSpec,
-    PLForecastItem,
+    PLForecastItem, ProjectItem,
 } from "@/types";
 import { generateId } from "@/lib/utils";
 
@@ -145,6 +145,13 @@ interface CommercialState {
     updateDealStatus: (id: string, status: SalesDealStatus) => Promise<void>;
     confirmDeal: (id: string) => void;
 
+    // Project Master
+    _rawProjects: ProjectItem[];
+    projects: ProjectItem[];
+    addProject: (p: Omit<ProjectItem, "id" | "created_at" | "updated_at">) => Promise<void>;
+    updateProject: (id: string, u: Partial<ProjectItem>) => Promise<void>;
+    deleteProject: (id: string) => Promise<void>;
+
     // Shipment Monitor
     _rawShipments: ShipmentDetail[];
     shipments: ShipmentDetail[];
@@ -281,6 +288,73 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         await get().updateDealStatus(id, "confirmed");
     },
 
+    // Projects
+    _rawProjects: [],
+    projects: [],
+    addProject: async (p) => {
+        const body: any = {
+            name: p.name,
+            segment: p.segment,
+            buyer: p.buyer,
+            status: p.status || "draft",
+            notes: p.notes,
+        };
+        const res = await fetch("/api/memory/projects", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const project = data.project;
+            const mapped: ProjectItem = {
+                id: project.id,
+                name: project.name,
+                segment: project.segment,
+                buyer: project.buyer,
+                status: project.status,
+                notes: project.notes,
+                created_by: project.createdBy,
+                created_by_name: project.createdByName,
+                created_at: project.createdAt,
+                updated_at: project.updatedAt,
+                is_deleted: project.isDeleted,
+            };
+            set((state) => {
+                const raw = [mapped, ...state._rawProjects];
+                return { _rawProjects: raw, projects: raw.filter((x) => !x.is_deleted) };
+            });
+        }
+    },
+    updateProject: async (id, u) => {
+        const body: any = { id };
+        if (u.name !== undefined) body.name = u.name;
+        if (u.segment !== undefined) body.segment = u.segment;
+        if (u.buyer !== undefined) body.buyer = u.buyer;
+        if (u.status !== undefined) body.status = u.status;
+        if (u.notes !== undefined) body.notes = u.notes;
+        await fetch("/api/memory/projects", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        set((s) => {
+            const raw = s._rawProjects.map((project) =>
+                project.id === id ? { ...project, ...u, updated_at: new Date().toISOString() } : project
+            );
+            return { _rawProjects: raw, projects: raw.filter((x) => !x.is_deleted) };
+        });
+    },
+    deleteProject: async (id) => {
+        await fetch(`/api/memory/projects?id=${id}`, { method: "DELETE" });
+        set((s) => {
+            const raw = s._rawProjects.map((p) =>
+                p.id === id ? { ...p, is_deleted: true, updated_at: new Date().toISOString() } : p
+            );
+            return { _rawProjects: raw, projects: raw.filter((x) => !x.is_deleted) };
+        });
+    },
+
     // ── Shipments ────────────────────────────────────────────
     _rawShipments: [],
     shipments: [],
@@ -301,6 +375,18 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             noSpal: s.no_spal, noSi: s.no_si, coaDate: s.coa_date, resultGar: s.result_gar,
             sentToSupplier: s.sent_to_supplier, sentToBargeOwner: s.sent_to_barge_owner, noInvoiceMkls: s.no_invoice_mkls,
             year: s.year || new Date().getFullYear(),
+            buyer: s.buyer,
+            supplier: s.supplier,
+            vessel_name: s.vessel_name,
+            barge_name: s.barge_name,
+            loading_port: s.loading_port,
+            discharge_port: s.discharge_port,
+            quantity_loaded: s.quantity_loaded,
+            sales_price: s.sales_price,
+            margin_mt: s.margin_mt,
+            product: s.product,
+            analysis_method: s.analysis_method,
+            type: s.type,
         };
         const res = await fetch("/api/memory/shipments", {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
@@ -324,6 +410,18 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 no_spal: ship.noSpal, no_si: ship.noSi, coa_date: ship.coaDate, result_gar: ship.resultGar,
                 sent_to_supplier: ship.sentToSupplier, sent_to_barge_owner: ship.sentToBargeOwner, no_invoice_mkls: ship.noInvoiceMkls,
                 milestones: Array.isArray(ship.milestones) ? ship.milestones : [],
+                buyer: ship.buyer,
+                supplier: ship.supplier,
+                vessel_name: ship.vesselName,
+                barge_name: ship.bargeName,
+                loading_port: ship.loadingPort,
+                discharge_port: ship.dischargePort,
+                quantity_loaded: ship.quantityLoaded,
+                sales_price: ship.salesPrice,
+                margin_mt: ship.marginMt,
+                product: ship.product,
+                analysis_method: ship.analysisMethod,
+                type: ship.type,
                 year: ship.year, created_at: ship.createdAt, updated_at: ship.updatedAt
             };
             set((state) => {
@@ -335,31 +433,43 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
     updateShipment: async (id, u) => {
         const body: any = { id };
         // Map snake_case to camelCase for API
-        if (u.status) body.status = u.status;
-        if (u.origin) body.origin = u.origin;
-        if (u.mv_project_name) body.mvProjectName = u.mv_project_name;
-        if (u.source) body.source = u.source;
-        if (u.iup_op) body.iupOp = u.iup_op;
-        if (u.shipment_flow) body.shipmentFlow = u.shipment_flow;
-        if (u.jetty_loading_port) body.jettyLoadingPort = u.jetty_loading_port;
-        if (u.laycan) body.laycan = u.laycan;
-        if (u.nomination) body.nomination = u.nomination;
+        if (u.status !== undefined) body.status = u.status;
+        if (u.origin !== undefined) body.origin = u.origin;
+        if (u.mv_project_name !== undefined) body.mvProjectName = u.mv_project_name;
+        if (u.source !== undefined) body.source = u.source;
+        if (u.iup_op !== undefined) body.iupOp = u.iup_op;
+        if (u.shipment_flow !== undefined) body.shipmentFlow = u.shipment_flow;
+        if (u.jetty_loading_port !== undefined) body.jettyLoadingPort = u.jetty_loading_port;
+        if (u.laycan !== undefined) body.laycan = u.laycan;
+        if (u.nomination !== undefined) body.nomination = u.nomination;
         if (u.qty_plan !== undefined) body.qtyPlan = u.qty_plan;
         if (u.qty_cob !== undefined) body.qtyCob = u.qty_cob;
-        if (u.remarks) body.remarks = u.remarks;
+        if (u.remarks !== undefined) body.remarks = u.remarks;
         if (u.harga_actual_fob !== undefined) body.hargaActualFob = u.harga_actual_fob;
         if (u.harga_actual_fob_mv !== undefined) body.hargaActualFobMv = u.harga_actual_fob_mv;
         if (u.hpb !== undefined) body.hpb = u.hpb;
-        if (u.status_hpb) body.statusHpb = u.status_hpb;
-        if (u.shipment_status) body.shipmentStatus = u.shipment_status;
-        if (u.issue_notes) body.issueNotes = u.issue_notes;
-        if (u.bl_date) body.blDate = u.bl_date;
-        if (u.pic) body.pic = u.pic;
-        if (u.shipping_term) body.shippingTerm = u.shipping_term;
+        if (u.status_hpb !== undefined) body.statusHpb = u.status_hpb;
+        if (u.shipment_status !== undefined) body.shipmentStatus = u.shipment_status;
+        if (u.issue_notes !== undefined) body.issueNotes = u.issue_notes;
+        if (u.bl_date !== undefined) body.blDate = u.bl_date;
+        if (u.pic !== undefined) body.pic = u.pic;
+        if (u.shipping_term !== undefined) body.shippingTerm = u.shipping_term;
+        if (u.buyer !== undefined) body.buyer = u.buyer;
+        if (u.supplier !== undefined) body.supplier = u.supplier;
+        if (u.vessel_name !== undefined) body.vessel_name = u.vessel_name;
+        if (u.barge_name !== undefined) body.barge_name = u.barge_name;
+        if (u.loading_port !== undefined) body.loading_port = u.loading_port;
+        if (u.discharge_port !== undefined) body.discharge_port = u.discharge_port;
+        if (u.quantity_loaded !== undefined) body.quantity_loaded = u.quantity_loaded;
+        if (u.sales_price !== undefined) body.sales_price = u.sales_price;
+        if (u.margin_mt !== undefined) body.margin_mt = u.margin_mt;
+        if (u.product !== undefined) body.product = u.product;
+        if (u.analysis_method !== undefined) body.analysis_method = u.analysis_method;
+        if (u.type !== undefined) body.type = u.type;
         if (u.sent_to_supplier !== undefined) body.sentToSupplier = u.sent_to_supplier;
         if (u.sent_to_barge_owner !== undefined) body.sentToBargeOwner = u.sent_to_barge_owner;
         if (u.no_invoice_mkls !== undefined) body.noInvoiceMkls = u.no_invoice_mkls;
-        if (u.year) body.year = u.year;
+        if (u.year !== undefined) body.year = u.year;
 
         await fetch("/api/memory/shipments", {
             method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
@@ -941,7 +1051,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 const ts = Date.now();
                 const fetchOpts = { cache: "no-store" as RequestCache, headers: { "Cache-Control": "no-cache, no-store, must-revalidate" } };
 
-                type EndpointKey = "shipments" | "sources" | "quality" | "market-prices" | "meetings" | "pl-forecasts" | "sales-deals" | "blending";
+                type EndpointKey = "shipments" | "sources" | "quality" | "market-prices" | "meetings" | "pl-forecasts" | "sales-deals" | "blending" | "projects";
                 const endpoints: Array<{ key: EndpointKey; url: string }> = mode === "dashboard_fast"
                     ? [
                         { key: "shipments", url: `/api/memory/shipments?t=${ts}&lite=1` },
@@ -955,6 +1065,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                         { key: "meetings", url: `/api/memory/meetings?t=${ts}` },
                         { key: "pl-forecasts", url: `/api/memory/pl-forecasts?t=${ts}` },
                         { key: "sales-deals", url: `/api/memory/sales-deals?t=${ts}` },
+                        { key: "projects", url: `/api/memory/projects?t=${ts}` },
                         { key: "blending", url: `/api/memory/blending?t=${ts}` },
                     ];
 
@@ -966,6 +1077,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                     const mtgRes = payloads["meetings"];
                     const plRes = payloads["pl-forecasts"];
                     const dealRes = payloads["sales-deals"];
+                    const projectRes = payloads["projects"];
                     const blendRes = payloads["blending"];
 
                     set((state) => {
@@ -1138,6 +1250,25 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                     updates.deals = mappedDeals.filter(x => !x.is_deleted);
                 }
 
+                // Projects merge
+                if (projectRes?.success && projectRes.projects) {
+                    const mappedProjects: ProjectItem[] = projectRes.projects.map((project: any) => ({
+                        id: project.id,
+                        name: project.name,
+                        segment: project.segment,
+                        buyer: project.buyer,
+                        status: project.status,
+                        notes: project.notes,
+                        created_by: project.createdBy,
+                        created_by_name: project.createdByName,
+                        created_at: project.createdAt,
+                        updated_at: project.updatedAt,
+                        is_deleted: project.isDeleted,
+                    }));
+                    updates._rawProjects = mappedProjects;
+                    updates.projects = mappedProjects.filter((x) => !x.is_deleted);
+                }
+
                         updates.lastSyncTime = new Date().toISOString();
                         return Object.keys(updates).length > 0 ? updates : state;
                     });
@@ -1189,6 +1320,8 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
     partialize: (state) => ({
         _rawDeals: state._rawDeals,
         deals: state.deals,
+        _rawProjects: state._rawProjects,
+        projects: state.projects,
         _rawShipments: state._rawShipments,
         shipments: state.shipments,
         _rawSources: state._rawSources,

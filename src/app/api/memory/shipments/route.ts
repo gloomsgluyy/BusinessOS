@@ -335,16 +335,18 @@ export async function POST(req: Request) {
                     resultGar: parseNum(data.resultGar),
                     year: data.year || new Date().getFullYear(),
                     // Detailed/Unified fields
-                    quantityLoaded: parseNum(data.quantity_loaded),
-                    salesPrice: parseNum(data.sales_price),
-                    marginMt: parseNum(data.margin_mt),
+                    quantityLoaded: parseNum(data.quantity_loaded ?? data.quantityLoaded),
+                    salesPrice: parseNum(data.sales_price ?? data.salesPrice),
+                    marginMt: parseNum(data.margin_mt ?? data.marginMt),
                     buyer: data.buyer,
-                    vesselName: data.vessel_name,
-                    bargeName: data.barge_name,
-                    loadingPort: data.loading_port,
-                    dischargePort: data.discharge_port,
+                    supplier: data.supplier || data.source,
+                    vesselName: data.vessel_name ?? data.vesselName,
+                    bargeName: data.barge_name ?? data.bargeName,
+                    loadingPort: data.loading_port ?? data.loadingPort,
+                    dischargePort: data.discharge_port ?? data.dischargePort,
                     product: data.product,
-                    analysisMethod: data.analysis_method,
+                    analysisMethod: data.analysis_method ?? data.analysisMethod,
+                    type: data.type || "export",
                 }
             });
 
@@ -417,16 +419,24 @@ export async function PUT(req: Request) {
                     resultGar: data.resultGar !== undefined ? parseNum(data.resultGar) : undefined,
                     year: data.year,
                     // Detailed/Unified fields
-                    quantityLoaded: data.quantity_loaded !== undefined ? parseNum(data.quantity_loaded) : undefined,
-                    salesPrice: data.sales_price !== undefined ? parseNum(data.sales_price) : undefined,
-                    marginMt: data.margin_mt !== undefined ? parseNum(data.margin_mt) : undefined,
+                    quantityLoaded: data.quantity_loaded !== undefined
+                        ? parseNum(data.quantity_loaded)
+                        : (data.quantityLoaded !== undefined ? parseNum(data.quantityLoaded) : undefined),
+                    salesPrice: data.sales_price !== undefined
+                        ? parseNum(data.sales_price)
+                        : (data.salesPrice !== undefined ? parseNum(data.salesPrice) : undefined),
+                    marginMt: data.margin_mt !== undefined
+                        ? parseNum(data.margin_mt)
+                        : (data.marginMt !== undefined ? parseNum(data.marginMt) : undefined),
                     buyer: data.buyer,
-                    vesselName: data.vessel_name,
-                    bargeName: data.barge_name,
-                    loadingPort: data.loading_port,
-                    dischargePort: data.discharge_port,
+                    supplier: data.supplier !== undefined ? data.supplier : undefined,
+                    vesselName: data.vessel_name !== undefined ? data.vessel_name : (data.vesselName !== undefined ? data.vesselName : undefined),
+                    bargeName: data.barge_name !== undefined ? data.barge_name : (data.bargeName !== undefined ? data.bargeName : undefined),
+                    loadingPort: data.loading_port !== undefined ? data.loading_port : (data.loadingPort !== undefined ? data.loadingPort : undefined),
+                    dischargePort: data.discharge_port !== undefined ? data.discharge_port : (data.dischargePort !== undefined ? data.dischargePort : undefined),
                     product: data.product,
-                    analysisMethod: data.analysis_method,
+                    analysisMethod: data.analysis_method !== undefined ? data.analysis_method : (data.analysisMethod !== undefined ? data.analysisMethod : undefined),
+                    type: data.type !== undefined ? data.type : undefined,
                 }
             });
 

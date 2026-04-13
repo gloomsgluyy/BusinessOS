@@ -474,6 +474,20 @@ model SalesDeal {
   isDeleted     Boolean   @default(false)
 }
 
+model ProjectItem {
+  id            String   @id @default(cuid())
+  name          String
+  segment       String?
+  buyer         String?
+  status        String   @default("draft")
+  notes         String?
+  createdBy     String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  isDeleted     Boolean  @default(false)
+}
+
 model Partner {
   id            String   @id @default(cuid())
   name          String

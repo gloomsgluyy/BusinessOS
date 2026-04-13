@@ -189,6 +189,20 @@ export interface SalesDeal {
     updated_at: string;
 }
 
+export interface ProjectItem {
+    id: string;
+    is_deleted?: boolean;
+    name: string;
+    segment?: string;
+    buyer?: string;
+    status?: string;
+    notes?: string;
+    created_by?: string;
+    created_by_name?: string;
+    created_at: string;
+    updated_at: string;
+}
+
 // ── Shipment Monitor ──────────────────────────────────────────
 export type ShipmentStatus = "upcoming" | "done_shipment" | "loading" | "in_transit" | "completed" | "cancelled";
 
