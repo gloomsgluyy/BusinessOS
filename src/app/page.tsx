@@ -428,6 +428,177 @@ function MarketPriceMini() {
     );
 }
 
+function TotalVolumeCard({ shipments, delay = 1 }: { shipments: any[]; delay?: number }) {
+    const [selectedYear, setSelectedYear] = React.useState<number | null>(null);
+    const [selectedSegment, setSelectedSegment] = React.useState<"total" | "local" | "export">("total");
+
+    const yearRows = React.useMemo(() => {
+        const map = new Map<number, {
+            year: number;
+            total: number;
+            local: number;
+            export: number;
+            byStatusTotal: Record<CanonicalShipmentStatus, number>;
+            byStatusLocal: Record<CanonicalShipmentStatus, number>;
+            byStatusExport: Record<CanonicalShipmentStatus, number>;
+        }>();
+
+        const zeroStatus = (): Record<CanonicalShipmentStatus, number> => ({
+            upcoming: 0,
+            loading: 0,
+            in_transit: 0,
+            completed: 0,
+            cancelled: 0,
+            unknown: 0,
+        });
+
+        shipments.forEach((sh) => {
+            const qty = getShipmentQty(sh);
+            if (qty <= 0) return;
+
+            const businessDate = getShipmentEtaDate(sh) || asDate(sh.bl_date);
+            const year = businessDate?.getFullYear() || Number(sh.year) || null;
+            if (!year || Number.isNaN(year)) return;
+
+            const status = normalizeShipmentStatus(sh.status);
+            const type = inferShipmentType(sh);
+            const row = map.get(year) || {
+                year,
+                total: 0,
+                local: 0,
+                export: 0,
+                byStatusTotal: zeroStatus(),
+                byStatusLocal: zeroStatus(),
+                byStatusExport: zeroStatus(),
+            };
+
+            row.total += qty;
+            row.byStatusTotal[status] += qty;
+
+            if (type === "local") {
+                row.local += qty;
+                row.byStatusLocal[status] += qty;
+            } else {
+                row.export += qty;
+                row.byStatusExport[status] += qty;
+            }
+
+            map.set(year, row);
+        });
+
+        return Array.from(map.values()).sort((a, b) => b.year - a.year);
+    }, [shipments]);
+
+    React.useEffect(() => {
+        if (yearRows.length === 0) {
+            setSelectedYear(null);
+            return;
+        }
+        if (!selectedYear || !yearRows.some((row) => row.year === selectedYear)) {
+            setSelectedYear(yearRows[0].year);
+        }
+    }, [yearRows, selectedYear]);
+
+    const selected = yearRows.find((r) => r.year === selectedYear) || yearRows[0];
+    const grandTotal = yearRows.reduce((sum, row) => sum + row.total, 0);
+
+    const statusOrder: CanonicalShipmentStatus[] = ["upcoming", "loading", "in_transit", "completed", "cancelled", "unknown"];
+    const statusLabel: Record<CanonicalShipmentStatus, string> = {
+        upcoming: "Upcoming",
+        loading: "Loading",
+        in_transit: "In Transit",
+        completed: "Completed",
+        cancelled: "Cancelled",
+        unknown: "Unknown",
+    };
+
+    const getSegmentQty = (row: { total: number; local: number; export: number } | undefined, segment: "total" | "local" | "export"): number => {
+        if (!row) return 0;
+        if (segment === "local") return row.local;
+        if (segment === "export") return row.export;
+        return row.total;
+    };
+
+    const getStatusQty = (row: any, status: CanonicalShipmentStatus): number => {
+        if (!row) return 0;
+        if (selectedSegment === "local") return row.byStatusLocal?.[status] || 0;
+        if (selectedSegment === "export") return row.byStatusExport?.[status] || 0;
+        return row.byStatusTotal?.[status] || 0;
+    };
+
+    return (
+        <div className={cn("card-elevated p-5 space-y-3 animate-slide-up", `delay-${delay}`)}>
+            <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total Volume</span>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-cyan-500/10">
+                    <Layers className="w-4 h-4 text-cyan-500" />
+                </div>
+            </div>
+
+            <div>
+                <p className="text-2xl font-bold tracking-tight">{safeFmt(grandTotal / 1000, 0)}K MT</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Level 1: Year | Level 2: Local/Export | Level 3: Status
+                </p>
+            </div>
+
+            <div className="space-y-2">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase">By Year</p>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                    {yearRows.map((row) => (
+                        <button
+                            key={row.year}
+                            onClick={() => {
+                                setSelectedYear(row.year);
+                                setSelectedSegment("total");
+                            }}
+                            className={cn(
+                                "min-w-[96px] rounded-lg border px-2 py-1.5 text-left transition-colors",
+                                selected?.year === row.year ? "border-primary bg-primary/5" : "border-border bg-accent/20 hover:bg-accent/40"
+                            )}
+                        >
+                            <p className="text-[11px] font-semibold">{row.year}</p>
+                            <p className="text-[10px] text-muted-foreground">{safeFmt(row.total / 1000, 0)}K MT</p>
+                        </button>
+                    ))}
+                    {yearRows.length === 0 && <p className="text-[10px] text-muted-foreground">No volume data</p>}
+                </div>
+            </div>
+
+            <div className="space-y-2">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase">Local vs Export ({selected?.year || "-"})</p>
+                <div className="grid grid-cols-3 gap-2">
+                    {(["total", "local", "export"] as const).map((segment) => (
+                        <button
+                            key={segment}
+                            onClick={() => setSelectedSegment(segment)}
+                            className={cn(
+                                "rounded-lg border px-2 py-1.5 text-left transition-colors",
+                                selectedSegment === segment ? "border-primary bg-primary/5" : "border-border bg-accent/20 hover:bg-accent/40"
+                            )}
+                        >
+                            <p className="text-[10px] font-semibold uppercase">{segment}</p>
+                            <p className="text-[10px] text-muted-foreground">{safeFmt(getSegmentQty(selected, segment) / 1000, 0)}K MT</p>
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <div className="space-y-2">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase">By Status ({selectedSegment.toUpperCase()})</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {statusOrder.map((status) => (
+                        <div key={status} className="rounded-lg border border-border bg-accent/20 px-2 py-1.5">
+                            <p className="text-[10px] text-muted-foreground">{statusLabel[status]}</p>
+                            <p className="text-[11px] font-semibold">{safeFmt(getStatusQty(selected, status) / 1000, 0)}K MT</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 /* ─── Upcoming Meetings ───────────────────────────────────── */
 function UpcomingMeetings() {
     const meetings = useCommercialStore((s) => s.meetings);
@@ -1227,8 +1398,10 @@ export default function DashboardPage() {
                         </div>
 
                         {/* Top Metrics - Row 1 (Operational Priority) */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <MetricCard label="Total Volume" value={`${safeFmt(totalQty / 1000, 0)}K MT`} sub={`${safeFmt(localQty / 1000, 0)}K Local | ${safeFmt(exportQty / 1000, 0)}K Export`} icon={Layers} color="bg-cyan-500/10" delay={1} />
+                        <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
+                            <div className="xl:col-span-2">
+                                <TotalVolumeCard shipments={filteredShipments} delay={1} />
+                            </div>
                             <MetricCard label="Active Deals" value={metricActiveDeals} sub={metricActiveDealsSub} icon={BarChart3} color="bg-blue-500/10" delay={2} />
                             <MetricCard label="Active Shipments" value={normalizedActiveShipments.length} sub={`${pendingTasks} tasks pending`} icon={Ship} color="bg-amber-500/10" delay={3} />
                         </div>
