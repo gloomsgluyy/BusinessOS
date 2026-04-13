@@ -472,55 +472,107 @@ function ShipmentTimeline({ shipmentItems, label }: { shipmentItems: any[]; labe
 /* ─── Quantity per Month Chart ────────────────────────────── */
 function QuantityPerMonth({ shipments }: { shipments: any[] }) {
     const [mounted, setMounted] = React.useState(false);
+    const [windowSize, setWindowSize] = React.useState<"12m" | "24m" | "all">("12m");
     React.useEffect(() => setMounted(true), []);
 
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const data = months.map((m, i) => {
-        const monthItems = shipments.filter((sh) => {
+    const monthlyData = React.useMemo(() => {
+        const bucket = new Map<string, { year: number; monthIndex: number; local: number; export: number }>();
+
+        shipments.forEach((sh) => {
+            const qty = getShipmentQty(sh);
+            if (qty <= 0) return;
+
             const businessDate = getShipmentEtaDate(sh) || asDate(sh.bl_date);
-            if (!businessDate) return false;
-            return businessDate.getMonth() === i;
+            if (!businessDate) return;
+
+            const year = businessDate.getFullYear();
+            const monthIndex = businessDate.getMonth();
+            const key = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
+            const type = inferShipmentType(sh);
+            const current = bucket.get(key) || { year, monthIndex, local: 0, export: 0 };
+
+            if (type === "local") current.local += qty;
+            else current.export += qty;
+
+            bucket.set(key, current);
         });
 
-        const domestic = monthItems
-            .filter((sh) => inferShipmentType(sh) === "local")
-            .reduce((s, sh) => s + getShipmentQty(sh), 0);
-        const exportVol = monthItems
-            .filter((sh) => inferShipmentType(sh) === "export")
-            .reduce((s, sh) => s + getShipmentQty(sh), 0);
+        const sorted = Array.from(bucket.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([key, value]) => {
+                const dt = new Date(value.year, value.monthIndex, 1);
+                return {
+                    key,
+                    monthLabel: dt.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+                    fullMonthLabel: dt.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+                    local: Math.round(value.local),
+                    export: Math.round(value.export),
+                    total: Math.round(value.local + value.export),
+                };
+            });
 
-        return {
-            month: m,
-            local: Math.round(domestic),
-            export: Math.round(exportVol),
-        };
-    });
+        if (windowSize === "all") return sorted;
+        if (windowSize === "24m") return sorted.slice(-24);
+        return sorted.slice(-12);
+    }, [shipments, windowSize]);
 
-    const totalQty = shipments.reduce((s, sh) => s + getShipmentQty(sh), 0);
+    const totalQty = monthlyData.reduce((s, row) => s + row.total, 0);
+    const rangeLabel = monthlyData.length > 0
+        ? `${monthlyData[0].fullMonthLabel} - ${monthlyData[monthlyData.length - 1].fullMonthLabel}`
+        : "No business-date shipment data";
+    const isDense = monthlyData.length > 14;
 
     return (
         <div className="card-elevated p-5 animate-slide-up delay-2">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-start justify-between mb-4 gap-3">
                 <div>
                     <h3 className="text-sm font-semibold">Quantity per Month (MT)</h3>
+                    <p className="text-[10px] text-muted-foreground">Period: {rangeLabel}</p>
                     <p className="text-[10px] text-muted-foreground">Total: {Math.round(totalQty / 1000)}K MT</p>
                 </div>
-                <a href="/sales-monitor" className="text-xs text-primary hover:underline flex items-center gap-1 group">
-                    Detail <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-                </a>
+                <div className="flex items-center gap-2">
+                    <select
+                        value={windowSize}
+                        onChange={(e) => setWindowSize(e.target.value as "12m" | "24m" | "all")}
+                        className="px-2 py-1 rounded-md bg-accent/50 border border-border text-[10px] outline-none focus:border-primary/50 text-muted-foreground"
+                    >
+                        <option value="12m">Last 1 Year</option>
+                        <option value="24m">Last 2 Years</option>
+                        <option value="all">All Years</option>
+                    </select>
+                    <a href="/sales-monitor" className="text-xs text-primary hover:underline flex items-center gap-1 group whitespace-nowrap">
+                        Detail <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                    </a>
+                </div>
             </div>
-            <div className="h-[220px]">
+            <div className="h-[240px]">
                 {mounted && (
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                        <BarChart data={monthlyData} margin={{ top: 5, right: 10, left: -20, bottom: isDense ? 18 : 0 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(128,128,128,0.1)" />
-                            <XAxis dataKey="month" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${safeFmt(v / 1000, 0)}K`} />
-                            <Tooltip 
-                                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }} 
-                                formatter={(v: any) => [`${safeFmt(Number(v) / 1000, 0)}K MT`]}
+                            <XAxis
+                                dataKey="monthLabel"
+                                tick={{ fontSize: 10 }}
+                                axisLine={false}
+                                tickLine={false}
+                                angle={isDense ? -35 : 0}
+                                textAnchor={isDense ? "end" : "middle"}
+                                height={isDense ? 48 : 28}
                             />
-                            <Legend wrapperStyle={{ fontSize: '11px' }} />
+                            <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${safeFmt(v / 1000, 0)}K`} />
+                            <Tooltip
+                                contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)", fontSize: "12px" }}
+                                labelFormatter={(_label, payload) => {
+                                    const full = payload?.[0]?.payload?.fullMonthLabel;
+                                    return full || _label;
+                                }}
+                                formatter={(v: any, name: string, props: any) => {
+                                    if (name === "local") return [`${safeFmt(Number(v) / 1000, 0)}K MT`, "Local (Domestic)"];
+                                    if (name === "export") return [`${safeFmt(Number(v) / 1000, 0)}K MT`, "Export"];
+                                    return [`${safeFmt(Number(v) / 1000, 0)}K MT`, name];
+                                }}
+                            />
+                            <Legend wrapperStyle={{ fontSize: "11px" }} />
                             <Bar dataKey="local" name="Local (Domestic)" fill="#3b82f6" stackId="qty" radius={[0, 0, 0, 0]} />
                             <Bar dataKey="export" name="Export" fill="#10b981" stackId="qty" radius={[4, 4, 0, 0]} />
                         </BarChart>
