@@ -101,6 +101,20 @@ function formatLaycanWithYear(sh: any): string {
     return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function formatLaycanCompact(sh: any): string {
+    const full = cleanText(formatLaycanWithYear(sh));
+    if (!full || full === "-") return "-";
+
+    const segments = full
+        .replace(/\s+i\s*[\.\/]?\s*o\s*\.?\s+/gi, "|")
+        .split("|")
+        .map((x) => x.trim())
+        .filter(Boolean);
+
+    if (segments.length <= 1) return segments[0] || full;
+    return `${segments[0]} (+${segments.length - 1})`;
+}
+
 function inferShipmentType(sh: any): "local" | "export" {
     const explicit = String(sh.type || "").toLowerCase();
     if (explicit.includes("local") || explicit.includes("dmo") || explicit.includes("domestic") || explicit.includes("loco")) return "local";
@@ -721,7 +735,7 @@ function ShipmentTimeline({ shipmentItems, label }: { shipmentItems: any[]; labe
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-xs font-semibold truncate">{cleanText(sh.buyer || sh.source || "Unknown")}</p>
-                                <p className="text-[10px] text-muted-foreground">Laycan: {formatLaycanWithYear(sh)}</p>
+                                <p className="text-[10px] text-muted-foreground">Laycan: {formatLaycanCompact(sh)}</p>
                                 <p className="text-[10px] text-muted-foreground">
                                     {cleanText(sh.vessel_name || sh.vesselName || sh.mv_project_name || sh.mvProjectName || sh.barge_name || sh.bargeName || "Vessel N/A")}
                                     {" · "}

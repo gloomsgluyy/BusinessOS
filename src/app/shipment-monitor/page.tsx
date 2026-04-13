@@ -129,6 +129,74 @@ const normalizeShipmentStatus = (raw?: string | null): SummaryStatus => {
     return "unknown";
 };
 
+function parseNominationEntries(value?: string | null): string[] {
+    const raw = String(value || "").replace(/\r/g, "\n").trim();
+    if (!raw) return [];
+
+    const normalized = raw
+        .replace(/\s+/g, " ")
+        .replace(/\s+i\s*[\.\/]?\s*o\s*\.?\s+/gi, " | ")
+        .replace(/\n+/g, " | ");
+
+    const entries = normalized
+        .split("|")
+        .map((x) => x.trim().replace(/^[-,.;:]+/, "").trim())
+        .filter(Boolean);
+
+    const unique: string[] = [];
+    for (const e of entries) {
+        if (!unique.some((u) => normalizeKey(u) === normalizeKey(e))) unique.push(e);
+    }
+    return unique;
+}
+
+function NominationDisplay({
+    value,
+    compact = false,
+}: {
+    value?: string | null;
+    compact?: boolean;
+}) {
+    const entries = React.useMemo(() => parseNominationEntries(value), [value]);
+    const [open, setOpen] = React.useState(false);
+
+    if (entries.length === 0) {
+        return <p className="font-semibold text-foreground break-words">-</p>;
+    }
+
+    const primary = entries[0];
+    const extra = Math.max(0, entries.length - 1);
+    const summary = extra > 0 ? `${primary} (+${extra} more)` : primary;
+
+    if (compact) {
+        return (
+            <div className="space-y-1">
+                <p className="font-semibold text-foreground break-words">{summary}</p>
+                {extra > 0 && (
+                    <button
+                        type="button"
+                        onClick={() => setOpen((v) => !v)}
+                        className="text-[10px] font-semibold text-primary hover:underline"
+                    >
+                        {open ? "Hide list" : "Show list"}
+                    </button>
+                )}
+                {open && (
+                    <ul className="space-y-1">
+                        {entries.map((entry, idx) => (
+                            <li key={`${entry}-${idx}`} className="text-[11px] text-foreground/90 break-words">
+                                {idx + 1}. {entry}
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+        );
+    }
+
+    return <p className="font-semibold text-foreground break-words">{summary}</p>;
+}
+
 function ExpandableText({
     text,
     maxChars = 120,
@@ -1443,7 +1511,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">BL Date</p><p className="font-semibold text-foreground break-words">{detailShipment.bl_date ? new Date(detailShipment.bl_date).toLocaleDateString() : "-"}</p></div>
                                                 <div className="space-y-1">
                                                     <p className="text-muted-foreground uppercase text-[10px]">Nomination</p>
-                                                    <ExpandableText text={detailShipment.nomination || "-"} maxChars={120} className="font-semibold text-foreground break-words" />
+                                                    <NominationDisplay value={detailShipment.nomination} compact />
                                                 </div>
                                                 <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Buyer</p><p className="font-semibold text-foreground break-words">{detailShipment.buyer || "-"}</p></div>
                                                 {/* New Fields */}
@@ -1475,7 +1543,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                         <div className="md:hidden space-y-2 mt-3">
                                                             {shipmentFamily.slice(0, 8).map((item) => (
                                                                 <div key={item.id} className="rounded-lg border border-border/50 bg-background/60 p-3 text-xs space-y-1.5">
-                                                                    <ExpandableText text={item.nomination || item.barge_name || "-"} maxChars={110} className="font-semibold text-foreground break-words" />
+                                                            <NominationDisplay value={item.nomination || item.barge_name || "-"} />
                                                                     <p className="text-muted-foreground break-words">{item.jetty_loading_port || item.loading_port || "-"}</p>
                                                                     <div className="flex items-center justify-between">
                                                                         <span className="text-muted-foreground">Plan</span>
@@ -1503,9 +1571,9 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                                 <tbody>
                                                                     {shipmentFamily.slice(0, 12).map((item) => (
                                                                         <tr key={item.id} className="border-b border-border/20">
-                                                                            <td className="py-2 pr-3 font-semibold text-foreground">
-                                                                                <ExpandableText text={item.nomination || item.barge_name || "-"} maxChars={110} className="font-semibold text-foreground break-words" />
-                                                                            </td>
+                                                                    <td className="py-2 pr-3 font-semibold text-foreground">
+                                                                        <NominationDisplay value={item.nomination || item.barge_name || "-"} />
+                                                                    </td>
                                                                             <td className="py-2 pr-3 text-muted-foreground">{item.jetty_loading_port || item.loading_port || "-"}</td>
                                                                             <td className="py-2 pr-3 text-foreground">{item.source || "-"}</td>
                                                                             <td className="py-2 pr-3 text-right text-blue-500 font-semibold">{safeNum(item.qty_plan).toLocaleString()}</td>
