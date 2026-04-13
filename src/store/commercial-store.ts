@@ -1184,7 +1184,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         return commercialSyncInFlight;
     }
 }), {
-    name: "commercial-store-v1",
+    name: "commercial-store-v2",
     storage: createJSONStorage(() => localStorage),
     partialize: (state) => ({
         _rawDeals: state._rawDeals,

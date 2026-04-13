@@ -32,6 +32,66 @@ function normalizeKey(v: unknown): string {
     return (cleanText(v) || "").toUpperCase();
 }
 
+const HEADER_LIKE_TOKENS = new Set([
+    "NO",
+    "NO.",
+    "STATUS",
+    "ORIGIN",
+    "MV PROJECT NAME",
+    "MV NAME",
+    "SOURCE",
+    "IUP OP",
+    "SHIPMENT FLOW",
+    "JETTY",
+    "JETTY LOADING PORT",
+    "LAYCAN",
+    "NOMINATION",
+    "QTY",
+    "QTY MT",
+    "PLAN",
+    "COB",
+    "REMARKS",
+    "SHIPMENT STATUS",
+    "ISSUE",
+    "BL DATE",
+    "BUYER",
+    "EXPORT",
+    "EXPORT DMO",
+    "LOADING PORT"
+]);
+
+function isHeaderLikeValue(v: unknown): boolean {
+    const n = normalizeKey(v);
+    return !!n && HEADER_LIKE_TOKENS.has(n);
+}
+
+function isNoiseShipmentRecord(s: any): boolean {
+    if (
+        isHeaderLikeValue(s?.mvProjectName) ||
+        isHeaderLikeValue(s?.nomination) ||
+        isHeaderLikeValue(s?.source) ||
+        isHeaderLikeValue(s?.shipmentFlow) ||
+        isHeaderLikeValue(s?.shipmentStatus)
+    ) return true;
+
+    const qty = parseNum(s?.quantityLoaded) ?? parseNum(s?.qtyPlan) ?? parseNum(s?.qtyCob) ?? 0;
+    const hasIdentity = Boolean(
+        cleanText(s?.mvProjectName) ||
+        cleanText(s?.vesselName) ||
+        cleanText(s?.nomination) ||
+        cleanText(s?.bargeName)
+    );
+
+    return !hasIdentity && qty <= 0;
+}
+
+function sanitizeEntityName(v: unknown): string | null {
+    const t = cleanText(v);
+    if (!t) return null;
+    if (isHeaderLikeValue(t)) return null;
+    return t;
+}
+
 function isExportShipment(s: any): boolean {
     const type = normalizeKey(s?.type);
     const expDmo = normalizeKey(s?.exportDmo);
@@ -44,7 +104,8 @@ function inferBuyerFromFlow(flow: unknown): string | null {
     const raw = cleanText(flow);
     if (!raw) return null;
     const stopwords = new Set([
-        "MSE", "MKLS", "CMD", "BAC", "LJT", "BUYER", "SUPPLIER", "OPS", "FLOW", "I/O", "IO", "AND", "OR"
+        "MSE", "MKLS", "CMD", "BAC", "LJT", "BUYER", "SUPPLIER", "OPS", "FLOW", "I/O", "IO", "AND", "OR",
+        "SHIPMENT", "SHIPMENT FLOW", "LOADING", "PORT", "JETTY", "TBA"
     ]);
     const tokens = raw
         .split(/[-–>/,|]+/)
@@ -115,7 +176,8 @@ export async function GET(req: Request) {
                 : {})
         });
 
-        const shipmentIds = shipments.map((s) => s.id);
+        const cleanShipments = shipments.filter((s) => !isNoiseShipmentRecord(s));
+        const shipmentIds = cleanShipments.map((s) => s.id);
         const timeline = includeTimeline && !lite && shipmentIds.length
             ? await prisma.timelineMilestone.findMany({
                 where: { shipmentId: { in: shipmentIds } },
@@ -132,9 +194,9 @@ export async function GET(req: Request) {
 
         // Build buyer consensus by mother-vessel/project group
         const buyerVotesByGroup = new Map<string, Map<string, number>>();
-        for (const s of shipments) {
+        for (const s of cleanShipments) {
             const groupKey = normalizeKey(s.vesselName || s.mvProjectName || s.nomination);
-            const buyer = cleanText(s.buyer);
+            const buyer = sanitizeEntityName(s.buyer);
             if (!groupKey || !buyer) continue;
             const votes = buyerVotesByGroup.get(groupKey) || new Map<string, number>();
             votes.set(buyer, (votes.get(buyer) || 0) + 1);
@@ -154,24 +216,24 @@ export async function GET(req: Request) {
             if (winner) consensusBuyerByGroup.set(groupKey, winner);
         });
 
-        const enriched = shipments.map((s) => {
+        const enriched = cleanShipments.map((s) => {
             const milestones = timelineByShipment.get(s.id) || [];
             const groupKey = normalizeKey(s.vesselName || s.mvProjectName || s.nomination);
             const inferredBuyer =
-                cleanText(s.buyer) ||
+                sanitizeEntityName(s.buyer) ||
                 consensusBuyerByGroup.get(groupKey) ||
                 inferBuyerFromFlow(s.shipmentFlow) ||
                 null;
             const inferredSupplier =
-                cleanText(s.supplier) ||
-                cleanText(s.source) ||
-                cleanText(s.iupOp) ||
+                sanitizeEntityName(s.supplier) ||
+                sanitizeEntityName(s.source) ||
+                sanitizeEntityName(s.iupOp) ||
                 null;
             const exportShipment = isExportShipment(s);
             const counterpartyRole = exportShipment ? "buyer" : "vendor";
             const counterparty = exportShipment
-                ? (inferredBuyer || inferredSupplier || "TBA Buyer")
-                : (inferredSupplier || inferredBuyer || "TBA Vendor");
+                ? (inferredBuyer || inferredSupplier || sanitizeEntityName(s.mvProjectName) || "TBA Buyer")
+                : (inferredSupplier || inferredBuyer || sanitizeEntityName(s.mvProjectName) || "TBA Vendor");
 
             return {
                 ...s,
