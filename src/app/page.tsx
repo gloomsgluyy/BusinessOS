@@ -497,23 +497,42 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
             bucket.set(key, current);
         });
 
-        const sorted = Array.from(bucket.entries())
-            .sort((a, b) => a[0].localeCompare(b[0]))
-            .map(([key, value]) => {
-                const dt = new Date(value.year, value.monthIndex, 1);
-                return {
-                    key,
-                    monthLabel: dt.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
-                    fullMonthLabel: dt.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
-                    local: Math.round(value.local),
-                    export: Math.round(value.export),
-                    total: Math.round(value.local + value.export),
-                };
-            });
+        const sortedKeys = Array.from(bucket.keys()).sort((a, b) => a.localeCompare(b));
+        if (sortedKeys.length === 0) return [];
 
-        if (windowSize === "all") return sorted;
-        if (windowSize === "24m") return sorted.slice(-24);
-        return sorted.slice(-12);
+        const [startYearRaw, startMonthRaw] = sortedKeys[0].split("-").map(Number);
+        const [endYearRaw, endMonthRaw] = sortedKeys[sortedKeys.length - 1].split("-").map(Number);
+        const earliestMonth = new Date(startYearRaw, (startMonthRaw || 1) - 1, 1);
+        const latestMonth = new Date(endYearRaw, (endMonthRaw || 1) - 1, 1);
+
+        const startMonth = new Date(latestMonth);
+        if (windowSize === "12m") startMonth.setMonth(startMonth.getMonth() - 11);
+        else if (windowSize === "24m") startMonth.setMonth(startMonth.getMonth() - 23);
+        else startMonth.setTime(earliestMonth.getTime());
+
+        if (startMonth < earliestMonth) startMonth.setTime(earliestMonth.getTime());
+
+        const rows: Array<{ key: string; monthLabel: string; fullMonthLabel: string; local: number; export: number; total: number }> = [];
+        const cursor = new Date(startMonth.getFullYear(), startMonth.getMonth(), 1);
+        const end = new Date(latestMonth.getFullYear(), latestMonth.getMonth(), 1);
+
+        while (cursor <= end) {
+            const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
+            const value = bucket.get(key);
+            const local = Math.round(value?.local || 0);
+            const exportVol = Math.round(value?.export || 0);
+            rows.push({
+                key,
+                monthLabel: cursor.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+                fullMonthLabel: cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+                local,
+                export: exportVol,
+                total: local + exportVol,
+            });
+            cursor.setMonth(cursor.getMonth() + 1);
+        }
+
+        return rows;
     }, [shipments, windowSize]);
 
     const totalQty = monthlyData.reduce((s, row) => s + row.total, 0);
