@@ -117,6 +117,69 @@ function getShipmentMargin(sh: any): number {
     if (selling > 0 && cost > 0) return selling - cost;
     return 0;
 }
+
+type CanonicalShipmentStatus = "upcoming" | "loading" | "in_transit" | "completed" | "cancelled" | "unknown";
+
+function normalizeShipmentStatus(raw?: string): CanonicalShipmentStatus {
+    const src = normalizeStatus(raw);
+    if (!src) return "unknown";
+    if (src.includes("cancel")) return "cancelled";
+    if (src.includes("done") || src.includes("complete") || src.includes("discharg")) return "completed";
+    if (src.includes("loading_proses") || src.includes("loading_process") || src === "loading") return "loading";
+    if (src.includes("in_transit") || src.includes("anchorage") || src.includes("discharging") || src.includes("transit")) return "in_transit";
+    if (src.includes("upcoming") || src.includes("waiting") || src.includes("draft") || src.includes("planned")) return "upcoming";
+    return "unknown";
+}
+
+const REGION_ALIAS: Record<string, string[]> = {
+    "KALIMANTAN TIMUR": ["KALIMANTAN TIMUR", "KALTIM", "EAST KALIMANTAN"],
+    "KALIMANTAN SELATAN": ["KALIMANTAN SELATAN", "KALSEL", "SOUTH KALIMANTAN"],
+    "KALIMANTAN TENGAH": ["KALIMANTAN TENGAH", "KALTENG", "CENTRAL KALIMANTAN"],
+    "SUMATERA SELATAN": ["SUMATERA SELATAN", "SUMSEL", "SOUTH SUMATRA"],
+};
+
+function matchesRegion(regionFilter: string, ...candidates: Array<string | undefined>): boolean {
+    if (regionFilter === "all") return true;
+    const wanted = normalizeKey(regionFilter);
+    const aliases = REGION_ALIAS[wanted] || [wanted];
+    const hay = normalizeKey(candidates.filter(Boolean).join(" | "));
+    if (!hay) return false;
+    return aliases.some((alias) => hay.includes(alias));
+}
+
+function matchesTimeRangeWithDate(
+    date: Date | null,
+    range: FilterRange,
+    now: Date,
+    customFrom?: string,
+    customTo?: string,
+    fallbackYear?: number | null
+): boolean {
+    if (range === "all") return true;
+
+    if (range === "ytd") {
+        const y = date?.getFullYear() || fallbackYear || null;
+        return y === now.getFullYear();
+    }
+
+    if (!date) return false;
+
+    if (range === "30d") {
+        const diffTime = now.getTime() - date.getTime();
+        return diffTime / (1000 * 3600 * 24) <= 30;
+    }
+    if (range === "90d") {
+        const diffTime = now.getTime() - date.getTime();
+        return diffTime / (1000 * 3600 * 24) <= 90;
+    }
+    if (range === "custom") {
+        if (customFrom && new Date(customFrom) > date) return false;
+        if (customTo && new Date(customTo) < date) return false;
+        return true;
+    }
+
+    return true;
+}
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSession } from "next-auth/react";
 import {
@@ -179,6 +242,7 @@ function DashboardFilters({ range, setRange, customFrom, customTo, setCustomFrom
                 <option value="all">All Regions</option>
                 <option value="Kalimantan Timur">Kalimantan Timur</option>
                 <option value="Kalimantan Selatan">Kalimantan Selatan</option>
+                <option value="Kalimantan Tengah">Kalimantan Tengah</option>
                 <option value="Sumatera Selatan">Sumatera Selatan</option>
             </select>
 
@@ -611,54 +675,89 @@ export default function DashboardPage() {
         };
     }, [sessionStatus, syncTasks, syncCommercial]);
 
-    // Master Filter logic
-    const filterData = <T extends { created_at?: string; type?: string; region?: string; status?: string; buyer_country?: string; buyer?: string; vessel_name?: string; shipment_number?: string }>(data: T[]): T[] => {
-        const now = new Date();
-        const q = search.toLowerCase();
-        return data.filter(item => {
-            // Market Type
-            if (marketType !== "all" && item.type && item.type !== marketType) return false;
-            // Region
-            if (region !== "all" && item.region && item.region !== region) return false;
-            // Status
-            if (status !== "all" && item.status && item.status !== status) return false;
-            // Country
-            if (country !== "all" && item.buyer_country && item.buyer_country !== country) return false;
-            // Search
-            if (q && ![
-                (item as any).buyer, (item as any).vessel_name, (item as any).shipment_number,
-                (item as any).supplier, (item as any).name, (item as any).title
-            ].filter(Boolean).some((v: string) => v.toLowerCase().includes(q))) return false;
+    // Master Filter logic (dataset-aware: deals vs shipments vs sources)
+    const now = new Date();
+    const q = search.toLowerCase().trim();
+    const countryNorm = normalizeKey(country);
 
-            // Date Range
-            const currentRange = timeRange as string;
-            if (currentRange === "all") return true; 
-            
-            if (item.created_at) {
-                const itemDate = new Date(item.created_at);
-                if (currentRange === "30d") {
-                    const diffTime = now.getTime() - itemDate.getTime();
-                    if (diffTime / (1000 * 3600 * 24) > 30) return false;
-                } else if (currentRange === "90d") {
-                    const diffTime = now.getTime() - itemDate.getTime();
-                    if (diffTime / (1000 * 3600 * 24) > 90) return false;
-                } else if (currentRange === "ytd") {
-                    if (itemDate.getFullYear() !== now.getFullYear()) return false;
-                } else if (currentRange === "custom") {
-                    if (customFrom && new Date(customFrom) > itemDate) return false;
-                    if (customTo && new Date(customTo) < itemDate) return false;
-                }
-            } else {
-                // If range is specific but no date, hide it
-                return false;
-            }
-            return true;
-        });
+    const matchesSearch = (...fields: Array<string | number | undefined | null>): boolean => {
+        if (!q) return true;
+        return fields
+            .filter((v) => v !== null && v !== undefined && String(v).trim() !== "")
+            .some((v) => String(v).toLowerCase().includes(q));
     };
 
-    const filteredDeals = filterData(deals);
-    const filteredShipments = filterData(shipments);
-    const filteredSources = filterData(sources);
+    const filteredDeals = deals.filter((d: any) => {
+        const st = normalizeStatus(d.status);
+        const dealType = String(d.type || "").toLowerCase();
+        const dealDate = asDate(d.laycan_start) || asDate(d.laycan_end) || asDate(d.created_at);
+
+        if (marketType !== "all" && dealType && dealType !== marketType) return false;
+
+        // Status filter for sales pipeline
+        if (status !== "all") {
+            if (status === "pre_sale" && st !== "pre_sale") return false;
+            if (status === "confirmed" && !["confirmed", "contracted", "executed"].includes(st)) return false;
+            if (status === "in_transit" && st !== "executed") return false;
+            if (status === "completed" && st !== "executed") return false;
+        }
+
+        if (country !== "all") {
+            const dealCountry = normalizeKey(d.buyer_country);
+            if (!dealCountry || dealCountry !== countryNorm) return false;
+        }
+
+        if (!matchesRegion(region, d.region)) return false;
+        if (!matchesSearch(d.buyer, d.deal_number, d.vessel_name, d.project_id, d.buyer_country)) return false;
+
+        return matchesTimeRangeWithDate(dealDate, timeRange, now, customFrom, customTo, null);
+    });
+
+    const filteredShipments = shipments.filter((sh: any) => {
+        const shipmentType = inferShipmentType(sh);
+        const shipmentStatus = normalizeShipmentStatus(sh.status);
+        const shipmentDate = getShipmentEtaDate(sh) || asDate(sh.bl_date) || asDate(sh.created_at);
+        const shipmentYear = Number(sh.year) || null;
+        const shipmentRegionText = [sh.region, sh.origin, sh.loading_port, sh.jetty_loading_port].filter(Boolean).join(" ");
+
+        if (marketType !== "all" && shipmentType !== marketType) return false;
+
+        if (status !== "all") {
+            if (status === "pre_sale") return false;
+            if (status === "confirmed" && !["upcoming", "loading"].includes(shipmentStatus)) return false;
+            if (status === "in_transit" && !["in_transit", "loading"].includes(shipmentStatus)) return false;
+            if (status === "completed" && shipmentStatus !== "completed") return false;
+        }
+
+        if (country !== "all") {
+            const shipmentCountry = normalizeKey((sh as any).buyer_country);
+            if (!shipmentCountry || shipmentCountry !== countryNorm) return false;
+        }
+
+        if (!matchesRegion(region, shipmentRegionText)) return false;
+
+        if (!matchesSearch(
+            sh.buyer,
+            sh.supplier,
+            sh.vessel_name,
+            sh.barge_name,
+            sh.mv_project_name,
+            sh.nomination,
+            sh.shipment_number,
+            sh.source
+        )) return false;
+
+        return matchesTimeRangeWithDate(shipmentDate, timeRange, now, customFrom, customTo, shipmentYear);
+    });
+
+    const filteredSources = sources.filter((src: any) => {
+        const sourceDate = asDate(src.updated_at) || asDate(src.created_at);
+
+        if (!matchesRegion(region, src.region)) return false;
+        if (!matchesSearch(src.name, src.region, src.pic_name, src.contact_person)) return false;
+
+        return matchesTimeRangeWithDate(sourceDate, timeRange, now, customFrom, customTo, null);
+    });
 
     // Financial calculations: Combined from Confirmed/Contracted/Executed Deals + Active Shipments
     // We include all "successful" deal statuses for revenue visibility
