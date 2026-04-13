@@ -526,24 +526,29 @@ function TotalVolumeCard({ shipments, delay = 1 }: { shipments: any[]; delay?: n
         return row.byStatusTotal?.[status] || 0;
     };
 
+    const selectedSegmentTotal = getSegmentQty(selected, selectedSegment);
+    const selectedYearTotal = getSegmentQty(selected, "total");
+    const segmentLabel = selectedSegment === "total" ? "All" : selectedSegment === "local" ? "Local" : "Export";
+
     return (
-        <div className={cn("card-elevated p-5 space-y-3 animate-slide-up", `delay-${delay}`)}>
-            <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total Volume</span>
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-cyan-500/10">
-                    <Layers className="w-4 h-4 text-cyan-500" />
+        <div className={cn("card-elevated p-5 md:p-6 space-y-4 animate-slide-up", `delay-${delay}`)}>
+            <div className="flex items-start justify-between gap-3">
+                <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total Volume</p>
+                    <p className="text-3xl font-black tracking-tight mt-1">{safeFmt(grandTotal / 1000, 0)}K MT</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">Filtered shipment volume</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] px-2 py-1 rounded-full bg-cyan-500/10 text-cyan-600 font-semibold">Year {selected?.year || "-"}</span>
+                    <span className="text-[10px] px-2 py-1 rounded-full bg-primary/10 text-primary font-semibold">{segmentLabel}</span>
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-cyan-500/10">
+                        <Layers className="w-4 h-4 text-cyan-500" />
+                    </div>
                 </div>
             </div>
 
-            <div>
-                <p className="text-2xl font-bold tracking-tight">{safeFmt(grandTotal / 1000, 0)}K MT</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Level 1: Year | Level 2: Local/Export | Level 3: Status
-                </p>
-            </div>
-
             <div className="space-y-2">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase">By Year</p>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase">Year</p>
                 <div className="flex gap-2 overflow-x-auto pb-1">
                     {yearRows.map((row) => (
                         <button
@@ -553,11 +558,11 @@ function TotalVolumeCard({ shipments, delay = 1 }: { shipments: any[]; delay?: n
                                 setSelectedSegment("total");
                             }}
                             className={cn(
-                                "min-w-[96px] rounded-lg border px-2 py-1.5 text-left transition-colors",
-                                selected?.year === row.year ? "border-primary bg-primary/5" : "border-border bg-accent/20 hover:bg-accent/40"
+                                "min-w-[104px] rounded-xl border px-3 py-2 text-left transition-all",
+                                selected?.year === row.year ? "border-primary bg-primary/10 shadow-sm" : "border-border bg-accent/20 hover:bg-accent/40"
                             )}
                         >
-                            <p className="text-[11px] font-semibold">{row.year}</p>
+                            <p className="text-xs font-bold">{row.year}</p>
                             <p className="text-[10px] text-muted-foreground">{safeFmt(row.total / 1000, 0)}K MT</p>
                         </button>
                     ))}
@@ -566,33 +571,50 @@ function TotalVolumeCard({ shipments, delay = 1 }: { shipments: any[]; delay?: n
             </div>
 
             <div className="space-y-2">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase">Local vs Export ({selected?.year || "-"})</p>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase">Segment</p>
                 <div className="grid grid-cols-3 gap-2">
                     {(["total", "local", "export"] as const).map((segment) => (
                         <button
                             key={segment}
                             onClick={() => setSelectedSegment(segment)}
                             className={cn(
-                                "rounded-lg border px-2 py-1.5 text-left transition-colors",
-                                selectedSegment === segment ? "border-primary bg-primary/5" : "border-border bg-accent/20 hover:bg-accent/40"
+                                "rounded-xl border px-3 py-2 text-left transition-all",
+                                selectedSegment === segment ? "border-primary bg-primary/10 shadow-sm" : "border-border bg-accent/20 hover:bg-accent/40"
                             )}
                         >
                             <p className="text-[10px] font-semibold uppercase">{segment}</p>
-                            <p className="text-[10px] text-muted-foreground">{safeFmt(getSegmentQty(selected, segment) / 1000, 0)}K MT</p>
+                            <p className="text-xs font-bold">{safeFmt(getSegmentQty(selected, segment) / 1000, 0)}K MT</p>
+                            <p className="text-[10px] text-muted-foreground">
+                                {selectedYearTotal > 0 ? `${safeFmt((getSegmentQty(selected, segment) / selectedYearTotal) * 100, 1)}%` : "0.0%"}
+                            </p>
                         </button>
                     ))}
                 </div>
             </div>
 
             <div className="space-y-2">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase">By Status ({selectedSegment.toUpperCase()})</p>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {statusOrder.map((status) => (
-                        <div key={status} className="rounded-lg border border-border bg-accent/20 px-2 py-1.5">
-                            <p className="text-[10px] text-muted-foreground">{statusLabel[status]}</p>
-                            <p className="text-[11px] font-semibold">{safeFmt(getStatusQty(selected, status) / 1000, 0)}K MT</p>
-                        </div>
-                    ))}
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase">Status Breakdown ({segmentLabel})</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {statusOrder.map((status) => {
+                        const qty = getStatusQty(selected, status);
+                        const pct = selectedSegmentTotal > 0 ? (qty / selectedSegmentTotal) * 100 : 0;
+                        return (
+                            <div key={status} className="rounded-xl border border-border bg-accent/20 px-3 py-2">
+                                <div className="flex items-center justify-between mb-1">
+                                    <p className="text-[11px] font-medium">{statusLabel[status]}</p>
+                                    <p className="text-[11px] font-bold">{safeFmt(qty / 1000, 0)}K MT</p>
+                                </div>
+                                <div className="h-1.5 w-full rounded-full bg-muted/60 overflow-hidden">
+                                    <div className="h-full rounded-full bg-cyan-500 transition-all" style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
+                                </div>
+                                <p className="text-[10px] text-muted-foreground mt-1">{safeFmt(pct, 1)}%</p>
+                            </div>
+                        );
+                    })}
+                </div>
+                <div className="rounded-xl bg-primary/5 border border-primary/10 px-3 py-2">
+                    <p className="text-[10px] text-muted-foreground">Active scope</p>
+                    <p className="text-xs font-semibold">{selected?.year || "-"} - {segmentLabel} - {safeFmt(selectedSegmentTotal / 1000, 0)}K MT</p>
                 </div>
             </div>
         </div>
