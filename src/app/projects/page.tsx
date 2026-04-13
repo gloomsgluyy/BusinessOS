@@ -45,17 +45,6 @@ const normalizeKey = (v?: string | null): string =>
     .replace(/\s+/g, " ")
     .trim();
 
-const shipmentTabFromRow = (r: ShipmentDetail): "all" | "upcoming" | "loading" | "in_transit" | "completed" | "cancelled" => {
-  const s = normalizeKey(r.shipment_status || r.status || "");
-  if (!s) return "all";
-  if (s.includes("CANCEL")) return "cancelled";
-  if (s.includes("DONE") || s.includes("COMPLETE") || s.includes("DISCH")) return "completed";
-  if (s.includes("LOADING")) return "loading";
-  if (s.includes("IN TRANSIT") || s.includes("ANCHORAGE")) return "in_transit";
-  if (s.includes("UPCOMING") || s.includes("WAITING") || s.includes("PLANNED")) return "upcoming";
-  return "all";
-};
-
 const cleanText = (v?: string | null): string | null => {
   if (!v) return null;
   const t = String(v).replace(/\s+/g, " ").trim();
@@ -474,7 +463,6 @@ export default function ProjectsPage() {
                           <th className="text-left py-2 pr-3">Status</th>
                           <th className="text-right py-2 pr-3">Qty</th>
                           <th className="text-right py-2">Price</th>
-                          <th className="text-right py-2">Action</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -491,14 +479,6 @@ export default function ProjectsPage() {
                               {safeNum(r.harga_actual_fob_mv || r.sales_price)
                                 ? fmtUsd(safeNum(r.harga_actual_fob_mv || r.sales_price))
                                 : "-"}
-                            </td>
-                            <td className="py-2 text-right">
-                              <a
-                                href={`/shipment-monitor?tab=${shipmentTabFromRow(r)}&open=${encodeURIComponent(r.id)}`}
-                                className="text-[11px] font-semibold text-primary hover:underline"
-                              >
-                                Open Detail
-                              </a>
                             </td>
                           </tr>
                         ))}
