@@ -129,6 +129,38 @@ const normalizeShipmentStatus = (raw?: string | null): SummaryStatus => {
     return "unknown";
 };
 
+function ExpandableText({
+    text,
+    maxChars = 120,
+    className = "",
+}: {
+    text?: string | null;
+    maxChars?: number;
+    className?: string;
+}) {
+    const [expanded, setExpanded] = React.useState(false);
+    const normalized = String(text || "-").replace(/\s+/g, " ").trim();
+
+    if (normalized.length <= maxChars) {
+        return <p className={className}>{normalized}</p>;
+    }
+
+    const compact = `${normalized.slice(0, maxChars).trimEnd()}...`;
+
+    return (
+        <div className="space-y-1">
+            <p className={className}>{expanded ? normalized : compact}</p>
+            <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="text-[10px] font-semibold text-primary hover:underline"
+            >
+                {expanded ? "Show less" : "Show more"}
+            </button>
+        </div>
+    );
+}
+
 export default function ShipmentMonitorPage() {
     const [, setIsInitializing] = React.useState(false);
     const searchParams = useSearchParams();
@@ -146,6 +178,7 @@ export default function ShipmentMonitorPage() {
     const [activeView, setActiveView] = React.useState<"list" | "card" | "map">("list");
     const [detailShipment, setDetailShipment] = React.useState<ShipmentDetail | null>(null);
     const [detailModalTab, setDetailModalTab] = React.useState<"overview" | "blending" | "timeline" | "risk">("overview");
+    const [showChildBargeDetails, setShowChildBargeDetails] = React.useState(false);
     const [editShipment, setEditShipment] = React.useState<ShipmentDetail | null>(null);
     const [editForm, setEditForm] = React.useState<Partial<ShipmentDetail>>({});
     const [expandedRows, setExpandedRows] = React.useState<Set<string>>(new Set());
@@ -155,6 +188,10 @@ export default function ShipmentMonitorPage() {
     const [dateTo, setDateTo] = React.useState("");
     const [sortBy, setSortBy] = React.useState<"latest" | "oldest" | "qty_desc" | "qty_asc">("latest");
     const [showReportModal, setShowReportModal] = React.useState(false);
+
+    React.useEffect(() => {
+        setShowChildBargeDetails(false);
+    }, [detailShipment?.id]);
 
     React.useEffect(() => {
         const tabParam = (searchParams.get("tab") || "").toLowerCase();
@@ -1404,7 +1441,10 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Analysis Method</p><p className="font-semibold text-foreground break-words">{detailShipment.analysis_method || "-"}</p></div>
                                                 <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">DMO / Export</p><p className="font-semibold text-foreground break-words">{detailShipment.export_dmo || "EXPORT"}</p></div>
                                                 <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">BL Date</p><p className="font-semibold text-foreground break-words">{detailShipment.bl_date ? new Date(detailShipment.bl_date).toLocaleDateString() : "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Nomination</p><p className="font-semibold text-foreground break-words">{detailShipment.nomination || "-"}</p></div>
+                                                <div className="space-y-1">
+                                                    <p className="text-muted-foreground uppercase text-[10px]">Nomination</p>
+                                                    <ExpandableText text={detailShipment.nomination || "-"} maxChars={120} className="font-semibold text-foreground break-words" />
+                                                </div>
                                                 <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Buyer</p><p className="font-semibold text-foreground break-words">{detailShipment.buyer || "-"}</p></div>
                                                 {/* New Fields */}
                                                 <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">No. SPAL</p><p className="font-semibold text-foreground break-words">{detailShipment.no_spal || "-"}</p></div>
@@ -1416,55 +1456,72 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
 
                                         {shipmentFamily.length > 0 && (
                                             <div className="p-4 bg-accent/20 rounded-xl border border-border/50">
-                                                <h5 className="text-[10px] sm:text-[11px] font-bold text-muted-foreground uppercase mb-3 flex items-center gap-1.5">
-                                                    <Anchor className="w-3 h-3" /> Child Barge Details ({shipmentFamily.length})
-                                                </h5>
-                                                <div className="md:hidden space-y-2">
-                                                    {shipmentFamily.slice(0, 8).map((item) => (
-                                                        <div key={item.id} className="rounded-lg border border-border/50 bg-background/60 p-3 text-xs space-y-1.5">
-                                                            <p className="font-semibold text-foreground break-words">{item.nomination || item.barge_name || "-"}</p>
-                                                            <p className="text-muted-foreground break-words">{item.jetty_loading_port || item.loading_port || "-"}</p>
-                                                            <div className="flex items-center justify-between">
-                                                                <span className="text-muted-foreground">Plan</span>
-                                                                <span className="font-semibold text-blue-500">{safeNum(item.qty_plan).toLocaleString()} MT</span>
-                                                            </div>
-                                                            <div className="flex items-center justify-between">
-                                                                <span className="text-muted-foreground">Actual</span>
-                                                                <span className="font-semibold text-emerald-500">{safeNum(item.qty_cob || item.quantity_loaded).toLocaleString()} MT</span>
-                                                            </div>
-                                                        </div>
-                                                    ))}
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <h5 className="text-[10px] sm:text-[11px] font-bold text-muted-foreground uppercase flex items-center gap-1.5">
+                                                        <Anchor className="w-3 h-3" /> Child Barge Details ({shipmentFamily.length})
+                                                    </h5>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowChildBargeDetails((v) => !v)}
+                                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border bg-background/70 hover:bg-accent text-[10px] font-semibold"
+                                                    >
+                                                        {showChildBargeDetails ? "Hide Detail" : "Show Detail"}
+                                                        {showChildBargeDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                                    </button>
                                                 </div>
-                                                <div className="hidden md:block overflow-x-auto">
-                                                    <table className="w-full text-[11px]">
-                                                        <thead>
-                                                            <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border/40">
-                                                                <th className="py-2 pr-3">Nomination</th>
-                                                                <th className="py-2 pr-3">Jetty / Loading Port</th>
-                                                                <th className="py-2 pr-3">Source</th>
-                                                                <th className="py-2 pr-3 text-right">Plan (MT)</th>
-                                                                <th className="py-2 pr-3 text-right">Actual (MT)</th>
-                                                                <th className="py-2 pr-3">Status</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {shipmentFamily.slice(0, 12).map((item) => (
-                                                                <tr key={item.id} className="border-b border-border/20">
-                                                                    <td className="py-2 pr-3 font-semibold text-foreground">{item.nomination || item.barge_name || "-"}</td>
-                                                                    <td className="py-2 pr-3 text-muted-foreground">{item.jetty_loading_port || item.loading_port || "-"}</td>
-                                                                    <td className="py-2 pr-3 text-foreground">{item.source || "-"}</td>
-                                                                    <td className="py-2 pr-3 text-right text-blue-500 font-semibold">{safeNum(item.qty_plan).toLocaleString()}</td>
-                                                                    <td className="py-2 pr-3 text-right text-emerald-500 font-semibold">{safeNum(item.qty_cob || item.quantity_loaded).toLocaleString()}</td>
-                                                                    <td className="py-2 pr-3">{item.shipment_status || item.status || "-"}</td>
-                                                                </tr>
+
+                                                {showChildBargeDetails && (
+                                                    <>
+                                                        <div className="md:hidden space-y-2 mt-3">
+                                                            {shipmentFamily.slice(0, 8).map((item) => (
+                                                                <div key={item.id} className="rounded-lg border border-border/50 bg-background/60 p-3 text-xs space-y-1.5">
+                                                                    <ExpandableText text={item.nomination || item.barge_name || "-"} maxChars={110} className="font-semibold text-foreground break-words" />
+                                                                    <p className="text-muted-foreground break-words">{item.jetty_loading_port || item.loading_port || "-"}</p>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground">Plan</span>
+                                                                        <span className="font-semibold text-blue-500">{safeNum(item.qty_plan).toLocaleString()} MT</span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground">Actual</span>
+                                                                        <span className="font-semibold text-emerald-500">{safeNum(item.qty_cob || item.quantity_loaded).toLocaleString()} MT</span>
+                                                                    </div>
+                                                                </div>
                                                             ))}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                                {shipmentFamily.length > 12 && (
-                                                    <p className="text-[10px] text-muted-foreground mt-2">
-                                                        Showing first 12 details. Total child rows: {shipmentFamily.length}.
-                                                    </p>
+                                                        </div>
+                                                        <div className="hidden md:block overflow-x-auto mt-3">
+                                                            <table className="w-full text-[11px]">
+                                                                <thead>
+                                                                    <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border/40">
+                                                                        <th className="py-2 pr-3">Nomination</th>
+                                                                        <th className="py-2 pr-3">Jetty / Loading Port</th>
+                                                                        <th className="py-2 pr-3">Source</th>
+                                                                        <th className="py-2 pr-3 text-right">Plan (MT)</th>
+                                                                        <th className="py-2 pr-3 text-right">Actual (MT)</th>
+                                                                        <th className="py-2 pr-3">Status</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {shipmentFamily.slice(0, 12).map((item) => (
+                                                                        <tr key={item.id} className="border-b border-border/20">
+                                                                            <td className="py-2 pr-3 font-semibold text-foreground">
+                                                                                <ExpandableText text={item.nomination || item.barge_name || "-"} maxChars={110} className="font-semibold text-foreground break-words" />
+                                                                            </td>
+                                                                            <td className="py-2 pr-3 text-muted-foreground">{item.jetty_loading_port || item.loading_port || "-"}</td>
+                                                                            <td className="py-2 pr-3 text-foreground">{item.source || "-"}</td>
+                                                                            <td className="py-2 pr-3 text-right text-blue-500 font-semibold">{safeNum(item.qty_plan).toLocaleString()}</td>
+                                                                            <td className="py-2 pr-3 text-right text-emerald-500 font-semibold">{safeNum(item.qty_cob || item.quantity_loaded).toLocaleString()}</td>
+                                                                            <td className="py-2 pr-3">{item.shipment_status || item.status || "-"}</td>
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                        {shipmentFamily.length > 12 && (
+                                                            <p className="text-[10px] text-muted-foreground mt-2">
+                                                                Showing first 12 details. Total child rows: {shipmentFamily.length}.
+                                                            </p>
+                                                        )}
+                                                    </>
                                                 )}
                                             </div>
                                         )}
