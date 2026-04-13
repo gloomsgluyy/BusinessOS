@@ -65,6 +65,20 @@ function isHeaderLikeValue(v: unknown): boolean {
     return !!n && HEADER_LIKE_TOKENS.has(n);
 }
 
+function looksLikeNarrativeText(v: unknown): boolean {
+    const text = cleanText(v);
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    return (
+        text.length > 60 ||
+        lower.includes("issue") ||
+        lower.includes("terms payment") ||
+        lower.includes("kontrak") ||
+        lower.includes("dokumen") ||
+        lower.includes("harga")
+    );
+}
+
 function isNoiseShipmentRecord(s: any): boolean {
     if (
         isHeaderLikeValue(s?.mvProjectName) ||
@@ -81,6 +95,13 @@ function isNoiseShipmentRecord(s: any): boolean {
         cleanText(s?.nomination) ||
         cleanText(s?.bargeName)
     );
+
+    const hasCounterparty = Boolean(cleanText(s?.buyer) || cleanText(s?.supplier) || cleanText(s?.source));
+    const hasShipmentStatus = Boolean(cleanText(s?.shipmentStatus));
+    const likelyNarrativePort = looksLikeNarrativeText(s?.loadingPort) || looksLikeNarrativeText(s?.jettyLoadingPort);
+    if (qty <= 0 && !cleanText(s?.nomination) && !hasCounterparty && !hasShipmentStatus && likelyNarrativePort) {
+        return true;
+    }
 
     return !hasIdentity && qty <= 0;
 }

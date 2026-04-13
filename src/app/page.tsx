@@ -104,6 +104,45 @@ function getShipmentQty(sh: any): number {
     return safeNum(sh.quantity_loaded) || safeNum(sh.qty_plan) || safeNum(sh.qty_cob);
 }
 
+function cleanText(value: unknown): string {
+    return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function isNarrativeText(value: unknown): boolean {
+    const text = cleanText(value).toLowerCase();
+    if (!text) return false;
+    if (text.length > 60) return true;
+    return (
+        text.includes("issue") ||
+        text.includes("terms payment") ||
+        text.includes("kontrak") ||
+        text.includes("dokumen") ||
+        text.includes("harga")
+    );
+}
+
+function hasOperationalShipmentSignal(sh: any): boolean {
+    const qty = getShipmentQty(sh);
+    const nomination = cleanText(sh.nomination || sh.barge_name || sh.bargeName);
+    return qty > 0 || Boolean(nomination);
+}
+
+function getShipmentDisplayPort(sh: any): string {
+    const candidates = [
+        sh.loading_port,
+        sh.loadingPort,
+        sh.jetty_loading_port,
+        sh.jettyLoadingPort,
+    ];
+    for (const c of candidates) {
+        const text = cleanText(c);
+        if (!text) continue;
+        if (isNarrativeText(text)) continue;
+        return text;
+    }
+    return "Port N/A";
+}
+
 function getShipmentRevenuePrice(sh: any): number {
     return safeNum(sh.sales_price) || safeNum(sh.sp) || safeNum(sh.harga_actual_fob_mv) || safeNum(sh.harga_actual_fob);
 }
@@ -445,8 +484,12 @@ function ShipmentTimeline({ shipmentItems, label }: { shipmentItems: any[]; labe
                                 <Ship className="w-4 h-4" style={{ color: statusCfg?.color }} />
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-xs font-semibold truncate">{sh.buyer}</p>
-                                <p className="text-[10px] text-muted-foreground">{sh.vessel_name || sh.barge_name} · {sh.loading_port}</p>
+                                <p className="text-xs font-semibold truncate">{cleanText(sh.buyer || sh.source || "Unknown")}</p>
+                                <p className="text-[10px] text-muted-foreground">
+                                    {cleanText(sh.vessel_name || sh.vesselName || sh.mv_project_name || sh.mvProjectName || sh.barge_name || sh.bargeName || "Vessel N/A")}
+                                    {" · "}
+                                    {getShipmentDisplayPort(sh)}
+                                </p>
                             </div>
                             <div className="text-right shrink-0">
                                 <span className="status-badge text-[10px]" style={{ color: statusCfg?.color, backgroundColor: `${statusCfg?.color}15` }}>
@@ -847,6 +890,8 @@ export default function DashboardPage() {
     });
 
     const filteredShipments = shipments.filter((sh: any) => {
+        if (!hasOperationalShipmentSignal(sh)) return false;
+
         const shipmentType = inferShipmentType(sh);
         const shipmentStatus = normalizeShipmentStatus(sh.status);
         const shipmentDate = getShipmentEtaDate(sh) || asDate(sh.bl_date) || asDate(sh.created_at);
