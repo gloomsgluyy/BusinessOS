@@ -142,6 +142,41 @@ function inferBuyerFromFlow(flow: unknown): string | null {
     return null;
 }
 
+function splitReasonItems(...parts: Array<unknown>): string[] {
+    const out: string[] = [];
+    for (const part of parts) {
+        const text = cleanText(part);
+        if (!text) continue;
+        const chunks = text
+            .split(/\r?\n|;|•|\||\u2022|,|\s{2,}/g)
+            .map((x) => cleanText(x))
+            .filter((x): x is string => Boolean(x));
+        for (const chunk of chunks) {
+            const key = normalizeKey(chunk);
+            if (!key) continue;
+            if (HEADER_LIKE_TOKENS.has(key)) continue;
+            if (key.length < 3) continue;
+            if (!out.some((existing) => normalizeKey(existing) === key)) {
+                out.push(chunk);
+            }
+        }
+    }
+    return out.slice(0, 8);
+}
+
+function deriveStatusReason(s: any): string | null {
+    const reason =
+        cleanText(s?.issueNotes) ||
+        cleanText(s?.remarks) ||
+        null;
+    if (reason) return reason;
+
+    const status = normalizeKey(s?.status || s?.shipmentStatus);
+    if (status.includes("CANCEL")) return "Shipment cancelled (reason not captured in source).";
+    if (status.includes("WAIT") || status.includes("UPCOMING")) return "Waiting operational readiness.";
+    return null;
+}
+
 export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
@@ -171,10 +206,12 @@ export async function GET(req: Request) {
                         nomination: true,
                         qtyPlan: true,
                         qtyCob: true,
+                        remarks: true,
                         hargaActualFob: true,
                         hargaActualFobMv: true,
                         hpb: true,
                         shipmentStatus: true,
+                        issueNotes: true,
                         blDate: true,
                         pic: true,
                         sp: true,
@@ -255,6 +292,8 @@ export async function GET(req: Request) {
             const counterparty = exportShipment
                 ? (inferredBuyer || inferredSupplier || sanitizeEntityName(s.mvProjectName) || "TBA Buyer")
                 : (inferredSupplier || inferredBuyer || sanitizeEntityName(s.mvProjectName) || "TBA Vendor");
+            const statusReason = deriveStatusReason(s);
+            const pendingItems = splitReasonItems(s?.issueNotes, s?.remarks);
 
             return {
                 ...s,
@@ -262,6 +301,8 @@ export async function GET(req: Request) {
                 supplier: inferredSupplier,
                 counterpartyRole,
                 counterparty,
+                statusReason,
+                pendingItems,
                 milestones: includeTimeline
                     ? milestones.map((m) => ({
                         title: m.title,

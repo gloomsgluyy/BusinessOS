@@ -229,6 +229,7 @@ export interface ShipmentDetail {
     status_hpb?: string;
     shipment_status?: string;
     issue_notes?: string;
+    status_reason?: string;
     bl_date?: string;
     pic?: string;
     kuota_export?: string;

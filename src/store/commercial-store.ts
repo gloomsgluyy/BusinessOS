@@ -402,6 +402,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 remarks: ship.remarks, harga_actual_fob: ship.hargaActualFob, harga_actual_fob_mv: ship.hargaActualFobMv,
                 hpb: ship.hpb, status_hpb: ship.statusHpb, shipment_status: ship.shipmentStatus,
                 issue_notes: ship.issueNotes, bl_date: ship.blDate, pic: ship.pic,
+                status_reason: ship.statusReason,
                 kuota_export: ship.kuotaExport, surveyor_lhv: ship.surveyorLhv,
                 completely_loaded: ship.completelyLoaded, lhv_terbit: ship.lhvTerbit,
                 loss_gain_cargo: ship.lossGainCargo, sp: ship.sp, deadfreight: ship.deadfreight,
@@ -409,6 +410,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 price_freight: ship.priceFreight, allowance: ship.allowance, demm: ship.demm,
                 no_spal: ship.noSpal, no_si: ship.noSi, coa_date: ship.coaDate, result_gar: ship.resultGar,
                 sent_to_supplier: ship.sentToSupplier, sent_to_barge_owner: ship.sentToBargeOwner, no_invoice_mkls: ship.noInvoiceMkls,
+                pending_items: Array.isArray(ship.pendingItems) ? ship.pendingItems : [],
                 milestones: Array.isArray(ship.milestones) ? ship.milestones : [],
                 buyer: ship.buyer,
                 supplier: ship.supplier,
@@ -1093,6 +1095,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                         remarks: s.remarks, harga_actual_fob: s.hargaActualFob, harga_actual_fob_mv: s.hargaActualFobMv,
                         hpb: s.hpb, status_hpb: s.statusHpb, shipment_status: s.shipmentStatus,
                         issue_notes: s.issueNotes, bl_date: s.blDate, pic: s.pic,
+                        status_reason: s.statusReason,
                         kuota_export: s.kuotaExport, surveyor_lhv: s.surveyorLhv,
                         completely_loaded: s.completelyLoaded, lhv_terbit: s.lhvTerbit,
                         loss_gain_cargo: s.lossGainCargo, sp: s.sp, deadfreight: s.deadfreight,
@@ -1113,6 +1116,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                         discharge_port: s.dischargePort || "-",
                         product: s.product || "-",
                         analysis_method: s.analysisMethod || "-",
+                        pending_items: Array.isArray(s.pendingItems) ? s.pendingItems : [],
                         milestones: Array.isArray(s.milestones) ? s.milestones : [],
                         type: (() => {
                             const t = (s.type || "export").toLowerCase();

@@ -1686,6 +1686,24 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <div className="space-y-2 text-[11px]">
                                                     <div className="flex justify-between"><span className="text-muted-foreground">PIC:</span><span className="font-medium">{detailShipment.pic || "-"}</span></div>
                                                     <div className="flex justify-between"><span className="text-muted-foreground">Internal No:</span><span className="font-mono text-muted-foreground">#{detailShipment.no || "NEW"}</span></div>
+                                                    <div className="mt-2 border-t border-border/30 pt-2">
+                                                        <p className="text-[10px] uppercase text-muted-foreground font-semibold mb-1">Status Reason</p>
+                                                        <p className="text-foreground">
+                                                            {detailShipment.status_reason || detailShipment.issue_notes || "No issue reason captured."}
+                                                        </p>
+                                                    </div>
+                                                    {detailShipment.pending_items && detailShipment.pending_items.length > 0 && (
+                                                        <div className="mt-2">
+                                                            <p className="text-[10px] uppercase text-muted-foreground font-semibold mb-1">Pending Items</p>
+                                                            <ul className="list-disc ml-4 space-y-0.5">
+                                                                {detailShipment.pending_items.slice(0, 6).map((item, idx) => (
+                                                                    <li key={`${item}-${idx}`} className="text-foreground">
+                                                                        {item}
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        </div>
+                                                    )}
                                                     <div className="mt-2 text-muted-foreground italic border-t border-border/30 pt-2">
                                                         {detailShipment.remarks || "No additional operational remarks for this shipment."}
                                                     </div>

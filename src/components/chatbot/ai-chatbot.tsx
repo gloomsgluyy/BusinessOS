@@ -95,6 +95,27 @@ const fd = (d: string | Date | undefined | null) => {
     }
 };
 
+const norm = (v?: string | null) =>
+    (v || "").toUpperCase().replace(/\s+/g, " ").trim();
+
+function shipmentStatusLabel(raw?: string | null): string {
+    const s = norm(raw);
+    if (!s) return "unknown";
+    if (s.includes("CANCEL")) return "cancelled";
+    if (s.includes("DONE") || s.includes("COMPLETE") || s.includes("DISCH")) return "completed";
+    if (s.includes("TRANSIT") || s.includes("ANCHORAGE")) return "in_transit";
+    if (s.includes("LOADING")) return "loading";
+    if (s.includes("UPCOMING") || s.includes("WAIT")) return "upcoming";
+    return "unknown";
+}
+
+function shipmentDateValue(s: any): Date | null {
+    const src = s?.bl_date || s?.eta || s?.created_at;
+    if (!src) return null;
+    const d = new Date(src);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
 export function AIChatbot() {
     const { data: session } = useSession();
     const currentUser = (session?.user as any) || { id: "", name: "Guest", role: "guest", email: "" };
@@ -105,7 +126,23 @@ export function AIChatbot() {
     };
 
     // Commercial store entities
-    const { deals, shipments, sources, marketPrices, meetings, plForecasts, addDeal, addMeeting, addShipment, updateShipment, deleteShipment } = useCommercialStore();
+    const {
+        deals,
+        shipments,
+        sources,
+        marketPrices,
+        meetings,
+        plForecasts,
+        projects,
+        syncFromMemory: syncCommercial,
+        addDeal,
+        addMeeting,
+        addShipment,
+        updateShipment,
+        deleteShipment
+    } = useCommercialStore();
+    const tasks = useTaskStore((s) => s.tasks);
+    const syncTasks = useTaskStore((s) => s.syncFromMemory);
 
     const [open, setOpen] = React.useState(false);
     const [maximized, setMaximized] = React.useState(false);
@@ -151,6 +188,12 @@ export function AIChatbot() {
 
     const activeSession = sessions.find(s => s.id === activeSessionId);
     const messages = activeSession?.messages || [welcomeMsg()];
+
+    React.useEffect(() => {
+        if (!open) return;
+        syncCommercial({ mode: "full", force: true }).catch(() => { });
+        syncTasks().catch(() => { });
+    }, [open, syncCommercial, syncTasks]);
 
     const updateMessages = (nm: Message[]) => {
         setSessions((prev) => {
@@ -289,7 +332,10 @@ ${sources.slice(0, 5).map(s => `- ${s.name} (GAR ${s.spec?.gar || 'TBA'}) — ${
 ${isExecutive ? `### Market Price (Latest)
 ${marketPrices[0] ? `- ICI 4 (4200): $${marketPrices[0].ici_4}\n- Newcastle: $${marketPrices[0].newcastle}\n- HBA: $${marketPrices[0].hba}` : '- Belum ada data'}
 
-### P&L Entries: ${plForecasts.length}` : ''}`;
+### P&L Entries: ${plForecasts.length}` : ''}
+
+### Projects: ${projects.length}
+### Tasks Open: ${tasks.filter((t) => t.status !== "done").length}`;
     };
 
     const processActionCommands = (text: string) => {
@@ -425,6 +471,76 @@ ${marketPrices[0] ? `- ICI 4 (4200): $${marketPrices[0].ici_4}\n- Newcastle: $${
         return undefined;
     };
 
+    const buildDeterministicReply = (rawInput: string): string | null => {
+        const q = rawInput.toLowerCase();
+
+        // Shipment status/reason queries (DB-backed via hydrated store)
+        if (/(shipment|pengiriman|kapal|mv|project).*(status|pending|cancel|delay|30 hari|60 hari|90 hari)|status.*(shipment|kapal|project)/i.test(q)) {
+            const now = new Date();
+            const days = q.includes("90 hari") ? 90 : q.includes("60 hari") ? 60 : q.includes("30 hari") ? 30 : 30;
+            const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+            const windowed = shipments
+                .filter((s) => {
+                    const d = shipmentDateValue(s);
+                    return d ? d >= cutoff : true;
+                })
+                .sort((a, b) => (shipmentDateValue(b)?.getTime() || 0) - (shipmentDateValue(a)?.getTime() || 0));
+
+            const projectMatch = projects.find((p) => q.includes((p.name || "").toLowerCase()));
+            const filteredByProject = projectMatch
+                ? windowed.filter((s) => (s.mv_project_name || "").toLowerCase().includes((projectMatch.name || "").toLowerCase()))
+                : windowed;
+
+            const pendingOnly = q.includes("pending");
+            const cancelledOnly = q.includes("cancel");
+            let rows = filteredByProject;
+
+            if (pendingOnly) {
+                rows = rows.filter((s) => {
+                    const st = shipmentStatusLabel(s.status || s.shipment_status);
+                    return st === "upcoming" || st === "loading" || st === "in_transit" || !!(s.status_reason || s.issue_notes);
+                });
+            } else if (cancelledOnly) {
+                rows = rows.filter((s) => shipmentStatusLabel(s.status || s.shipment_status) === "cancelled");
+            }
+
+            const top = rows.slice(0, 15);
+            const statusCounts = rows.reduce<Record<string, number>>((acc, s) => {
+                const st = shipmentStatusLabel(s.status || s.shipment_status);
+                acc[st] = (acc[st] || 0) + 1;
+                return acc;
+            }, {});
+
+            const countsText = Object.entries(statusCounts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([k, v]) => `- **${k}**: ${v}`)
+                .join("\n") || "- Tidak ada data";
+
+            const rowsTable = top.map((s) => {
+                const date = shipmentDateValue(s);
+                const dateText = date ? date.toLocaleDateString("id-ID") : "-";
+                const reason = (s.status_reason || s.issue_notes || s.remarks || "No reason captured").replace(/\|/g, "/");
+                const qty = (s.quantity_loaded || s.qty_plan || s.qty_cob || 0).toLocaleString("en-US");
+                const name = (s.mv_project_name || s.vessel_name || "-").replace(/\|/g, "/");
+                return `| ${dateText} | ${name} | ${shipmentStatusLabel(s.status || s.shipment_status)} | ${reason.slice(0, 90)} | ${qty} |`;
+            }).join("\n");
+
+            return `Ringkasan status shipment **${days} hari terakhir** ${projectMatch ? `untuk project **${projectMatch.name}**` : ""}.\n\n### Status Summary\n${countsText}\n\n### Detail Shipment\n| Tanggal | Project/MV | Status | Reason | Qty (MT) |\n|---|---|---|---|---|\n${rowsTable || "| - | - | - | - | - |"}`;
+        }
+
+        if (/(meeting|meetings).*(status|jadwal|berapa)|jadwal meeting/i.test(q)) {
+            return `Saat ini total meeting aktif: **${meetings.length}**.`;
+        }
+
+        if (/(task|tasks).*(status|pending|open|berapa)|priority task/i.test(q)) {
+            const openTasks = tasks.filter((t) => t.status !== "done");
+            return `Saat ini total task aktif: **${openTasks.length}** (total task: ${tasks.length}).`;
+        }
+
+        return null;
+    };
+
     const handleSend = async () => {
         if (!input.trim() && !selectedFile) return;
 
@@ -463,6 +579,17 @@ ${marketPrices[0] ? `- ICI 4 (4200): $${marketPrices[0].ici_4}\n- Newcastle: $${
 
             setThinkingStep("Menyusun jawaban / aksi Copilot...");
             const finalInput = imageContext ? `[KONTEKS GAMBAR: ${imageContext}]\n\nPertanyaan User: ${currentInput}` : currentInput;
+
+            const deterministicReply = buildDeterministicReply(currentInput);
+            if (deterministicReply && !selectedFile) {
+                const assistantMessage: Message = { id: (Date.now() + 2).toString(), role: "assistant", text: deterministicReply };
+                fetch('/api/chat/history', { method: 'POST', body: JSON.stringify({ role: "assistant", content: deterministicReply }) });
+                updateMessages([...newMessages, assistantMessage]);
+                setIsTyping(false);
+                setThinkingStep("");
+                return;
+            }
+
             // Build conversation history for AI memory (last 10 messages + system prompt)
             const historyForAI: { role: string; content: string }[] = [
                 { role: "system", content: buildSystemPrompt() }
