@@ -1379,13 +1379,20 @@ export default function DashboardPage() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {isCeo && <MetricCardSkeleton />}
-                            {isCeo && <MetricCardSkeleton />}
-                            <MetricCardSkeleton />
+                        <div className="grid grid-cols-1 gap-4">
+                            <ChartSkeleton />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <MetricCardSkeleton />
                             <MetricCardSkeleton />
                         </div>
+
+                        {isCeo && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <MetricCardSkeleton />
+                                <MetricCardSkeleton />
+                            </div>
+                        )}
 
                         {isCeo && (
                             <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
@@ -1419,11 +1426,13 @@ export default function DashboardPage() {
                             />
                         </div>
 
-                        {/* Top Metrics - Row 1 (Operational Priority) */}
-                        <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
-                            <div className="xl:col-span-2">
-                                <TotalVolumeCard shipments={filteredShipments} delay={1} />
-                            </div>
+                        {/* Top Metrics - Row 1 (Volume Full Width) */}
+                        <div className="grid grid-cols-1 gap-4">
+                            <TotalVolumeCard shipments={filteredShipments} delay={1} />
+                        </div>
+
+                        {/* Top Metrics - Row 1B (Operational Summary) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <MetricCard label="Active Deals" value={metricActiveDeals} sub={metricActiveDealsSub} icon={BarChart3} color="bg-blue-500/10" delay={2} />
                             <MetricCard label="Active Shipments" value={normalizedActiveShipments.length} sub={`${pendingTasks} tasks pending`} icon={Ship} color="bg-amber-500/10" delay={3} />
                         </div>
