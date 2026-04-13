@@ -16,7 +16,7 @@ import { AIAgent } from "@/lib/ai-agent";
 import { ReportModal } from "@/components/shared/report-modal";
 import { Toast, ToastType } from "@/components/shared/toast";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
@@ -232,7 +232,11 @@ function ExpandableText({
 export default function ShipmentMonitorPage() {
     const [, setIsInitializing] = React.useState(false);
     const searchParams = useSearchParams();
+    const router = useRouter();
+    const pathname = usePathname();
     const didApplyDeepLinkRef = React.useRef<string | null>(null);
+    const didApplyTabFromUrlRef = React.useRef(false);
+    const openedViaDeepLinkRef = React.useRef(false);
 
     const { shipments, syncFromMemory, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
     const { dailyDeliveries, syncDeliveries, addDelivery, updateDelivery, deleteDelivery } = useDailyDeliveryStore();
@@ -262,11 +266,13 @@ export default function ShipmentMonitorPage() {
     }, [detailShipment?.id]);
 
     React.useEffect(() => {
+        if (didApplyTabFromUrlRef.current) return;
         const tabParam = (searchParams.get("tab") || "").toLowerCase();
         const validTabs = new Set(["all", "upcoming", "loading", "in_transit", "completed", "cancelled"]);
         if (validTabs.has(tabParam)) {
             setActiveTab(tabParam as "all" | "upcoming" | "loading" | "in_transit" | "completed" | "cancelled");
         }
+        didApplyTabFromUrlRef.current = true;
     }, [searchParams]);
 
     React.useEffect(() => {
@@ -284,7 +290,32 @@ export default function ShipmentMonitorPage() {
         setMainTab("MV Barge");
         setDetailShipment(target);
         didApplyDeepLinkRef.current = openId;
+        openedViaDeepLinkRef.current = true;
     }, [searchParams, shipments]);
+
+    const closeDetailModal = React.useCallback(() => {
+        setDetailShipment(null);
+        setShowChildBargeDetails(false);
+
+        if (openedViaDeepLinkRef.current) {
+            openedViaDeepLinkRef.current = false;
+            didApplyDeepLinkRef.current = null;
+            setActiveTab("all");
+            router.replace(pathname, { scroll: false });
+        }
+    }, [router, pathname]);
+
+    React.useEffect(() => {
+        if (!detailShipment) return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                closeDetailModal();
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [detailShipment, closeDetailModal]);
 
     // Interactive Modal States
     const [showDailyForm, setShowDailyForm] = React.useState(false);
@@ -928,7 +959,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                 ) : (
                     <>
                         <div className="flex items-center gap-2 flex-wrap mb-2">
-                            <button onClick={() => setActiveTab("all")} className={cn("filter-chip text-white", activeTab === "all" ? "filter-chip-active text-white border-transparent" : "filter-chip-inactive bg-white/10")}>
+                            <button onClick={() => setActiveTab("all")} className={cn("filter-chip", activeTab === "all" ? "bg-white text-black font-bold border-transparent" : "bg-white text-muted-foreground border-border hover:text-foreground")}>
                                 all ({stats.total})
                             </button>
                             {[
@@ -1401,7 +1432,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                 {/* Detail Modal (Keep current structure for View detail) */}
                 {detailShipment && (
                     <div className="modal-overlay">
-                        <div className="modal-backdrop" onClick={() => setDetailShipment(null)} />
+                        <div className="modal-backdrop" onClick={closeDetailModal} />
                         <div className="modal-content w-full max-w-5xl bg-card border border-border shadow-2xl p-4 sm:p-6 flex flex-col max-h-[92vh] overflow-hidden rounded-xl">
                             <div className="flex flex-col gap-4 mb-4">
                                 <div className="flex items-start justify-between gap-3">
@@ -1414,7 +1445,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                             {[detailShipment.buyer, detailShipment.supplier].filter(Boolean).join(" • ") || "-"}
                                         </p>
                                     </div>
-                                    <button onClick={() => setDetailShipment(null)} className="p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg transition-colors shrink-0">
+                                    <button onClick={closeDetailModal} className="p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg transition-colors shrink-0">
                                         <X className="w-5 h-5" />
                                     </button>
                                 </div>
@@ -1424,7 +1455,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                         <span className="px-3 py-1.5 rounded-md text-xs font-bold text-white bg-emerald-500">
                                             {SHIPMENT_STATUSES.find(s => s.value === detailShipment.status)?.label || "Completed"}
                                         </span>
-                                        <button onClick={() => { setEditShipment(detailShipment); setEditForm({ ...detailShipment }); setDetailShipment(null); }} className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded-md hover:bg-accent text-xs font-semibold text-foreground transition-colors">
+                                        <button onClick={() => { setEditShipment(detailShipment); setEditForm({ ...detailShipment }); closeDetailModal(); }} className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded-md hover:bg-accent text-xs font-semibold text-foreground transition-colors">
                                             <Edit className="w-3.5 h-3.5" /> Edit
                                         </button>
                                         <button onClick={async () => {
@@ -1432,7 +1463,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 try {
                                                     await deleteShipment(detailShipment.id);
                                                     setToast({ message: "Shipment deleted successfully!", type: "success" });
-                                                    setDetailShipment(null);
+                                                    closeDetailModal();
                                                 } catch (error) {
                                                     setToast({ message: "Failed to delete shipment.", type: "error" });
                                                 }
