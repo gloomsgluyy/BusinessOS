@@ -472,10 +472,11 @@ function ShipmentTimeline({ shipmentItems, label }: { shipmentItems: any[]; labe
 /* ─── Quantity per Month Chart ────────────────────────────── */
 function QuantityPerMonth({ shipments }: { shipments: any[] }) {
     const [mounted, setMounted] = React.useState(false);
-    const [windowSize, setWindowSize] = React.useState<"12m" | "24m" | "all">("12m");
+    const [viewMode, setViewMode] = React.useState<"year" | "2years" | "all">("year");
+    const [selectedYear, setSelectedYear] = React.useState<number>(CURRENT_YEAR);
     React.useEffect(() => setMounted(true), []);
 
-    const monthlyData = React.useMemo(() => {
+    const monthlyBucket = React.useMemo(() => {
         const bucket = new Map<string, { year: number; monthIndex: number; local: number; export: number }>();
 
         shipments.forEach((sh) => {
@@ -497,33 +498,59 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
             bucket.set(key, current);
         });
 
-        const sortedKeys = Array.from(bucket.keys()).sort((a, b) => a.localeCompare(b));
+        return bucket;
+    }, [shipments]);
+
+    const availableYears = React.useMemo(() => {
+        const years = Array.from(new Set(Array.from(monthlyBucket.values()).map((v) => v.year)));
+        years.sort((a, b) => a - b);
+        return years;
+    }, [monthlyBucket]);
+
+    React.useEffect(() => {
+        if (availableYears.length === 0) return;
+        if (!availableYears.includes(selectedYear)) {
+            setSelectedYear(availableYears[availableYears.length - 1]);
+        }
+    }, [availableYears, selectedYear]);
+
+    const monthlyData = React.useMemo(() => {
+        const sortedKeys = Array.from(monthlyBucket.keys()).sort((a, b) => a.localeCompare(b));
         if (sortedKeys.length === 0) return [];
 
-        const [startYearRaw, startMonthRaw] = sortedKeys[0].split("-").map(Number);
-        const [endYearRaw, endMonthRaw] = sortedKeys[sortedKeys.length - 1].split("-").map(Number);
-        const earliestMonth = new Date(startYearRaw, (startMonthRaw || 1) - 1, 1);
-        const latestMonth = new Date(endYearRaw, (endMonthRaw || 1) - 1, 1);
+        const [rawStartY, rawStartM] = sortedKeys[0].split("-").map(Number);
+        const [rawEndY, rawEndM] = sortedKeys[sortedKeys.length - 1].split("-").map(Number);
+        const earliestMonth = new Date(rawStartY, (rawStartM || 1) - 1, 1);
+        const latestMonth = new Date(rawEndY, (rawEndM || 1) - 1, 1);
+        const fallbackYear = availableYears[availableYears.length - 1] || latestMonth.getFullYear();
+        const chosenYear = availableYears.includes(selectedYear) ? selectedYear : fallbackYear;
 
-        const startMonth = new Date(latestMonth);
-        if (windowSize === "12m") startMonth.setMonth(startMonth.getMonth() - 11);
-        else if (windowSize === "24m") startMonth.setMonth(startMonth.getMonth() - 23);
-        else startMonth.setTime(earliestMonth.getTime());
+        let startMonth = new Date(latestMonth);
+        let endMonth = new Date(latestMonth);
+        if (viewMode === "year") {
+            startMonth = new Date(chosenYear, 0, 1);
+            endMonth = new Date(chosenYear, 11, 1);
+        } else if (viewMode === "2years") {
+            startMonth = new Date(chosenYear - 1, 0, 1);
+            endMonth = new Date(chosenYear, 11, 1);
+        } else {
+            startMonth = new Date(earliestMonth);
+            endMonth = new Date(latestMonth);
+        }
 
-        if (startMonth < earliestMonth) startMonth.setTime(earliestMonth.getTime());
-
+        const useYearOnAxis = viewMode !== "year";
         const rows: Array<{ key: string; monthLabel: string; fullMonthLabel: string; local: number; export: number; total: number }> = [];
         const cursor = new Date(startMonth.getFullYear(), startMonth.getMonth(), 1);
-        const end = new Date(latestMonth.getFullYear(), latestMonth.getMonth(), 1);
+        const end = new Date(endMonth.getFullYear(), endMonth.getMonth(), 1);
 
         while (cursor <= end) {
             const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
-            const value = bucket.get(key);
+            const value = monthlyBucket.get(key);
             const local = Math.round(value?.local || 0);
             const exportVol = Math.round(value?.export || 0);
             rows.push({
                 key,
-                monthLabel: cursor.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+                monthLabel: cursor.toLocaleDateString("en-US", useYearOnAxis ? { month: "short", year: "2-digit" } : { month: "short" }),
                 fullMonthLabel: cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
                 local,
                 export: exportVol,
@@ -533,13 +560,17 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
         }
 
         return rows;
-    }, [shipments, windowSize]);
+    }, [monthlyBucket, viewMode, selectedYear, availableYears]);
 
     const totalQty = monthlyData.reduce((s, row) => s + row.total, 0);
-    const rangeLabel = monthlyData.length > 0
-        ? `${monthlyData[0].fullMonthLabel} - ${monthlyData[monthlyData.length - 1].fullMonthLabel}`
-        : "No business-date shipment data";
+    const rangeLabel = React.useMemo(() => {
+        if (monthlyData.length === 0) return "No business-date shipment data";
+        if (viewMode === "year") return `Year ${selectedYear} (Jan - Dec)`;
+        if (viewMode === "2years") return `${selectedYear - 1} - ${selectedYear}`;
+        return `${monthlyData[0].fullMonthLabel} - ${monthlyData[monthlyData.length - 1].fullMonthLabel}`;
+    }, [monthlyData, viewMode, selectedYear]);
     const isDense = monthlyData.length > 14;
+    const showYearPicker = viewMode !== "all" && availableYears.length > 0;
 
     return (
         <div className="card-elevated p-5 animate-slide-up delay-2">
@@ -551,14 +582,25 @@ function QuantityPerMonth({ shipments }: { shipments: any[] }) {
                 </div>
                 <div className="flex items-center gap-2">
                     <select
-                        value={windowSize}
-                        onChange={(e) => setWindowSize(e.target.value as "12m" | "24m" | "all")}
+                        value={viewMode}
+                        onChange={(e) => setViewMode(e.target.value as "year" | "2years" | "all")}
                         className="px-2 py-1 rounded-md bg-accent/50 border border-border text-[10px] outline-none focus:border-primary/50 text-muted-foreground"
                     >
-                        <option value="12m">Last 1 Year</option>
-                        <option value="24m">Last 2 Years</option>
+                        <option value="year">By Year</option>
+                        <option value="2years">Last 2 Years</option>
                         <option value="all">All Years</option>
                     </select>
+                    {showYearPicker && (
+                        <select
+                            value={selectedYear}
+                            onChange={(e) => setSelectedYear(Number(e.target.value))}
+                            className="px-2 py-1 rounded-md bg-accent/50 border border-border text-[10px] outline-none focus:border-primary/50 text-muted-foreground"
+                        >
+                            {availableYears.slice().reverse().map((y) => (
+                                <option key={y} value={y}>{y}</option>
+                            ))}
+                        </select>
+                    )}
                     <a href="/sales-monitor" className="text-xs text-primary hover:underline flex items-center gap-1 group whitespace-nowrap">
                         Detail <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
                     </a>
