@@ -180,6 +180,15 @@ function matchesTimeRangeWithDate(
 
     return true;
 }
+
+function normalizeLocationOption(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    const raw = String(value).replace(/\s+/g, " ").trim();
+    if (!raw) return null;
+    const key = normalizeKey(raw);
+    if (["TBA", "-", "N/A", "UNKNOWN", "ALL", "ORIGIN", "STATUS", "SOURCE", "MV PROJECT NAME"].includes(key)) return null;
+    return raw;
+}
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSession } from "next-auth/react";
 import {
@@ -198,7 +207,7 @@ const FILTER_OPTIONS: { value: FilterRange; label: string }[] = [
     { value: "custom", label: "Custom Range" },
 ];
 
-function DashboardFilters({ range, setRange, customFrom, customTo, setCustomFrom, setCustomTo, region, setRegion, marketType, setMarketType, status, setStatus, country, setCountry, search, setSearch }: {
+function DashboardFilters({ range, setRange, customFrom, customTo, setCustomFrom, setCustomTo, region, setRegion, marketType, setMarketType, status, setStatus, country, setCountry, search, setSearch, regionOptions = [] }: {
     range: FilterRange; setRange: (r: FilterRange) => void;
     customFrom: string; customTo: string; setCustomFrom: (d: string) => void; setCustomTo: (d: string) => void;
     region: string; setRegion: (r: string) => void;
@@ -206,6 +215,7 @@ function DashboardFilters({ range, setRange, customFrom, customTo, setCustomFrom
     status: string; setStatus: (s: string) => void;
     country: string; setCountry: (c: string) => void;
     search: string; setSearch: (q: string) => void;
+    regionOptions?: string[];
 }) {
     return (
         <div className="flex items-center gap-2 flex-wrap">
@@ -239,11 +249,10 @@ function DashboardFilters({ range, setRange, customFrom, customTo, setCustomFrom
                 <option value="Vietnam">Vietnam</option>
             </select>
             <select value={region} onChange={e => setRegion(e.target.value)} className="px-3 py-1.5 rounded-lg bg-accent/50 border border-border text-xs outline-none focus:border-primary/50 text-muted-foreground">
-                <option value="all">All Regions</option>
-                <option value="Kalimantan Timur">Kalimantan Timur</option>
-                <option value="Kalimantan Selatan">Kalimantan Selatan</option>
-                <option value="Kalimantan Tengah">Kalimantan Tengah</option>
-                <option value="Sumatera Selatan">Sumatera Selatan</option>
+                <option value="all">All Locations</option>
+                {regionOptions.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                ))}
             </select>
 
             {FILTER_OPTIONS.map((f) => (
@@ -642,6 +651,22 @@ export default function DashboardPage() {
     const isRoleResolving = sessionStatus === "loading" || (sessionStatus === "authenticated" && !normalizedRole);
     const sources = useCommercialStore((s) => s.sources);
     const [isLoading, setIsLoading] = React.useState(true);
+    const regionOptions = React.useMemo(() => {
+        const bag = new Set<string>();
+        const push = (v: unknown) => {
+            const loc = normalizeLocationOption(v);
+            if (loc) bag.add(loc);
+        };
+
+        shipments.forEach((s: any) => {
+            push(s.origin);
+            push(s.region);
+        });
+        deals.forEach((d: any) => push(d.region));
+        sources.forEach((s: any) => push(s.region));
+
+        return Array.from(bag).sort((a, b) => a.localeCompare(b));
+    }, [shipments, deals, sources]);
 
     React.useEffect(() => {
         if (sessionStatus === "loading") return;
@@ -1001,6 +1026,7 @@ export default function DashboardPage() {
                                 customFrom={customFrom} customTo={customTo}
                                 setCustomFrom={setCustomFrom} setCustomTo={setCustomTo}
                                 region={region} setRegion={setRegion}
+                                regionOptions={regionOptions}
                                 marketType={marketType} setMarketType={setMarketType}
                                 status={status} setStatus={setStatus}
                                 country={country} setCountry={setCountry}
