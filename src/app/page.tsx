@@ -140,60 +140,62 @@ function SmallStat({ label, value, color }: { label: string; value: string | num
     );
 }
 
-/* ─── Market Price Mini Chart ─────────────────────────────── */
+/* ─── Market Price Cards ──────────────────────────────────── */
 function MarketPriceMini() {
     const prices = useCommercialStore((s) => s.marketPrices);
-    const [mounted, setMounted] = React.useState(false);
-    const [weeks, setWeeks] = React.useState(4);
+    const sortedPrices = React.useMemo(
+        () => [...prices].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+        [prices]
+    );
+    const latest = sortedPrices[0];
+    const prev = sortedPrices[1];
+    const calcDiff = (current: number | null | undefined, previous: number | null | undefined) =>
+        prev ? safeNum(current) - safeNum(previous) : 0;
 
-    React.useEffect(() => setMounted(true), []);
-
-    // Filter to last N weeks (7 days/week)
-    // Assume prices is descending (newest first)
-    const filteredPrices = [...prices].slice(0, weeks * 7).reverse();
-
-    const data = filteredPrices.map((p) => ({
-        week: new Date(p.date).toLocaleDateString("en", { month: "short", day: "numeric" }),
-        ICI4: p.ici_4, Newc: p.newcastle, HBA: p.hba,
-    }));
+    const cards = latest ? [
+        { label: "ICI 1 (6500)", val: safeNum(latest.ici_1), diff: calcDiff(latest.ici_1, prev?.ici_1), color: "#ef4444" },
+        { label: "ICI 2 (5800)", val: safeNum(latest.ici_2), diff: calcDiff(latest.ici_2, prev?.ici_2), color: "#f59e0b" },
+        { label: "ICI 3 (5000)", val: safeNum(latest.ici_3), diff: calcDiff(latest.ici_3, prev?.ici_3), color: "#3b82f6" },
+        { label: "ICI 4 (4200)", val: safeNum(latest.ici_4), diff: calcDiff(latest.ici_4, prev?.ici_4), color: "#8b5cf6" },
+        { label: "ICI 5 (3400)", val: safeNum(latest.ici_5), diff: calcDiff(latest.ici_5, prev?.ici_5), color: "#6366f1" },
+        { label: "Newcastle", val: safeNum(latest.newcastle), diff: calcDiff(latest.newcastle, prev?.newcastle), color: "#ec4899" },
+        { label: "HBA", val: safeNum(latest.hba), diff: calcDiff(latest.hba, prev?.hba), color: "#10b981" },
+        { label: "HBA I (5300)", val: safeNum(latest.hba_1), diff: calcDiff(latest.hba_1, prev?.hba_1), color: "#14b8a6" },
+        { label: "HBA II (4100)", val: safeNum(latest.hba_2), diff: calcDiff(latest.hba_2, prev?.hba_2), color: "#06b6d4" },
+        { label: "HBA III (3400)", val: safeNum(latest.hba_3), diff: calcDiff(latest.hba_3, prev?.hba_3), color: "#0ea5e9" },
+    ] : [];
 
     return (
-        <div className="card-elevated p-5 animate-slide-up delay-5 flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
+        <div className="card-elevated p-5 animate-slide-up delay-5 flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
                     <h3 className="text-sm font-semibold whitespace-nowrap">Market Price</h3>
-                    <select
-                        value={weeks}
-                        onChange={(e) => setWeeks(Number(e.target.value))}
-                        className="px-2 py-0.5 rounded-md bg-accent/50 border border-border text-[10px] outline-none focus:border-primary/50 text-muted-foreground w-auto cursor-pointer"
-                    >
-                        <option value={1}>1 Week</option>
-                        <option value={2}>2 Weeks</option>
-                        <option value={3}>3 Weeks</option>
-                        <option value={4}>4 Weeks</option>
-                        <option value={8}>8 Weeks</option>
-                    </select>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {latest
+                            ? `Update ${new Date(latest.date).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })}`
+                            : "Belum ada data market price"}
+                    </p>
                 </div>
                 <a href="/market-price" className="text-xs text-primary hover:underline flex items-center gap-1 group whitespace-nowrap">
                     Detail <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
                 </a>
             </div>
-            <div className="h-[220px]">
-                {mounted && (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(128,128,128,0.1)" />
-                            <XAxis dataKey="week" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }} />
-                            <Legend wrapperStyle={{ fontSize: '11px' }} />
-                            <Line type="monotone" dataKey="ICI4" name="ICI 4 (4200)" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
-                            <Line type="monotone" dataKey="Newc" name="Newcastle" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
-                            <Line type="monotone" dataKey="HBA" name="HBA" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
-                        </LineChart>
-                    </ResponsiveContainer>
-                )}
-            </div>
+            {cards.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2 md:gap-3">
+                    {cards.map((c) => (
+                        <div key={c.label} className="card-elevated p-3 md:p-4">
+                            <p className="text-[9px] md:text-[10px] font-semibold text-muted-foreground uppercase leading-tight">{c.label}</p>
+                            <p className="text-base md:text-lg font-bold mt-1" style={{ color: c.color }}>${safeFmt(c.val)}</p>
+                            <div className={cn("flex items-center gap-1 text-[10px] mt-0.5", c.diff >= 0 ? "text-emerald-500" : "text-red-500")}>
+                                {c.diff >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                {c.diff >= 0 ? "+" : ""}{safeFmt(c.diff)}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p className="text-xs text-muted-foreground text-center py-8">Belum ada data market price untuk ditampilkan.</p>
+            )}
         </div>
     );
 }
@@ -255,43 +257,99 @@ function UpcomingMeetings() {
     );
 }
 
-/* ─── Shipment Timeline ───────────────────────────────────── */
-function ShipmentTimeline({ shipmentItems, label }: { shipmentItems: any[]; label: string }) {
+/* ─── Shipment Tables ─────────────────────────────────────── */
+const STATUS_ORDER = ["loading", "in_transit", "upcoming", "done_shipment", "completed", "cancelled"];
+
+function ShipmentTable({ shipments, label, emptyText = "Tidak ada shipment" }: { shipments: any[]; label: string; emptyText?: string }) {
+    const statusSummary = SHIPMENT_STATUSES
+        .map((s) => ({
+            ...s,
+            count: shipments.filter((sh) => sh.status === s.value).length,
+        }))
+        .filter((s) => s.count > 0);
+
+    const sortedShipments = React.useMemo(() => {
+        const getStatusRank = (status: string) => {
+            const idx = STATUS_ORDER.indexOf(status);
+            return idx === -1 ? STATUS_ORDER.length : idx;
+        };
+
+        return [...shipments].sort((a, b) => getStatusRank(a.status) - getStatusRank(b.status));
+    }, [shipments]);
+
+    const fmtDate = (value?: string | null) => {
+        if (!value) return "-";
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return "-";
+        return d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+    };
+
     return (
-        <div className="card-elevated p-5 animate-slide-up">
-            <div className="flex items-center justify-between mb-3">
+        <div className="card-elevated p-5 animate-slide-up space-y-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
                 <h3 className="text-sm font-semibold">{label}</h3>
-                <span className="text-[10px] text-muted-foreground bg-accent/50 px-2 py-0.5 rounded-full">{shipmentItems.length} shipments</span>
+                <span className="text-[10px] text-muted-foreground bg-accent/50 px-2 py-0.5 rounded-full">{shipments.length} shipments</span>
             </div>
-            <div className="space-y-2">
-                {shipmentItems.slice(0, 4).map((sh) => {
-                    const statusCfg = SHIPMENT_STATUSES.find((s) => s.value === sh.status);
-                    return (
-                        <div key={sh.id} className="flex items-center gap-3 p-3 rounded-xl bg-accent/30 hover:bg-accent/50 transition-colors">
-                            <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${statusCfg?.color}15` }}>
-                                <Ship className="w-4 h-4" style={{ color: statusCfg?.color }} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-xs font-semibold truncate">{sh.buyer}</p>
-                                <p className="text-[10px] text-muted-foreground">{sh.vessel_name || sh.barge_name} · {sh.loading_port}</p>
-                            </div>
-                            <div className="text-right shrink-0">
-                                <span className="status-badge text-[10px]" style={{ color: statusCfg?.color, backgroundColor: `${statusCfg?.color}15` }}>
-                                    {statusCfg?.label}
-                                </span>
-                                {sh.pending_items && sh.pending_items.length > 0 && (
-                                    <div className="mt-0.5">
-                                        {sh.pending_items.slice(0, 2).map((item: string, j: number) => (
-                                            <p key={j} className="text-[9px] text-amber-500">Alert: {item}</p>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    );
-                })}
-                {shipmentItems.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Tidak ada shipment</p>}
-            </div>
+
+            {statusSummary.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                    {statusSummary.map((s) => (
+                        <span
+                            key={s.value}
+                            className="text-[10px] font-medium px-2 py-1 rounded-full border border-border/60"
+                            style={{ color: s.color, backgroundColor: `${s.color}15` }}
+                        >
+                            {s.label}: {s.count}
+                        </span>
+                    ))}
+                </div>
+            )}
+
+            {sortedShipments.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">{emptyText}</p>
+            ) : (
+                <div className="overflow-x-auto">
+                    <table className="w-full min-w-[920px] text-xs">
+                        <thead>
+                            <tr className="border-b border-border/60 text-muted-foreground">
+                                <th className="text-left font-semibold py-2 pr-2">No</th>
+                                <th className="text-left font-semibold py-2 pr-2">Shipment No</th>
+                                <th className="text-left font-semibold py-2 pr-2">Buyer</th>
+                                <th className="text-left font-semibold py-2 pr-2">Vessel / Barge</th>
+                                <th className="text-left font-semibold py-2 pr-2">Port Muat</th>
+                                <th className="text-right font-semibold py-2 pr-2">Qty (MT)</th>
+                                <th className="text-left font-semibold py-2 pr-2">BL Date</th>
+                                <th className="text-left font-semibold py-2">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedShipments.map((sh, index) => {
+                                const statusCfg = SHIPMENT_STATUSES.find((s) => s.value === sh.status);
+                                const statusColor = statusCfg?.color || "#64748b";
+                                const qty = Number(sh.quantity_loaded ?? sh.qty_plan ?? 0);
+                                const rowKey = sh.id || sh.shipment_number || `${sh.buyer || "shipment"}-${index}`;
+
+                                return (
+                                    <tr key={rowKey} className="border-b border-border/40 hover:bg-accent/20 transition-colors">
+                                        <td className="py-2 pr-2">{index + 1}</td>
+                                        <td className="py-2 pr-2 font-medium">{sh.shipment_number || "-"}</td>
+                                        <td className="py-2 pr-2">{sh.buyer || "-"}</td>
+                                        <td className="py-2 pr-2">{sh.vessel_name || sh.barge_name || "-"}</td>
+                                        <td className="py-2 pr-2">{sh.loading_port || "-"}</td>
+                                        <td className="py-2 pr-2 text-right">{Number.isFinite(qty) ? qty.toLocaleString("id-ID") : "0"}</td>
+                                        <td className="py-2 pr-2">{fmtDate(sh.bl_date)}</td>
+                                        <td className="py-2">
+                                            <span className="status-badge text-[10px]" style={{ color: statusColor, backgroundColor: `${statusColor}15` }}>
+                                                {statusCfg?.label || sh.status || "-"}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            )}
         </div>
     );
 }
@@ -526,6 +584,8 @@ export default function DashboardPage() {
     const filteredDeals = filterData(deals);
     const filteredShipments = filterData(shipments);
     const filteredSources = filterData(sources);
+    const lokalShipments = filteredShipments.filter((sh) => sh.type === "local");
+    const exportShipments = filteredShipments.filter((sh) => sh.type === "export");
 
     // Financial calculations: Combined from Confirmed/Contracted/Executed Deals + Active Shipments
     // We include all "successful" deal statuses for revenue visibility
@@ -569,21 +629,6 @@ export default function DashboardPage() {
 
     // Active / Ongoing shipments from filtered
     const activeShipmentsList = filteredShipments.filter((sh) => sh.status !== "completed" && sh.status !== "cancelled");
-    const onGoingShipments = activeShipmentsList.filter((sh) => sh.status === "loading" || sh.status === "in_transit" || sh.status === "anchorage" || sh.status === "discharging");
-    const now30 = new Date(); now30.setDate(now30.getDate() + 30);
-    const now60 = new Date(); now60.setDate(now60.getDate() + 60);
-    const upcoming30 = activeShipmentsList.filter((sh) => {
-        if (sh.status !== "waiting_loading" && sh.status !== "draft") return false;
-        if (!sh.eta) return sh.status === "waiting_loading";
-        const eta = new Date(sh.eta);
-        return eta <= now30;
-    });
-    const upcoming60 = activeShipmentsList.filter((sh) => {
-        if (sh.status !== "waiting_loading" && sh.status !== "draft") return false;
-        if (!sh.eta) return true;
-        const eta = new Date(sh.eta);
-        return eta > now30 && eta <= now60;
-    });
     const pendingTasks = tasks.filter((t) => t.status === "review").length;
 
     const formatUSD = (v: number) => {
@@ -708,11 +753,18 @@ export default function DashboardPage() {
                         {/* Row 4: Stock Inventory */}
                         <StockInventory sources={filteredSources} />
 
-                        {/* Row 5: Shipment Timelines (3 sections) */}
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                            <ShipmentTimeline shipmentItems={onGoingShipments} label="On-going Shipments" />
-                            <ShipmentTimeline shipmentItems={upcoming30} label="Upcoming (30 Days)" />
-                            <ShipmentTimeline shipmentItems={upcoming60} label="Upcoming (60 Days)" />
+                        {/* Row 5: Shipment Lokal & Export */}
+                        <div className="grid grid-cols-1 gap-4">
+                            <ShipmentTable
+                                shipments={lokalShipments}
+                                label="Shipment Lokal (Domestik)"
+                                emptyText="Tidak ada shipment lokal"
+                            />
+                            <ShipmentTable
+                                shipments={exportShipments}
+                                label="Shipment Export"
+                                emptyText="Tidak ada shipment export"
+                            />
                         </div>
 
                         {/* Row 6: Priority Tasks */}
