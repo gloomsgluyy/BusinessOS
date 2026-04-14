@@ -8,14 +8,37 @@ import { SALES_DEAL_STATUSES, COUNTRIES, COAL_SPEC_FIELDS } from "@/lib/constant
 import { cn } from "@/lib/utils";
 import { SalesDeal, SalesDealStatus } from "@/types";
 import {
-    TrendingUp, Plus, Search, Filter, ChevronDown, X,
-    Ship, Globe, MapPin, Package, ArrowUpRight, Eye, Download, Loader2,
-    DollarSign, Target, Activity
+    TrendingUp, Plus, Search, X,
+    Ship, Package, Eye, Download, Loader2,
+    DollarSign, Pencil, Trash2
 } from "lucide-react";
 import { ReportModal } from "@/components/shared/report-modal";
 import { Toast } from "@/components/shared/toast";
 
-const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
+const parseLooseNumber = (value: unknown): number => {
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    if (value === null || value === undefined) return 0;
+    let raw = String(value).trim();
+    if (!raw) return 0;
+    raw = raw.replace(/rp|\$|usd|idr|mt|\s/gi, "");
+    raw = raw.replace(/[^\d,.\-]/g, "");
+    if (!raw || raw === "-" || raw === "." || raw === ",") return 0;
+
+    const hasDot = raw.includes(".");
+    const hasComma = raw.includes(",");
+    if (hasDot && hasComma) {
+        if (raw.lastIndexOf(".") > raw.lastIndexOf(",")) raw = raw.replace(/,/g, "");
+        else raw = raw.replace(/\./g, "").replace(",", ".");
+    } else if (hasComma && !hasDot) {
+        raw = /,\d{1,2}$/.test(raw) ? raw.replace(",", ".") : raw.replace(/,/g, "");
+    } else if (hasDot && !hasComma) {
+        raw = /\.\d{1,2}$/.test(raw) ? raw : raw.replace(/\./g, "");
+    }
+    const num = Number.parseFloat(raw);
+    return Number.isFinite(num) ? num : 0;
+};
+
+const safeNum = (v: unknown): number => parseLooseNumber(v);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 const cleanText = (v?: string | null): string => (v || "").replace(/\s+/g, " ").trim();
 const normalizeKey = (v?: string | null): string => cleanText(v).toUpperCase();
@@ -54,16 +77,16 @@ const PROJECT_SALES_STATUS_META: Record<ProjectSalesStatus, { label: string; col
 export default function SalesMonitorPage() {
     const [, setIsInitializing] = React.useState(false);
 
-    const { deals, syncFromMemory, addDeal, confirmDeal, shipments, projects } = useCommercialStore();
+    const { deals, syncFromMemory, addDeal, updateDeal, deleteDeal, shipments, projects } = useCommercialStore();
 
     React.useEffect(() => {
         syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
     const { currentUser } = useAuthStore();
-    const [activeTab, setActiveTab] = React.useState<SalesDealStatus | "all">("all");
     const [projectTab, setProjectTab] = React.useState<ProjectSalesStatus | "all">("all");
     const [search, setSearch] = React.useState("");
     const [showForm, setShowForm] = React.useState(false);
+    const [editingDealId, setEditingDealId] = React.useState<string | null>(null);
     const [isSaving, setIsSaving] = React.useState(false);
     const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
     const [detailDeal, setDetailDeal] = React.useState<SalesDeal | null>(null);
@@ -71,26 +94,27 @@ export default function SalesMonitorPage() {
 
     // Form state
     const [form, setForm] = React.useState({
+        project_name: "",
+        status: "pre_sale" as SalesDealStatus,
         buyer: "", buyer_country: "Indonesia", type: "local" as "local" | "export",
         shipping_terms: "FOB" as any, quantity: 0, price_per_mt: 0,
         laycan_start: "", laycan_end: "", vessel_name: "",
         gar: 4200, ts: 0.8, ash: 5.0, tm: 30, notes: "",
     });
 
-    // Metrics Calculation
-    const currentRevenue = deals.reduce((sum, d) => sum + ((d.quantity || 0) * (d.price_per_mt || 0)), 0);
-    const totalVolume = deals.reduce((sum, d) => sum + (d.quantity || 0), 0);
-    const numShipments = shipments.length;
-    const avgMargin = deals.length > 0 ? deals.reduce((sum, d) => sum + ((d.price_per_mt || 0) - 45), 0) / deals.length : 0;
-
-    const filtered = deals.filter((d) => {
-        if (activeTab !== "all" && d.status !== activeTab) return false;
-        if (search) {
-            const q = search.toLowerCase();
-            return d.buyer.toLowerCase().includes(q) || d.deal_number.toLowerCase().includes(q) || (d.vessel_name && d.vessel_name.toLowerCase().includes(q));
-        }
-        return true;
-    });
+    const filteredDeals = React.useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return deals.filter((d) => {
+            if (!q) return true;
+            return [
+                d.buyer,
+                d.deal_number,
+                d.vessel_name,
+                d.project_id,
+                d.buyer_country,
+            ].some((x) => (x || "").toLowerCase().includes(q));
+        });
+    }, [deals, search]);
 
     const projectMonitoring = React.useMemo(() => {
         type Roll = {
@@ -105,9 +129,25 @@ export default function SalesMonitorPage() {
             qty: number;
             revenue: number;
             mvName: string;
+            priceSamples: number[];
         };
 
         const statusKey = (s?: string | null) => normalizeKey(s);
+        const resolveShipmentProject = (s: any): string => (
+            extractProjectName(s.mv_project_name) ||
+            extractProjectName(s.vessel_name) ||
+            cleanText(s.mv_project_name) ||
+            cleanText(s.vessel_name) ||
+            cleanText(s.shipment_number) ||
+            "Unmapped Project"
+        );
+        const resolveDealProject = (d: SalesDeal): string => (
+            cleanText(d.project_id) ||
+            extractProjectName(d.vessel_name) ||
+            cleanText(d.vessel_name) ||
+            cleanText(d.deal_number) ||
+            "Unmapped Project"
+        );
         const shipStatusPriority = (rows: any[]): ProjectSalesStatus | null => {
             const joined = rows.map((r) => statusKey(r.status || r.shipment_status)).join(" ");
             if (joined.includes("CANCEL")) return "cancelled";
@@ -132,6 +172,7 @@ export default function SalesMonitorPage() {
                 qty: 0,
                 revenue: 0,
                 mvName: "-",
+                priceSamples: [],
             };
             map.set(key, seed);
             return seed;
@@ -148,33 +189,30 @@ export default function SalesMonitorPage() {
         });
 
         shipments.forEach((s: any) => {
-            const derivedName =
-                extractProjectName(s.mv_project_name) ||
-                extractProjectName(s.vessel_name) ||
-                cleanText(s.mv_project_name) ||
-                cleanText(s.vessel_name) ||
-                cleanText(s.shipment_number) ||
-                "Unmapped Project";
+            const derivedName = resolveShipmentProject(s);
             const key = normalizeKey(derivedName);
             if (!key) return;
             const row = ensure(key, derivedName);
+            const qty = safeNum(s.qty_plan || s.quantity_loaded || s.qty_cob);
+            const price = safeNum(s.sales_price || s.harga_actual_fob_mv || s.harga_actual_fob || s.sp || s.hpb);
             row.shipmentCount += 1;
-            row.qty += safeNum(s.qty_plan || s.quantity_loaded);
-            row.revenue += safeNum(s.qty_plan || s.quantity_loaded) * safeNum(s.harga_actual_fob_mv || s.sales_price);
+            row.qty += qty;
+            row.revenue += qty * price;
+            if (price > 0) row.priceSamples.push(price);
             if (row.buyer === "-" && cleanText(s.buyer)) row.buyer = cleanText(s.buyer);
             if (row.mvName === "-" && cleanText(s.vessel_name || s.mv_project_name)) row.mvName = cleanText(s.vessel_name || s.mv_project_name);
         });
 
+        const unmatchedDeals: SalesDeal[] = [];
         deals.forEach((d) => {
-            const derivedName =
-                cleanText(d.project_id) ||
-                extractProjectName(d.vessel_name) ||
-                cleanText(d.vessel_name) ||
-                cleanText(d.deal_number) ||
-                "Unmapped Project";
+            const derivedName = resolveDealProject(d);
             const key = normalizeKey(derivedName);
             if (!key) return;
-            const row = ensure(key, derivedName);
+            const row = map.get(key);
+            if (!row) {
+                unmatchedDeals.push(d);
+                return;
+            }
             row.dealCount += 1;
             row.qty += safeNum(d.quantity);
             row.revenue += safeNum(d.quantity) * safeNum(d.price_per_mt);
@@ -182,21 +220,43 @@ export default function SalesMonitorPage() {
             if (row.mvName === "-" && cleanText(d.vessel_name)) row.mvName = cleanText(d.vessel_name);
         });
 
-        const rolls = Array.from(map.values());
+        // Fallback match unmatched deals by buyer + vessel similarity.
+        unmatchedDeals.forEach((d) => {
+            const buyerKey = normalizeKey(d.buyer);
+            const vesselKey = normalizeKey(d.vessel_name);
+            const candidates = Array.from(map.values()).filter((r) => normalizeKey(r.buyer) === buyerKey);
+            if (!candidates.length) return;
+            let target = candidates[0];
+            if (vesselKey) {
+                const byVessel = candidates.find((r) => normalizeKey(r.mvName).includes(vesselKey) || vesselKey.includes(normalizeKey(r.mvName)));
+                if (byVessel) target = byVessel;
+            }
+            target.dealCount += 1;
+            target.qty += safeNum(d.quantity);
+            target.revenue += safeNum(d.quantity) * safeNum(d.price_per_mt);
+            if (target.mvName === "-" && cleanText(d.vessel_name)) target.mvName = cleanText(d.vessel_name);
+        });
+
+        const globalPriceSamples = Array.from(map.values()).flatMap((r) => r.priceSamples);
+        const globalFallbackPrice = globalPriceSamples.length
+            ? globalPriceSamples.reduce((a, b) => a + b, 0) / globalPriceSamples.length
+            : 45;
+
+        const rolls = Array.from(map.values()).map((r) => {
+            if (r.revenue > 0 || r.qty <= 0) return r;
+            const localFallback = r.priceSamples.length
+                ? r.priceSamples.reduce((a, b) => a + b, 0) / r.priceSamples.length
+                : globalFallbackPrice;
+            return { ...r, revenue: r.qty * localFallback };
+        });
         return rolls.map((row) => {
             const master = statusKey(row.masterStatus);
             const dealRows = deals.filter((d) => {
-                const dKey = normalizeKey(cleanText(d.project_id) || extractProjectName(d.vessel_name) || cleanText(d.vessel_name) || cleanText(d.deal_number));
+                const dKey = normalizeKey(resolveDealProject(d));
                 return dKey && dKey === row.projectKey;
             });
             const shipRows = shipments.filter((s: any) => {
-                const sName =
-                    extractProjectName(s.mv_project_name) ||
-                    extractProjectName(s.vessel_name) ||
-                    cleanText(s.mv_project_name) ||
-                    cleanText(s.vessel_name) ||
-                    cleanText(s.shipment_number);
-                const sKey = normalizeKey(sName);
+                const sKey = normalizeKey(resolveShipmentProject(s));
                 return sKey && sKey === row.projectKey;
             });
 
@@ -224,15 +284,47 @@ export default function SalesMonitorPage() {
         });
     }, [projectMonitoring, projectTab, search]);
 
+    const projectOptions = React.useMemo(() => {
+        const bag = new Set<string>();
+        projects.forEach((p) => {
+            const name = cleanText(p.name);
+            if (name) bag.add(name);
+        });
+        shipments.forEach((s: any) => {
+            const name =
+                extractProjectName(s.mv_project_name) ||
+                extractProjectName(s.vessel_name) ||
+                cleanText(s.mv_project_name) ||
+                cleanText(s.vessel_name);
+            if (name) bag.add(name);
+        });
+        return Array.from(bag).sort((a, b) => a.localeCompare(b));
+    }, [projects, shipments]);
+
+    const summary = React.useMemo(() => {
+        const revenue = projectMonitoring.reduce((sum, p) => sum + safeNum(p.revenue), 0);
+        const volume = projectMonitoring.reduce((sum, p) => sum + safeNum(p.qty), 0);
+        const activeShipments = shipments.filter((s: any) => {
+            const st = normalizeKey(s.status || s.shipment_status);
+            return !st.includes("COMPLETE") && !st.includes("DONE") && !st.includes("CANCEL");
+        }).length;
+        const unitPrices = shipments
+            .map((s: any) => safeNum(s.sales_price || s.harga_actual_fob_mv || s.harga_actual_fob || s.sp || s.hpb))
+            .filter((n) => n > 0);
+        const avgMargin = unitPrices.length ? unitPrices.reduce((a, b) => a + b, 0) / unitPrices.length - 45 : 0;
+        return { revenue, volume, activeShipments, avgMargin };
+    }, [projectMonitoring, shipments]);
+
     const handleSubmit = async () => {
-        if (!form.buyer || form.quantity <= 0) {
-            setToast({ message: "Please fill in buyer and quantity", type: "error" });
+        if (!form.project_name || !form.buyer || form.quantity <= 0) {
+            setToast({ message: "Please fill project, buyer, and quantity", type: "error" });
             return;
         }
         setIsSaving(true);
         try {
-            await addDeal({
-                status: "pre_sale",
+            const payload = {
+                status: form.status,
+                project_id: form.project_name,
                 buyer: form.buyer,
                 buyer_country: form.buyer_country,
                 type: form.type,
@@ -246,10 +338,20 @@ export default function SalesMonitorPage() {
                 notes: form.notes,
                 created_by: currentUser?.id || "system",
                 created_by_name: currentUser?.name || "System",
-            });
-            setToast({ message: "Sales deal created successfully!", type: "success" });
+            } as any;
+
+            if (editingDealId) {
+                await updateDeal(editingDealId, payload);
+                setToast({ message: "Sales deal updated successfully!", type: "success" });
+            } else {
+                await addDeal(payload);
+                setToast({ message: "Sales deal created successfully!", type: "success" });
+            }
             setShowForm(false);
+            setEditingDealId(null);
             setForm({
+                project_name: "",
+                status: "pre_sale",
                 buyer: "", buyer_country: "Indonesia", type: "local",
                 shipping_terms: "FOB" as any, quantity: 0, price_per_mt: 0,
                 laycan_start: "", laycan_end: "", vessel_name: "",
@@ -262,13 +364,37 @@ export default function SalesMonitorPage() {
         }
     };
 
-    const handleConfirm = async (id: string) => {
+    const handleEditDeal = (deal: SalesDeal) => {
+        setEditingDealId(deal.id);
+        setShowForm(true);
+        setForm({
+            project_name: cleanText(deal.project_id) || "",
+            status: (deal.status || "pre_sale") as SalesDealStatus,
+            buyer: deal.buyer || "",
+            buyer_country: deal.buyer_country || "Indonesia",
+            type: (deal.type || "local") as "local" | "export",
+            shipping_terms: (deal.shipping_terms || "FOB") as any,
+            quantity: safeNum(deal.quantity),
+            price_per_mt: safeNum(deal.price_per_mt),
+            laycan_start: deal.laycan_start || "",
+            laycan_end: deal.laycan_end || "",
+            vessel_name: deal.vessel_name || "",
+            gar: safeNum((deal.spec as any)?.gar) || 4200,
+            ts: safeNum((deal.spec as any)?.ts) || 0.8,
+            ash: safeNum((deal.spec as any)?.ash) || 5,
+            tm: safeNum((deal.spec as any)?.tm) || 30,
+            notes: deal.notes || "",
+        });
+    };
+
+    const handleDeleteDeal = async (dealId: string) => {
+        if (!window.confirm("Delete this sales deal?")) return;
         setIsSaving(true);
         try {
-            await confirmDeal(id);
-            setToast({ message: "Deal confirmed and flowing to Projects!", type: "success" });
-        } catch (error) {
-            setToast({ message: "Failed to confirm deal", type: "error" });
+            await deleteDeal(dealId);
+            setToast({ message: "Sales deal deleted", type: "success" });
+        } catch {
+            setToast({ message: "Failed to delete sales deal", type: "error" });
         } finally {
             setIsSaving(false);
         }
@@ -285,7 +411,7 @@ export default function SalesMonitorPage() {
                         <p className="text-sm text-muted-foreground mt-1">Project-centric sales monitoring with deal-level tracking.</p>
                     </div>
                     <div className="flex gap-2">
-                        <button onClick={() => setShowForm(!showForm)} className="btn-primary h-9"><Plus className="w-4 h-4 mr-1.5" /> New Deal</button>
+                        <button onClick={() => { setEditingDealId(null); setShowForm((s) => !s); }} className="btn-primary h-9"><Plus className="w-4 h-4 mr-1.5" /> New Sales Entry</button>
                         <button onClick={() => setShowReportModal(true)} className="btn-outline text-xs h-9 hidden sm:flex"><Download className="w-3.5 h-3.5 mr-1.5" /> Download Report</button>
                     </div>
                 </div>
@@ -297,47 +423,35 @@ export default function SalesMonitorPage() {
                             <DollarSign className="w-4 h-4 text-emerald-500" />
                             <span className="text-[10px] font-bold uppercase">Estimated Revenue</span>
                         </div>
-                        <p className="text-2xl font-bold font-mono text-emerald-500">${currentRevenue.toLocaleString()}</p>
+                        <p className="text-2xl font-bold font-mono text-emerald-500">${Math.round(summary.revenue).toLocaleString()}</p>
                     </div>
                     <div className="card-elevated p-5 relative overflow-hidden group border-l-4 border-blue-500">
                         <div className="flex items-center gap-2 text-muted-foreground mb-3">
                             <Package className="w-4 h-4 text-blue-500" />
                             <span className="text-[10px] font-bold uppercase">Total Volume (MT)</span>
                         </div>
-                        <p className="text-2xl font-bold font-mono">{totalVolume.toLocaleString()}</p>
+                        <p className="text-2xl font-bold font-mono">{Math.round(summary.volume).toLocaleString()}</p>
                     </div>
                     <div className="card-elevated p-5 relative overflow-hidden group border-l-4 border-amber-500">
                         <div className="flex items-center gap-2 text-muted-foreground mb-3">
                             <Ship className="w-4 h-4 text-amber-500" />
                             <span className="text-[10px] font-bold uppercase">Active Shipments</span>
                         </div>
-                        <p className="text-2xl font-bold font-mono text-amber-500">{numShipments}</p>
+                        <p className="text-2xl font-bold font-mono text-amber-500">{summary.activeShipments}</p>
                     </div>
                     <div className="card-elevated p-5 relative overflow-hidden group border-l-4 border-violet-500">
                         <div className="flex items-center gap-2 text-muted-foreground mb-3">
                             <TrendingUp className="w-4 h-4 text-violet-500" />
                             <span className="text-[10px] font-bold uppercase">Avg Margin/MT</span>
                         </div>
-                        <p className="text-2xl font-bold font-mono text-violet-400">${safeFmt(Math.max(0, avgMargin))}</p>
+                        <p className="text-2xl font-bold font-mono text-violet-400">${safeFmt(Math.max(0, summary.avgMargin))}</p>
                     </div>
-                </div>
-
-                {/* Status Tabs */}
-                <div className="flex items-center gap-2 flex-wrap">
-                    <button onClick={() => setActiveTab("all")} className={cn("filter-chip", activeTab === "all" ? "filter-chip-active" : "filter-chip-inactive")}>
-                        All ({deals.length})
-                    </button>
-                    {SALES_DEAL_STATUSES.map((s) => (
-                        <button key={s.value} onClick={() => setActiveTab(s.value as any)} className={cn("filter-chip", activeTab === s.value ? "filter-chip-active" : "filter-chip-inactive")}>
-                            {s.label} ({deals.filter((d) => d.status === s.value).length})
-                        </button>
-                    ))}
                 </div>
 
                 {/* Search */}
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search buyer, deal number, vessel..."
+                    <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search project, buyer, vessel..."
                         className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-accent/50 border border-border text-sm outline-none focus:border-primary/50 transition-colors" />
                 </div>
 
@@ -422,11 +536,38 @@ export default function SalesMonitorPage() {
                 {showForm && (
                     <div className="card-elevated p-5 space-y-4 animate-scale-in border border-primary/20 bg-primary/5">
                         <div className="flex justify-between items-center">
-                            <h3 className="text-sm font-semibold text-primary">Add New Sales Deal</h3>
-                            <button onClick={() => setShowForm(false)} className="p-1 rounded-lg hover:bg-accent"><X className="w-4 h-4" /></button>
+                            <h3 className="text-sm font-semibold text-primary">{editingDealId ? "Edit Sales Deal" : "Add New Sales Deal"}</h3>
+                            <button onClick={() => { setShowForm(false); setEditingDealId(null); }} className="p-1 rounded-lg hover:bg-accent"><X className="w-4 h-4" /></button>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div className="space-y-1 md:col-span-2">
+                                <label className="text-[10px] font-bold text-muted-foreground uppercase">Project Name</label>
+                                <input
+                                    list="sales-project-options"
+                                    value={form.project_name}
+                                    onChange={e => setForm({ ...form, project_name: e.target.value })}
+                                    placeholder="Type/select project name"
+                                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-xs outline-none focus:border-primary/50"
+                                />
+                                <datalist id="sales-project-options">
+                                    {projectOptions.map((name) => (
+                                        <option key={name} value={name} />
+                                    ))}
+                                </datalist>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-muted-foreground uppercase">Sales Status</label>
+                                <select
+                                    value={form.status}
+                                    onChange={e => setForm({ ...form, status: e.target.value as SalesDealStatus })}
+                                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-xs outline-none"
+                                >
+                                    <option value="pre_sale">Pre-Sale</option>
+                                    <option value="confirmed">Confirmed</option>
+                                    <option value="forecast">Forecast</option>
+                                </select>
+                            </div>
                             <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Buyer Name</label>
                                 <input value={form.buyer} onChange={e => setForm({ ...form, buyer: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-background border border-border text-xs outline-none focus:border-primary/50" /></div>
 
@@ -474,9 +615,18 @@ export default function SalesMonitorPage() {
 
                         <div className="flex gap-2">
                             <button onClick={handleSubmit} className="btn-primary" disabled={isSaving}>
-                                {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</> : <><Plus className="w-4 h-4 mr-1" /> Save Deal</>}
+                                {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</> : <>{editingDealId ? <><Pencil className="w-4 h-4 mr-1" /> Update Deal</> : <><Plus className="w-4 h-4 mr-1" /> Save Deal</>}</>}
                             </button>
-                            <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors" disabled={isSaving}>Cancel</button>
+                            <button
+                                onClick={() => {
+                                    setShowForm(false);
+                                    setEditingDealId(null);
+                                }}
+                                className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors"
+                                disabled={isSaving}
+                            >
+                                Cancel
+                            </button>
                         </div>
                     </div>
                 )}
@@ -487,25 +637,35 @@ export default function SalesMonitorPage() {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-border bg-accent/30">
+                                    <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Project</th>
                                     <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Buyer</th>
                                     <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Qty (MT)</th>
                                     <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Price / MT</th>
+                                    <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Revenue</th>
                                     <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Laycan</th>
                                     <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Status</th>
                                     <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.map((d) => {
+                                {filteredDeals.map((d) => {
                                     const stCfg = SALES_DEAL_STATUSES.find((s) => s.value === d.status);
+                                    const qty = safeNum(d.quantity);
+                                    const price = safeNum(d.price_per_mt);
+                                    const revenue = qty * price;
                                     return (
                                         <tr key={d.id} className="border-b border-border/50 hover:bg-accent/20 transition-colors">
+                                            <td className="px-4 py-3">
+                                                <p className="font-semibold text-xs text-primary">{cleanText(d.project_id) || "-"}</p>
+                                                <p className="text-[10px] text-muted-foreground">{cleanText(d.vessel_name) || "-"}</p>
+                                            </td>
                                             <td className="px-4 py-3">
                                                 <p className="font-semibold text-xs text-primary">{d.buyer}</p>
                                                 <p className="text-[10px] text-muted-foreground">{d.deal_number} • {d.buyer_country}</p>
                                             </td>
-                                            <td className="px-4 py-3 text-right font-mono text-xs font-semibold">{d.quantity?.toLocaleString()}</td>
-                                            <td className="px-4 py-3 text-right font-mono text-xs font-semibold">${d.price_per_mt?.toLocaleString()}</td>
+                                            <td className="px-4 py-3 text-right font-mono text-xs font-semibold">{qty.toLocaleString()}</td>
+                                            <td className="px-4 py-3 text-right font-mono text-xs font-semibold">${price.toLocaleString()}</td>
+                                            <td className="px-4 py-3 text-right font-mono text-xs font-semibold">${Math.round(revenue).toLocaleString()}</td>
                                             <td className="px-4 py-3 text-xs text-muted-foreground">{d.laycan_start || "-"}</td>
                                             <td className="px-4 py-3">
                                                 <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
@@ -523,8 +683,14 @@ export default function SalesMonitorPage() {
                                                         <option value="confirmed">CONFIRMED</option>
                                                         <option value="forecast">FORECAST</option>
                                                     </select>
+                                                    <button onClick={() => handleEditDeal(d)} className="p-1.5 rounded-lg hover:bg-accent transition-colors" title="Edit Deal">
+                                                        <Pencil className="w-4 h-4 text-muted-foreground" />
+                                                    </button>
                                                     <button onClick={() => setDetailDeal(d)} className="p-1.5 rounded-lg hover:bg-accent transition-colors" title="View Detail">
                                                         <Eye className="w-4 h-4 text-muted-foreground" />
+                                                    </button>
+                                                    <button onClick={() => handleDeleteDeal(d.id)} className="p-1.5 rounded-lg hover:bg-accent transition-colors" title="Delete Deal">
+                                                        <Trash2 className="w-4 h-4 text-red-400" />
                                                     </button>
                                                 </div>
                                             </td>
@@ -534,7 +700,7 @@ export default function SalesMonitorPage() {
                             </tbody>
                         </table>
                     </div>
-                    {filtered.length === 0 && <p className="text-center text-sm text-muted-foreground py-12">No sales deals matched your filters.</p>}
+                    {filteredDeals.length === 0 && <p className="text-center text-sm text-muted-foreground py-12">No sales deals matched your filters.</p>}
                 </div>
 
                 {/* Detail Modal */}
