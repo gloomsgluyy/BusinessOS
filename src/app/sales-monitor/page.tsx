@@ -76,6 +76,7 @@ const PROJECT_SALES_STATUS_META: Record<ProjectSalesStatus, { label: string; col
 
 export default function SalesMonitorPage() {
     const [, setIsInitializing] = React.useState(false);
+    const formRef = React.useRef<HTMLDivElement | null>(null);
 
     const { deals, syncFromMemory, addDeal, updateDeal, deleteDeal, shipments, projects } = useCommercialStore();
 
@@ -400,6 +401,13 @@ export default function SalesMonitorPage() {
         }
     };
 
+    React.useEffect(() => {
+        if (!showForm) return;
+        requestAnimationFrame(() => {
+            formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+    }, [showForm]);
+
 
     return (
         <AppShell>
@@ -411,7 +419,7 @@ export default function SalesMonitorPage() {
                         <p className="text-sm text-muted-foreground mt-1">Project-centric sales monitoring with deal-level tracking.</p>
                     </div>
                     <div className="flex gap-2">
-                        <button onClick={() => { setEditingDealId(null); setShowForm((s) => !s); }} className="btn-primary h-9"><Plus className="w-4 h-4 mr-1.5" /> New Sales Entry</button>
+                        <button onClick={() => { setEditingDealId(null); setShowForm(true); }} className="btn-primary h-9"><Plus className="w-4 h-4 mr-1.5" /> New Sales Entry</button>
                         <button onClick={() => setShowReportModal(true)} className="btn-outline text-xs h-9 hidden sm:flex"><Download className="w-3.5 h-3.5 mr-1.5" /> Download Report</button>
                     </div>
                 </div>
@@ -534,7 +542,7 @@ export default function SalesMonitorPage() {
 
                 {/* New Deal Form (Rich Fields) */}
                 {showForm && (
-                    <div className="card-elevated p-5 space-y-4 animate-scale-in border border-primary/20 bg-primary/5">
+                    <div ref={formRef} className="card-elevated p-5 space-y-4 animate-scale-in border border-primary/20 bg-primary/5">
                         <div className="flex justify-between items-center">
                             <h3 className="text-sm font-semibold text-primary">{editingDealId ? "Edit Sales Deal" : "Add New Sales Deal"}</h3>
                             <button onClick={() => { setShowForm(false); setEditingDealId(null); }} className="p-1 rounded-lg hover:bg-accent"><X className="w-4 h-4" /></button>
