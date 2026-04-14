@@ -199,6 +199,9 @@ export interface ProjectItem {
     notes?: string;
     created_by?: string;
     created_by_name?: string;
+    approved_by?: string;
+    approved_by_name?: string;
+    approved_at?: string;
     created_at: string;
     updated_at: string;
 }

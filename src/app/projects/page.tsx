@@ -3,11 +3,13 @@
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { cn } from "@/lib/utils";
-import { FolderKanban, Search, Plus, X, Edit, Trash2 } from "lucide-react";
+import { FolderKanban, Search, Plus, X, Edit, Trash2, CheckCircle2, XCircle, Clock3 } from "lucide-react";
 import { useCommercialStore } from "@/store/commercial-store";
+import { useAuthStore } from "@/store/auth-store";
 import { ProjectItem, ShipmentDetail } from "@/types";
+import { useSearchParams } from "next/navigation";
 
-type ProjectStatus = "ongoing" | "upcoming" | "completed";
+type ProjectStatus = "waiting_approval" | "approved" | "rejected" | "upcoming" | "ongoing" | "completed" | "cancelled";
 
 type ProjectCard = {
   id: string;
@@ -74,6 +76,7 @@ const deriveProjectName = (r?: ShipmentDetail): string => {
 
 const detectStatus = (rows: ShipmentDetail[]): ProjectStatus => {
   const key = rows.map((r) => normalizeKey(r.status || r.shipment_status || "")).join(" ");
+  if (key.includes("CANCEL")) return "cancelled";
   if (key.includes("LOADING") || key.includes("TRANSIT")) return "ongoing";
   if (key.includes("UPCOMING") || key.includes("WAITING")) return "upcoming";
   return "completed";
@@ -81,20 +84,48 @@ const detectStatus = (rows: ShipmentDetail[]): ProjectStatus => {
 
 const mapMasterStatus = (s?: string | null): ProjectStatus => {
   const key = normalizeKey(s);
+  if (key.includes("WAITING") || key.includes("PENDING_APPROVAL") || key.includes("WAITING_APPROVAL")) return "waiting_approval";
+  if (key.includes("APPROVE")) return "approved";
+  if (key.includes("REJECT")) return "rejected";
+  if (key.includes("CANCEL")) return "cancelled";
   if (key.includes("COMPLETE") || key.includes("DONE")) return "completed";
   if (key.includes("LOAD") || key.includes("ONGOING") || key.includes("TRANSIT")) return "ongoing";
   return "upcoming";
 };
 
+const statusLabel: Record<ProjectStatus, string> = {
+  waiting_approval: "Waiting Approval",
+  approved: "Approved",
+  rejected: "Rejected",
+  upcoming: "Upcoming",
+  ongoing: "Ongoing",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+const statusBadgeClass = (status: ProjectStatus) =>
+  cn(
+    "text-[10px] font-bold px-2.5 py-1 rounded-md uppercase",
+    status === "waiting_approval" && "bg-amber-500/10 text-amber-600",
+    status === "approved" && "bg-sky-500/10 text-sky-600",
+    status === "rejected" && "bg-rose-500/10 text-rose-600",
+    status === "completed" && "bg-emerald-500/10 text-emerald-600",
+    status === "ongoing" && "bg-indigo-500/10 text-indigo-600",
+    status === "upcoming" && "bg-blue-500/10 text-blue-600",
+    status === "cancelled" && "bg-red-500/10 text-red-600",
+  );
+
 const fmtInt = (n: number): string => safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
 const fmtUsd = (n: number): string => `$${safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
-const defaultForm: ProjectForm = { name: "", segment: "", buyer: "", status: "draft", notes: "" };
+const defaultForm: ProjectForm = { name: "", segment: "", buyer: "", status: "waiting_approval", notes: "" };
 
 export default function ProjectsPage() {
+  const searchParams = useSearchParams();
+  const { currentUser } = useAuthStore();
   const { shipments, projects, syncFromMemory, addProject, updateProject, deleteProject } = useCommercialStore();
   const [, setIsInitializing] = React.useState(false);
-  const [search, setSearch] = React.useState("");
+  const [search, setSearch] = React.useState(() => searchParams.get("q") || "");
   const [yearFilter, setYearFilter] = React.useState("all");
   const [statusFilter, setStatusFilter] = React.useState<"all" | ProjectStatus>("all");
   const [selectedProject, setSelectedProject] = React.useState<ProjectCard | null>(null);
@@ -102,10 +133,16 @@ export default function ProjectsPage() {
   const [editingProject, setEditingProject] = React.useState<ProjectItem | null>(null);
   const [form, setForm] = React.useState<ProjectForm>(defaultForm);
   const [saving, setSaving] = React.useState(false);
+  const role = String(currentUser?.role || "").toLowerCase();
+  const canApprove = role === "ceo" || role === "director";
 
   React.useEffect(() => {
     syncFromMemory().finally(() => setIsInitializing(false));
   }, [syncFromMemory]);
+  React.useEffect(() => {
+    const q = searchParams.get("q");
+    if (q) setSearch(q);
+  }, [searchParams]);
 
   const groupedShipments = React.useMemo(() => {
     const map = new Map<string, ShipmentDetail[]>();
@@ -144,7 +181,13 @@ export default function ProjectsPage() {
         projectName: p.name,
         buyer: cleanText(p.buyer) || cleanText(rows.find((r) => r.buyer)?.buyer) || "-",
         segment: cleanText(p.segment) || "-",
-        status: rows.length ? detectStatus(rows) : mapMasterStatus(p.status),
+        status: (() => {
+          const masterStatus = mapMasterStatus(p.status);
+          if (["waiting_approval", "approved", "rejected", "cancelled"].includes(masterStatus)) {
+            return masterStatus;
+          }
+          return rows.length ? detectStatus(rows) : masterStatus;
+        })(),
         year,
         laycan: cleanText(rows.find((r) => r.laycan)?.laycan) || "TBA",
         shippingTerm: cleanText(rows.find((r) => r.shipping_term)?.shipping_term) || "-",
@@ -208,7 +251,7 @@ export default function ProjectsPage() {
 
   const openEdit = (p: ProjectItem) => {
     setEditingProject(p);
-    setForm({ name: p.name || "", segment: p.segment || "", buyer: p.buyer || "", status: p.status || "draft", notes: p.notes || "" });
+    setForm({ name: p.name || "", segment: p.segment || "", buyer: p.buyer || "", status: p.status || "waiting_approval", notes: p.notes || "" });
     setShowForm(true);
   };
 
@@ -247,9 +290,13 @@ export default function ProjectsPage() {
             </select>
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-xs">
               <option value="all">All Status</option>
+              <option value="waiting_approval">Waiting Approval</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
               <option value="upcoming">Upcoming</option>
               <option value="ongoing">Ongoing</option>
               <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
             </select>
           </div>
         </div>
@@ -261,10 +308,13 @@ export default function ProjectsPage() {
                 <div className="min-w-0">
                   <h3 className="font-bold text-base truncate">{p.projectName}</h3>
                   <p className="text-[11px] text-muted-foreground">Buyer: {p.buyer} • Segment: {p.segment}</p>
+                  {p.projectRecord?.approved_by_name && (
+                    <p className="text-[10px] text-muted-foreground">Approved by: {p.projectRecord.approved_by_name}</p>
+                  )}
                   <p className="text-[10px] text-muted-foreground">{p.sourceKind === "master" ? "Master project" : "Derived from shipments"}</p>
                 </div>
                 <div className="flex items-center gap-1">
-                  <span className={cn("text-[10px] font-bold px-2.5 py-1 rounded-md uppercase", p.status === "completed" && "bg-emerald-500/10 text-emerald-600", p.status === "ongoing" && "bg-amber-500/10 text-amber-600", p.status === "upcoming" && "bg-blue-500/10 text-blue-600")}>{p.status}</span>
+                  <span className={statusBadgeClass(p.status)}>{statusLabel[p.status] || p.status}</span>
                   {p.projectRecord && (
                     <button onClick={(e) => { e.stopPropagation(); openEdit(p.projectRecord!); }} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground" title="Edit">
                       <Edit className="w-3.5 h-3.5" />
@@ -303,10 +353,13 @@ export default function ProjectsPage() {
                 <input value={form.segment} onChange={(e) => setForm((f) => ({ ...f, segment: e.target.value }))} placeholder="Segment" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
                 <input value={form.buyer} onChange={(e) => setForm((f) => ({ ...f, buyer: e.target.value }))} placeholder="Buyer" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
                 <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm">
-                  <option value="draft">Draft</option>
+                  <option value="waiting_approval">Waiting Approval</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
                   <option value="upcoming">Upcoming</option>
                   <option value="ongoing">Ongoing</option>
                   <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
                 </select>
                 <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={3} placeholder="Notes" className="md:col-span-2 px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm resize-none" />
               </div>
@@ -347,6 +400,65 @@ export default function ProjectsPage() {
                   <div className="card-elevated p-3"><p className="text-[10px] text-muted-foreground">Revenue</p><p className="font-bold">{fmtUsd(selectedProject.revenue)}</p></div>
                   <div className="card-elevated p-3"><p className="text-[10px] text-muted-foreground">Gross Profit</p><p className="font-bold">{fmtUsd(selectedProject.grossProfit)}</p></div>
                 </div>
+                {selectedProject.projectRecord && (
+                  <div className="card-elevated p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">Approval Status</p>
+                        <div className="flex items-center gap-2">
+                          <span className={statusBadgeClass(mapMasterStatus(selectedProject.projectRecord.status))}>
+                            {statusLabel[mapMasterStatus(selectedProject.projectRecord.status)]}
+                          </span>
+                          {selectedProject.projectRecord.approved_by_name && (
+                            <span className="text-xs text-muted-foreground">
+                              by {selectedProject.projectRecord.approved_by_name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {canApprove && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={async () => {
+                              if (!selectedProject.projectRecord) return;
+                              await updateProject(selectedProject.projectRecord.id, { status: "approved" });
+                              await syncFromMemory({ force: true });
+                              setSelectedProject(null);
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/30 hover:bg-emerald-500/20"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />
+                            Approve
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!selectedProject.projectRecord) return;
+                              await updateProject(selectedProject.projectRecord.id, { status: "rejected" });
+                              await syncFromMemory({ force: true });
+                              setSelectedProject(null);
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/30 hover:bg-rose-500/20"
+                          >
+                            <XCircle className="w-3.5 h-3.5 inline mr-1" />
+                            Reject
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!selectedProject.projectRecord) return;
+                              await updateProject(selectedProject.projectRecord.id, { status: "waiting_approval" });
+                              await syncFromMemory({ force: true });
+                              setSelectedProject(null);
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 text-amber-700 border border-amber-500/30 hover:bg-amber-500/20"
+                          >
+                            <Clock3 className="w-3.5 h-3.5 inline mr-1" />
+                            Set Waiting
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <div className="card-elevated p-4">
                   <h4 className="text-sm font-bold mb-3">Child Shipment Details</h4>
                   <div className="overflow-x-auto">

@@ -772,6 +772,47 @@ function ShipmentTimeline({ shipmentItems, label }: { shipmentItems: any[]; labe
     );
 }
 
+function ProjectApprovalAlerts({ projects }: { projects: any[] }) {
+    return (
+        <div className="card-elevated p-5 animate-slide-up">
+            <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold">Waiting Approval for Project</h3>
+                <a href="/projects" className="text-[10px] text-primary hover:underline flex items-center gap-1 group">
+                    Open Projects
+                    <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                </a>
+            </div>
+            {projects.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No project is waiting for approval.</p>
+            ) : (
+                <div className="space-y-2">
+                    {projects.slice(0, 6).map((p: any) => (
+                        <div key={p.id} className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                    <p className="text-xs font-semibold truncate">{cleanText(p.name) || "Unnamed Project"}</p>
+                                    <p className="text-[10px] text-muted-foreground">
+                                        Buyer: {cleanText(p.buyer) || "-"} · Segment: {cleanText(p.segment) || "-"}
+                                    </p>
+                                    <p className="text-[10px] text-muted-foreground">
+                                        Created: {asDate(p.created_at || p.createdAt)?.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" }) || "-"}
+                                    </p>
+                                </div>
+                                <a
+                                    href={`/projects?q=${encodeURIComponent(cleanText(p.name) || "")}`}
+                                    className="shrink-0 text-[10px] font-semibold text-primary hover:underline"
+                                >
+                                    Detail
+                                </a>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 /* ─── Quantity per Month Chart ────────────────────────────── */
 function QuantityPerMonth({ shipments }: { shipments: any[] }) {
     const [mounted, setMounted] = React.useState(false);
@@ -1061,6 +1102,7 @@ export default function DashboardPage() {
     const isExecutive = ["ceo", "director", "assistant_ceo", "assistantceo"].includes(normalizedRole);
     const isRoleResolving = sessionStatus === "loading" || (sessionStatus === "authenticated" && !normalizedRole);
     const sources = useCommercialStore((s) => s.sources);
+    const projects = useCommercialStore((s) => s.projects);
     const [isLoading, setIsLoading] = React.useState(true);
     const regionOptions = React.useMemo(() => {
         const bag = new Set<string>();
@@ -1327,6 +1369,16 @@ export default function DashboardPage() {
     const metricActiveDealsSub = hasDealRows ? `${confirmedCount} confirmed` : `${fallbackActiveDeals} MV/Project active`;
 
     const pendingTasks = tasks.filter((t) => t.status === "review").length;
+    const waitingApprovalProjects = projects
+        .filter((p: any) => {
+            const st = normalizeStatus(p.status);
+            return st === "waiting_approval" || st === "pending_approval" || st === "waiting";
+        })
+        .sort((a: any, b: any) => {
+            const da = asDate(a.created_at || a.createdAt)?.getTime() || 0;
+            const db = asDate(b.created_at || b.createdAt)?.getTime() || 0;
+            return db - da;
+        });
 
     const formatUSD = (v: number) => {
         if (Math.abs(v) >= 1000000) return `$${(v / 1000000).toFixed(2)}M`;
@@ -1464,6 +1516,12 @@ export default function DashboardPage() {
                             <MetricCard label="Active Deals" value={metricActiveDeals} sub={metricActiveDealsSub} icon={BarChart3} color="bg-blue-500/10" delay={2} />
                             <MetricCard label="Active Shipments" value={normalizedActiveShipments.length} sub={`${pendingTasks} tasks pending`} icon={Ship} color="bg-amber-500/10" delay={3} />
                         </div>
+
+                        {isCeo && (
+                            <div className="grid grid-cols-1 gap-4">
+                                <ProjectApprovalAlerts projects={waitingApprovalProjects} />
+                            </div>
+                        )}
 
                         {/* Top Metrics - Row 2 (Financial) */}
                         {isCeo && (

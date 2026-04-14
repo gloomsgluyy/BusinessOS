@@ -296,7 +296,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             name: p.name,
             segment: p.segment,
             buyer: p.buyer,
-            status: p.status || "draft",
+            status: p.status || "waiting_approval",
             notes: p.notes,
         };
         const res = await fetch("/api/memory/projects", {
@@ -316,6 +316,9 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 notes: project.notes,
                 created_by: project.createdBy,
                 created_by_name: project.createdByName,
+                approved_by: project.approvedBy,
+                approved_by_name: project.approvedByName,
+                approved_at: project.approvedAt,
                 created_at: project.createdAt,
                 updated_at: project.updatedAt,
                 is_deleted: project.isDeleted,
@@ -333,6 +336,9 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.buyer !== undefined) body.buyer = u.buyer;
         if (u.status !== undefined) body.status = u.status;
         if (u.notes !== undefined) body.notes = u.notes;
+        if (u.approved_by !== undefined) body.approvedBy = u.approved_by;
+        if (u.approved_by_name !== undefined) body.approvedByName = u.approved_by_name;
+        if (u.approved_at !== undefined) body.approvedAt = u.approved_at;
         await fetch("/api/memory/projects", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -1265,6 +1271,9 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                         notes: project.notes,
                         created_by: project.createdBy,
                         created_by_name: project.createdByName,
+                        approved_by: project.approvedBy,
+                        approved_by_name: project.approvedByName,
+                        approved_at: project.approvedAt,
                         created_at: project.createdAt,
                         updated_at: project.updatedAt,
                         is_deleted: project.isDeleted,

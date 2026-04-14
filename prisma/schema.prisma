@@ -479,10 +479,13 @@ model ProjectItem {
   name          String
   segment       String?
   buyer         String?
-  status        String   @default("draft")
+  status        String   @default("waiting_approval")
   notes         String?
   createdBy     String?
   createdByName String?
+  approvedBy    String?
+  approvedByName String?
+  approvedAt    DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   isDeleted     Boolean  @default(false)

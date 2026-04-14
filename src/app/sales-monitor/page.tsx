@@ -17,17 +17,51 @@ import { Toast } from "@/components/shared/toast";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
+const cleanText = (v?: string | null): string => (v || "").replace(/\s+/g, " ").trim();
+const normalizeKey = (v?: string | null): string => cleanText(v).toUpperCase();
+
+const extractProjectName = (raw?: string | null): string | null => {
+    const text = cleanText(raw);
+    if (!text) return null;
+    const explicit = text.match(/project\s*:\s*([^\n\r]+)/i);
+    if (explicit?.[1]) return cleanText(explicit[1]);
+    const code = text.match(/\b([A-Z]{2,}[A-Z0-9_.\-\/]*_\d{2})\b/i);
+    if (code?.[1]) return cleanText(code[1]);
+    return null;
+};
+
+type ProjectSalesStatus =
+    | "waiting_approval"
+    | "waiting_buyer"
+    | "offer_submitted"
+    | "confirmed"
+    | "in_transit"
+    | "completed"
+    | "cancelled"
+    | "rejected";
+
+const PROJECT_SALES_STATUS_META: Record<ProjectSalesStatus, { label: string; color: string }> = {
+    waiting_approval: { label: "Waiting Approval", color: "#f59e0b" },
+    waiting_buyer: { label: "Waiting Buyer", color: "#6b7280" },
+    offer_submitted: { label: "Offer Submitted", color: "#3b82f6" },
+    confirmed: { label: "Confirmed", color: "#10b981" },
+    in_transit: { label: "In Transit / Loading", color: "#6366f1" },
+    completed: { label: "Completed", color: "#059669" },
+    cancelled: { label: "Cancelled", color: "#ef4444" },
+    rejected: { label: "Rejected", color: "#f43f5e" },
+};
 
 export default function SalesMonitorPage() {
     const [, setIsInitializing] = React.useState(false);
 
-    const { deals, syncFromMemory, addDeal, confirmDeal, shipments } = useCommercialStore();
+    const { deals, syncFromMemory, addDeal, confirmDeal, shipments, projects } = useCommercialStore();
 
     React.useEffect(() => {
         syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
     const { currentUser } = useAuthStore();
     const [activeTab, setActiveTab] = React.useState<SalesDealStatus | "all">("all");
+    const [projectTab, setProjectTab] = React.useState<ProjectSalesStatus | "all">("all");
     const [search, setSearch] = React.useState("");
     const [showForm, setShowForm] = React.useState(false);
     const [isSaving, setIsSaving] = React.useState(false);
@@ -57,6 +91,138 @@ export default function SalesMonitorPage() {
         }
         return true;
     });
+
+    const projectMonitoring = React.useMemo(() => {
+        type Roll = {
+            projectKey: string;
+            projectName: string;
+            buyer: string;
+            segment: string;
+            masterStatus: string;
+            salesStatus: ProjectSalesStatus;
+            shipmentCount: number;
+            dealCount: number;
+            qty: number;
+            revenue: number;
+            mvName: string;
+        };
+
+        const statusKey = (s?: string | null) => normalizeKey(s);
+        const shipStatusPriority = (rows: any[]): ProjectSalesStatus | null => {
+            const joined = rows.map((r) => statusKey(r.status || r.shipment_status)).join(" ");
+            if (joined.includes("CANCEL")) return "cancelled";
+            if (joined.includes("LOADING") || joined.includes("TRANSIT")) return "in_transit";
+            if (joined.includes("COMPLETE") || joined.includes("DONE_SHIPMENT") || joined.includes("DISCHARGE")) return "completed";
+            return null;
+        };
+
+        const map = new Map<string, Roll>();
+        const ensure = (key: string, fallbackName: string): Roll => {
+            const existing = map.get(key);
+            if (existing) return existing;
+            const seed: Roll = {
+                projectKey: key,
+                projectName: fallbackName,
+                buyer: "-",
+                segment: "-",
+                masterStatus: "",
+                salesStatus: "waiting_buyer",
+                shipmentCount: 0,
+                dealCount: 0,
+                qty: 0,
+                revenue: 0,
+                mvName: "-",
+            };
+            map.set(key, seed);
+            return seed;
+        };
+
+        projects.forEach((p) => {
+            const key = normalizeKey(p.name);
+            if (!key) return;
+            const row = ensure(key, cleanText(p.name) || "Unmapped Project");
+            row.projectName = cleanText(p.name) || row.projectName;
+            row.buyer = cleanText(p.buyer) || row.buyer;
+            row.segment = cleanText(p.segment) || row.segment;
+            row.masterStatus = cleanText(p.status) || row.masterStatus;
+        });
+
+        shipments.forEach((s: any) => {
+            const derivedName =
+                extractProjectName(s.mv_project_name) ||
+                extractProjectName(s.vessel_name) ||
+                cleanText(s.mv_project_name) ||
+                cleanText(s.vessel_name) ||
+                cleanText(s.shipment_number) ||
+                "Unmapped Project";
+            const key = normalizeKey(derivedName);
+            if (!key) return;
+            const row = ensure(key, derivedName);
+            row.shipmentCount += 1;
+            row.qty += safeNum(s.qty_plan || s.quantity_loaded);
+            row.revenue += safeNum(s.qty_plan || s.quantity_loaded) * safeNum(s.harga_actual_fob_mv || s.sales_price);
+            if (row.buyer === "-" && cleanText(s.buyer)) row.buyer = cleanText(s.buyer);
+            if (row.mvName === "-" && cleanText(s.vessel_name || s.mv_project_name)) row.mvName = cleanText(s.vessel_name || s.mv_project_name);
+        });
+
+        deals.forEach((d) => {
+            const derivedName =
+                cleanText(d.project_id) ||
+                extractProjectName(d.vessel_name) ||
+                cleanText(d.vessel_name) ||
+                cleanText(d.deal_number) ||
+                "Unmapped Project";
+            const key = normalizeKey(derivedName);
+            if (!key) return;
+            const row = ensure(key, derivedName);
+            row.dealCount += 1;
+            row.qty += safeNum(d.quantity);
+            row.revenue += safeNum(d.quantity) * safeNum(d.price_per_mt);
+            if (row.buyer === "-" && cleanText(d.buyer)) row.buyer = cleanText(d.buyer);
+            if (row.mvName === "-" && cleanText(d.vessel_name)) row.mvName = cleanText(d.vessel_name);
+        });
+
+        const rolls = Array.from(map.values());
+        return rolls.map((row) => {
+            const master = statusKey(row.masterStatus);
+            const dealRows = deals.filter((d) => {
+                const dKey = normalizeKey(cleanText(d.project_id) || extractProjectName(d.vessel_name) || cleanText(d.vessel_name) || cleanText(d.deal_number));
+                return dKey && dKey === row.projectKey;
+            });
+            const shipRows = shipments.filter((s: any) => {
+                const sName =
+                    extractProjectName(s.mv_project_name) ||
+                    extractProjectName(s.vessel_name) ||
+                    cleanText(s.mv_project_name) ||
+                    cleanText(s.vessel_name) ||
+                    cleanText(s.shipment_number);
+                const sKey = normalizeKey(sName);
+                return sKey && sKey === row.projectKey;
+            });
+
+            let salesStatus: ProjectSalesStatus = "waiting_buyer";
+            if (master.includes("WAITING") || master.includes("PENDING_APPROVAL")) salesStatus = "waiting_approval";
+            else if (master.includes("REJECT")) salesStatus = "rejected";
+            else {
+                const shipmentStatus = shipStatusPriority(shipRows);
+                if (shipmentStatus) salesStatus = shipmentStatus;
+                else if (dealRows.some((d) => d.status === "confirmed")) salesStatus = "confirmed";
+                else if (dealRows.some((d) => d.status === "pre_sale" || d.status === "forecast")) salesStatus = "offer_submitted";
+                else if (row.buyer === "-" || !cleanText(row.buyer)) salesStatus = "waiting_buyer";
+            }
+
+            return { ...row, salesStatus };
+        }).sort((a, b) => b.qty - a.qty);
+    }, [projects, shipments, deals]);
+
+    const filteredProjectMonitoring = React.useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return projectMonitoring.filter((p) => {
+            if (projectTab !== "all" && p.salesStatus !== projectTab) return false;
+            if (!q) return true;
+            return [p.projectName, p.buyer, p.segment, p.mvName].some((x) => (x || "").toLowerCase().includes(q));
+        });
+    }, [projectMonitoring, projectTab, search]);
 
     const handleSubmit = async () => {
         if (!form.buyer || form.quantity <= 0) {
@@ -116,7 +282,7 @@ export default function SalesMonitorPage() {
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 animate-fade-in relative z-20">
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight">Sales Monitor</h1>
-                        <p className="text-sm text-muted-foreground mt-1">Unified tracking of pre-sale deals, confirmed projects, and market forecasts.</p>
+                        <p className="text-sm text-muted-foreground mt-1">Project-centric sales monitoring with deal-level tracking.</p>
                     </div>
                     <div className="flex gap-2">
                         <button onClick={() => setShowForm(!showForm)} className="btn-primary h-9"><Plus className="w-4 h-4 mr-1.5" /> New Deal</button>
@@ -173,6 +339,83 @@ export default function SalesMonitorPage() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search buyer, deal number, vessel..."
                         className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-accent/50 border border-border text-sm outline-none focus:border-primary/50 transition-colors" />
+                </div>
+
+                {/* Project-Centric Sales Monitoring */}
+                <div className="card-elevated p-4 md:p-5 space-y-4 animate-slide-up">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        <div>
+                            <h3 className="text-sm font-semibold">Project Sales Monitoring</h3>
+                            <p className="text-xs text-muted-foreground mt-0.5">Status sales per project (base on Project + Shipment + Deal)</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                onClick={() => setProjectTab("all")}
+                                className={cn("filter-chip", projectTab === "all" ? "filter-chip-active" : "filter-chip-inactive")}
+                            >
+                                All ({projectMonitoring.length})
+                            </button>
+                            {(Object.keys(PROJECT_SALES_STATUS_META) as ProjectSalesStatus[]).map((st) => (
+                                <button
+                                    key={st}
+                                    onClick={() => setProjectTab(st)}
+                                    className={cn("filter-chip", projectTab === st ? "filter-chip-active" : "filter-chip-inactive")}
+                                >
+                                    {PROJECT_SALES_STATUS_META[st].label} ({projectMonitoring.filter((p) => p.salesStatus === st).length})
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="border-b border-border bg-accent/20">
+                                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Project</th>
+                                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Buyer / Segment</th>
+                                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Sales Status</th>
+                                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Deals</th>
+                                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Shipments</th>
+                                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Volume (MT)</th>
+                                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Revenue</th>
+                                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredProjectMonitoring.map((p) => {
+                                    const st = PROJECT_SALES_STATUS_META[p.salesStatus];
+                                    return (
+                                        <tr key={p.projectKey} className="border-b border-border/40 hover:bg-accent/20 transition-colors">
+                                            <td className="px-3 py-2">
+                                                <p className="text-xs font-semibold text-primary">{p.projectName}</p>
+                                                <p className="text-[10px] text-muted-foreground">{p.mvName || "-"}</p>
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <p className="text-xs">{p.buyer || "-"}</p>
+                                                <p className="text-[10px] text-muted-foreground">{p.segment || "-"}</p>
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <span className="status-badge text-[10px]" style={{ color: st.color, backgroundColor: `${st.color}15` }}>
+                                                    {st.label}
+                                                </span>
+                                            </td>
+                                            <td className="px-3 py-2 text-right text-xs font-semibold">{p.dealCount}</td>
+                                            <td className="px-3 py-2 text-right text-xs font-semibold">{p.shipmentCount}</td>
+                                            <td className="px-3 py-2 text-right text-xs font-semibold">{Math.round(p.qty).toLocaleString()}</td>
+                                            <td className="px-3 py-2 text-right text-xs font-semibold">${Math.round(p.revenue).toLocaleString()}</td>
+                                            <td className="px-3 py-2 text-right">
+                                                <a href={`/projects?q=${encodeURIComponent(p.projectName)}`} className="text-[11px] text-primary hover:underline font-semibold">
+                                                    View
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                    {filteredProjectMonitoring.length === 0 && (
+                        <p className="text-xs text-muted-foreground text-center py-4">No project monitoring rows matched your filters.</p>
+                    )}
                 </div>
 
                 {/* New Deal Form (Rich Fields) */}

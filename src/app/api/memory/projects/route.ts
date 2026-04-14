@@ -19,16 +19,22 @@ async function ensureProjectTable() {
         "name" TEXT NOT NULL,
         "segment" TEXT,
         "buyer" TEXT,
-        "status" TEXT NOT NULL DEFAULT 'draft',
+        "status" TEXT NOT NULL DEFAULT 'waiting_approval',
         "notes" TEXT,
         "createdBy" TEXT,
         "createdByName" TEXT,
+        "approvedBy" TEXT,
+        "approvedByName" TEXT,
+        "approvedAt" TIMESTAMP(3),
         "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         "isDeleted" BOOLEAN NOT NULL DEFAULT false,
         CONSTRAINT "ProjectItem_pkey" PRIMARY KEY ("id")
       );
     `);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvedBy" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvedByName" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvedAt" TIMESTAMP(3);`);
   } catch (error) {
     console.error("[projects] ensureProjectTable failed:", error);
   }
@@ -84,7 +90,7 @@ export async function POST(req: Request) {
         name,
         segment: cleanText(data.segment),
         buyer: cleanText(data.buyer),
-        status: cleanText(data.status) || "draft",
+        status: "waiting_approval",
         notes: cleanText(data.notes),
         createdBy: session.user.id,
         createdByName: session.user.name || null,
@@ -100,6 +106,9 @@ export async function POST(req: Request) {
         segment: project.segment,
         buyer: project.buyer,
         status: project.status,
+        approvedBy: project.approvedBy,
+        approvedByName: project.approvedByName,
+        approvedAt: project.approvedAt,
       }),
     );
 
@@ -132,6 +141,14 @@ export async function PUT(req: Request) {
 
     const nextStatus =
       data.status !== undefined ? (cleanText(data.status) || undefined) : undefined;
+    const userRole = String(session.user.role || "").toLowerCase();
+    const approvalTarget = (nextStatus || "").toLowerCase();
+    if (approvalTarget && ["approved", "rejected"].includes(approvalTarget) && !["ceo", "director"].includes(userRole)) {
+      return NextResponse.json({ error: "Forbidden: only CEO/Director can approve project" }, { status: 403 });
+    }
+    const toApprovalStatus = (nextStatus || "").toLowerCase();
+    const shouldSetApproval = toApprovalStatus === "approved";
+    const shouldResetApproval = toApprovalStatus === "rejected" || toApprovalStatus === "waiting_approval";
     const project = await prisma.projectItem.update({
       where: { id: data.id },
       data: {
@@ -140,6 +157,21 @@ export async function PUT(req: Request) {
         buyer: data.buyer !== undefined ? cleanText(data.buyer) : undefined,
         status: nextStatus,
         notes: data.notes !== undefined ? cleanText(data.notes) : undefined,
+        approvedBy: shouldSetApproval
+          ? session.user.id
+          : shouldResetApproval
+            ? null
+            : undefined,
+        approvedByName: shouldSetApproval
+          ? (session.user.name || null)
+          : shouldResetApproval
+            ? null
+            : undefined,
+        approvedAt: shouldSetApproval
+          ? new Date()
+          : shouldResetApproval
+            ? null
+            : undefined,
       },
     });
     await tryAuditLog(
