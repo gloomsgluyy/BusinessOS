@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { SalesOrder, OrderStatus } from "@/types";
 import { generateId } from "@/lib/utils";
 
@@ -29,7 +30,7 @@ interface SalesState {
     lastSyncTime: string;
 }
 
-export const useSalesStore = create<SalesState>((set, get) => ({
+export const useSalesStore = create<SalesState>()(persist((set, get) => ({
     _rawOrders: [],
     orders: [],
     lastSyncTime: new Date(0).toISOString(),
@@ -155,6 +156,14 @@ export const useSalesStore = create<SalesState>((set, get) => ({
         console.warn("[SalesStore] FORCING RESET TO DEMO DATA");
         set({ orders: [...DEMO_SALES] });
     }
+}), {
+    name: "sales-store-v1",
+    storage: createJSONStorage(() => localStorage),
+    partialize: (state) => ({
+        _rawOrders: state._rawOrders,
+        orders: state.orders,
+        lastSyncTime: state.lastSyncTime,
+    }),
 }));
 
 // Removed deprecated auto-sync polling.

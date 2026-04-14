@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import GlobalLoading from "@/app/loading";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { Calendar, Shield, Loader2 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
@@ -14,7 +13,7 @@ import { TASK_STATUSES, TASK_PRIORITIES } from "@/lib/constants";
 import { Task, TaskStatus } from "@/types";
 
 export default function AllTasksPage() {
-    const [isInitializing, setIsInitializing] = React.useState(true);
+    const [, setIsInitializing] = React.useState(false);
 
     const { data: session } = useSession();
     const currentUser = session?.user as any;
@@ -31,7 +30,6 @@ export default function AllTasksPage() {
     const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
 
     if (!hasPermission("all_tasks")) {
-        if (isInitializing) return <GlobalLoading />;
         return (
             <AppShell>
                 <div className="flex items-center justify-center h-full animate-fade-in">

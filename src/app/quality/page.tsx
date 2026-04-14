@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { cn } from "@/lib/utils";
@@ -26,7 +25,7 @@ const EMPTY_FORM = {
 };
 
 export default function QualityPage() {
-    const [isInitializing, setIsInitializing] = React.useState(true);
+    const [, setIsInitializing] = React.useState(false);
 
     const { qualityResults, syncFromMemory, addQualityResult, updateQualityResult, shipments } = useCommercialStore();
 
@@ -180,7 +179,6 @@ export default function QualityPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {(["GAR (kcal/kg)", "TS (%)", "ASH (%)", "TM (%)"] as const).map((label, i) => {
                     const key = (["gar", "ts", "ash", "tm"] as const)[i];
-                    if (isInitializing) return <GlobalLoading />;
                     return (
                         <div key={key}>
                             <label className="text-[10px] font-semibold text-muted-foreground uppercase">{label}</label>

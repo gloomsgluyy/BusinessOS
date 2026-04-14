@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useSession } from "next-auth/react";
@@ -78,7 +77,7 @@ function parseDatePart(dateStr: string): string {
 }
 
 export default function MeetingsPage() {
-    const [isInitializing, setIsInitializing] = React.useState(true);
+    const [, setIsInitializing] = React.useState(false);
 
     const { meetings, syncFromMemory, addMeeting, updateMeeting } = useCommercialStore();
 
@@ -603,7 +602,6 @@ Be concise and professional.`;
         return <AppShell><div className="flex h-[50vh] items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div></AppShell>;
     }
 
-    if (isInitializing) return <GlobalLoading />;
 
     return (
         <AppShell>

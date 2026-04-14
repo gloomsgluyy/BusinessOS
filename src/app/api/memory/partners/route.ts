@@ -10,15 +10,175 @@ async function triggerPush() {
     PushService.debouncedPush("partner").catch(err => console.error("Push failed:", err));
 }
 
+function cleanText(v: unknown): string | null {
+    if (v === null || v === undefined) return null;
+    const t = String(v).replace(/\s+/g, " ").trim();
+    return t || null;
+}
+
+function normalizeKey(v: unknown): string {
+    return (cleanText(v) || "").toUpperCase();
+}
+
+function isMeaningfulName(v: unknown): boolean {
+    const name = cleanText(v);
+    if (!name) return false;
+    const n = normalizeKey(name);
+    if (n.length < 3) return false;
+    if (["-", "N/A", "NA", "UNKNOWN", "TBA", "TBD", "NULL", "NONE"].includes(n)) return false;
+    if (/^BUYER\s+\d+$/i.test(name)) return false;
+    return true;
+}
+
+function isExportShipment(sh: { type?: string | null; exportDmo?: string | null }): boolean {
+    const t = normalizeKey(sh.type);
+    const expDmo = normalizeKey(sh.exportDmo);
+    if (t.includes("LOCAL") || t.includes("DMO") || t.includes("DOMESTIC")) return false;
+    if (expDmo.includes("LOCAL") || expDmo.includes("DMO") || expDmo.includes("DOMESTIC")) return false;
+    return true;
+}
+
+function inferBuyerFromFlow(flow: unknown): string | null {
+    const raw = cleanText(flow);
+    if (!raw) return null;
+    const stopwords = new Set(["MSE", "MKLS", "CMD", "BAC", "LJT", "BUYER", "SUPPLIER", "OPS", "FLOW", "I/O", "IO", "AND", "OR"]);
+    const tokens = raw
+        .split(/[-–>/,|]+/)
+        .map((t) => cleanText(t))
+        .filter((t): t is string => Boolean(t));
+    for (let i = tokens.length - 1; i >= 0; i--) {
+        const token = tokens[i];
+        const norm = normalizeKey(token);
+        if (!norm || stopwords.has(norm) || norm.length < 3) continue;
+        return token;
+    }
+    return null;
+}
+
+async function bootstrapPartnersFromOperationalData() {
+    const [shipments, deals] = await Promise.all([
+        prisma.shipmentDetail.findMany({
+            where: { isDeleted: false },
+            select: {
+                buyer: true,
+                supplier: true,
+                source: true,
+                iupOp: true,
+                shipmentFlow: true,
+                vesselName: true,
+                mvProjectName: true,
+                nomination: true,
+                type: true,
+                exportDmo: true,
+                origin: true,
+            },
+        }),
+        prisma.salesDeal.findMany({
+            where: { isDeleted: false },
+            select: { buyer: true, buyerCountry: true, type: true },
+        }),
+    ]);
+
+    const buyerVotesByGroup = new Map<string, Map<string, number>>();
+    for (const s of shipments) {
+        const groupKey = normalizeKey(s.vesselName || s.mvProjectName || s.nomination);
+        const buyer = cleanText(s.buyer);
+        if (!groupKey || !buyer) continue;
+        const votes = buyerVotesByGroup.get(groupKey) || new Map<string, number>();
+        votes.set(buyer, (votes.get(buyer) || 0) + 1);
+        buyerVotesByGroup.set(groupKey, votes);
+    }
+
+    const consensusBuyerByGroup = new Map<string, string>();
+    buyerVotesByGroup.forEach((votes, groupKey) => {
+        let winner = "";
+        let maxVote = -1;
+        votes.forEach((vote, candidate) => {
+            if (vote > maxVote) {
+                winner = candidate;
+                maxVote = vote;
+            }
+        });
+        if (winner) consensusBuyerByGroup.set(groupKey, winner);
+    });
+
+    const seen = new Set<string>();
+    const toCreate: Array<{
+        name: string;
+        type: "buyer" | "vendor" | "fleet";
+        city?: string | null;
+        country?: string | null;
+        status: "active" | "under_review" | "inactive";
+        notes?: string;
+    }> = [];
+
+    const pushCandidate = (nameRaw: unknown, type: "buyer" | "vendor", regionRaw?: unknown, note?: string) => {
+        const name = cleanText(nameRaw);
+        if (!isMeaningfulName(name)) return;
+        const key = `${type}::${normalizeKey(name)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        const region = cleanText(regionRaw);
+        const [city, country] = region ? region.split(",").map((x) => x.trim()) : [undefined, undefined];
+        toCreate.push({
+            name: name!,
+            type,
+            city: city || null,
+            country: country || null,
+            status: "active",
+            notes: note || "Auto-generated from shipment/deal data",
+        });
+    };
+
+    deals.forEach((d) => {
+        pushCandidate(d.buyer, "buyer", d.buyerCountry, "Auto-generated from sales deals");
+    });
+
+    shipments.forEach((s) => {
+        const groupKey = normalizeKey(s.vesselName || s.mvProjectName || s.nomination);
+        const inferredBuyer =
+            cleanText(s.buyer) ||
+            consensusBuyerByGroup.get(groupKey) ||
+            inferBuyerFromFlow(s.shipmentFlow);
+        const inferredVendor = cleanText(s.source) || cleanText(s.supplier) || cleanText(s.iupOp);
+
+        if (isExportShipment(s)) {
+            pushCandidate(inferredBuyer, "buyer", s.origin, "Auto-generated from export shipment");
+            pushCandidate(inferredVendor, "vendor", s.origin, "Auto-generated from export shipment source");
+        } else {
+            pushCandidate(inferredVendor, "vendor", s.origin, "Auto-generated from local/domestic shipment");
+            pushCandidate(inferredBuyer, "buyer", s.origin, "Auto-generated from local/domestic shipment");
+        }
+    });
+
+    if (toCreate.length === 0) return 0;
+    await prisma.partner.createMany({ data: toCreate });
+    return toCreate.length;
+}
+
 export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        const partners = await prisma.partner.findMany({
+        let partners = await prisma.partner.findMany({
             where: { isDeleted: false },
             orderBy: { createdAt: "desc" }
         });
+
+        if (partners.length === 0) {
+            try {
+                const created = await bootstrapPartnersFromOperationalData();
+                if (created > 0) {
+                    partners = await prisma.partner.findMany({
+                        where: { isDeleted: false },
+                        orderBy: { createdAt: "desc" }
+                    });
+                }
+            } catch (bootstrapError) {
+                console.error("Partner bootstrap failed (non-critical):", bootstrapError);
+            }
+        }
 
         return NextResponse.json({ success: true, partners });
     } catch (error) {

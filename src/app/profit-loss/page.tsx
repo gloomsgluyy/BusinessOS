@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuthStore } from "@/store/auth-store";
 import { useSalesStore } from "@/store/sales-store";
@@ -17,7 +16,7 @@ const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function ProfitLossPage() {
-    const [isInitializing, setIsInitializing] = React.useState(true);
+    const [, setIsInitializing] = React.useState(false);
 
     const { hasPermission } = useAuthStore();
     const orders = useSalesStore((s) => s.orders);
@@ -34,7 +33,6 @@ export default function ProfitLossPage() {
     }, [syncSales, syncPurchases]);
 
     if (!hasPermission("profit_loss")) {
-        if (isInitializing) return <GlobalLoading />;
         return (
             <AppShell>
                 <div className="flex items-center justify-center h-full">

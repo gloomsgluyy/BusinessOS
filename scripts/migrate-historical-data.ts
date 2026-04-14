@@ -106,18 +106,18 @@ function normalizePartnerName(name: string | undefined): string {
 
 function parseExcelDate(value: any): Date | null {
   if (!value) return null;
-  
+
   if (value instanceof Date) {
     return value;
   }
-  
+
   // Excel serial date number
   if (typeof value === 'number') {
     const excelEpoch = new Date(1899, 11, 30);
     const date = new Date(excelEpoch.getTime() + value * 86400000);
     return date;
   }
-  
+
   // String date in DD/MM/YYYY format
   if (typeof value === 'string') {
     const parts = value.split(/[\/\-\.]/);
@@ -126,19 +126,19 @@ function parseExcelDate(value: any): Date | null {
       const day = parseInt(parts[0], 10);
       const month = parseInt(parts[1], 10) - 1;
       const year = parseInt(parts[2], 10);
-      
+
       if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
         return new Date(year, month, day);
       }
     }
-    
+
     // Fallback to standard parsing
     const parsed = new Date(value);
     if (!isNaN(parsed.getTime())) {
       return parsed;
     }
   }
-  
+
   return null;
 }
 
@@ -151,7 +151,7 @@ function parseFloat(value: any): number | null {
 function findColumnIndex(headerRow: any[], columnNames: string[]): number {
   for (const name of columnNames) {
     const normalized = name.trim().toUpperCase();
-    const index = headerRow.findIndex(h => 
+    const index = headerRow.findIndex(h =>
       h?.toString().trim().toUpperCase() === normalized
     );
     if (index !== -1) return index;
@@ -180,38 +180,38 @@ interface PartnerEntry {
 
 async function extractPartnersFromExcel(): Promise<Map<string, PartnerEntry>> {
   console.log('\n📊 PHASE 1: Extracting Partners from Excel...');
-  
+
   const partnersMap = new Map<string, PartnerEntry>();
-  
+
   // Extract from MV Barge file
   const mvBargeFile = path.join(process.cwd(), '00. MV_Barge&Source 2021,2022, 2023,2024-7-19.xlsx');
   if (fs.existsSync(mvBargeFile)) {
     const workbook = XLSX.readFile(mvBargeFile, { cellDates: true });
-    
+
     for (const [year, config] of Object.entries(MV_BARGE_CONFIG)) {
       const sheet = workbook.Sheets[config.sheetName];
       if (!sheet) {
         console.log(`⚠️  Sheet not found: ${config.sheetName}`);
         continue;
       }
-      
+
       const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
       const headerRow = data[config.headerRowIndex] || [];
-      
+
       const buyerIdx = findColumnIndex(headerRow, ['BUYER']);
       const supplierIdx = findColumnIndex(headerRow, ['IUP OP', 'SOURCE']);
-      
+
       for (let i = config.dataStartRowIndex; i < data.length; i++) {
         const row = data[i];
         if (isEmptyRow(row)) continue;
-        
+
         if (buyerIdx !== -1 && row[buyerIdx]) {
           const buyerName = normalizePartnerName(String(row[buyerIdx]));
           if (buyerName !== 'Unknown') {
             partnersMap.set(buyerName, { name: buyerName, type: 'buyer' });
           }
         }
-        
+
         if (supplierIdx !== -1 && row[supplierIdx]) {
           const supplierName = normalizePartnerName(String(row[supplierIdx]));
           if (supplierName !== 'Unknown') {
@@ -219,40 +219,40 @@ async function extractPartnersFromExcel(): Promise<Map<string, PartnerEntry>> {
           }
         }
       }
-      
+
       console.log(`✓ Processed MV Barge ${year}: ${data.length - config.dataStartRowIndex} rows`);
     }
   }
-  
+
   // Extract from Daily Delivery file
   const dailyFile = path.join(process.cwd(), '10.Daily Delivery Report (Recap Shipment) 2020, 2021, 2022, 2023, 2024, 2025, 2026.xlsx');
   if (fs.existsSync(dailyFile)) {
     const workbook = XLSX.readFile(dailyFile, { cellDates: true });
-    
+
     for (const [year, config] of Object.entries(DAILY_DELIVERY_CONFIG)) {
       const sheet = workbook.Sheets[config.sheetName];
       if (!sheet) {
         console.log(`⚠️  Sheet not found: ${config.sheetName}`);
         continue;
       }
-      
+
       const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
       const headerRow = data[config.headerRowIndex] || [];
-      
+
       const buyerIdx = findColumnIndex(headerRow, ['Buyer', 'Project / Buyer', 'Project Name']);
       const supplierIdx = findColumnIndex(headerRow, ['Source', 'Supplier']);
-      
+
       for (let i = config.dataStartRowIndex; i < data.length; i++) {
         const row = data[i];
         if (isEmptyRow(row)) continue;
-        
+
         if (buyerIdx !== -1 && row[buyerIdx]) {
           const buyerName = normalizePartnerName(String(row[buyerIdx]));
           if (buyerName !== 'Unknown') {
             partnersMap.set(buyerName, { name: buyerName, type: 'buyer' });
           }
         }
-        
+
         if (supplierIdx !== -1 && row[supplierIdx]) {
           const supplierName = normalizePartnerName(String(row[supplierIdx]));
           if (supplierName !== 'Unknown') {
@@ -260,11 +260,11 @@ async function extractPartnersFromExcel(): Promise<Map<string, PartnerEntry>> {
           }
         }
       }
-      
+
       console.log(`✓ Processed Daily Delivery ${year}: ${data.length - config.dataStartRowIndex} rows`);
     }
   }
-  
+
   console.log(`\n✅ Found ${partnersMap.size} unique partners`);
   return partnersMap;
 }
@@ -275,15 +275,15 @@ async function extractPartnersFromExcel(): Promise<Map<string, PartnerEntry>> {
 
 async function seedPartners(partnersMap: Map<string, PartnerEntry>): Promise<Map<string, string>> {
   console.log('\n🌱 PHASE 2: Seeding Partners to Database...');
-  
+
   const partnerIdMap = new Map<string, string>();
-  
-  for (const [name, entry] of partnersMap.entries()) {
+
+  for (const [name, entry] of Array.from(partnersMap.entries())) {
     // Check if partner already exists
     const existing = await prisma.partner.findFirst({
       where: { name, isDeleted: false },
     });
-    
+
     if (existing) {
       partnerIdMap.set(name, existing.id);
       console.log(`  • ${name} (existing)`);
@@ -299,7 +299,7 @@ async function seedPartners(partnersMap: Map<string, PartnerEntry>): Promise<Map
       console.log(`  ✓ ${name} (created)`);
     }
   }
-  
+
   console.log(`\n✅ Seeded ${partnerIdMap.size} partners`);
   return partnerIdMap;
 }
@@ -310,19 +310,19 @@ async function seedPartners(partnersMap: Map<string, PartnerEntry>): Promise<Map
 
 async function cleanDummyData(): Promise<void> {
   console.log('\n🧹 PHASE 3: Cleaning Dummy Data...');
-  
+
   // Delete ShipmentDetail records
   const deletedShipments = await prisma.shipmentDetail.deleteMany({});
   console.log(`  ✓ Deleted ${deletedShipments.count} ShipmentDetail records`);
-  
+
   // Delete DailyDelivery records
   const deletedDeliveries = await prisma.dailyDelivery.deleteMany({});
   console.log(`  ✓ Deleted ${deletedDeliveries.count} DailyDelivery records`);
-  
+
   // Delete QualityResult records
   const deletedQuality = await prisma.qualityResult.deleteMany({});
   console.log(`  ✓ Deleted ${deletedQuality.count} QualityResult records`);
-  
+
   console.log('\n✅ Database cleaned (ready for fresh data)');
 }
 
@@ -332,23 +332,23 @@ async function cleanDummyData(): Promise<void> {
 
 async function loadShipmentDetails(partnerIdMap: Map<string, string>): Promise<number> {
   console.log('\n📦 PHASE 4: Loading ShipmentDetail records...');
-  
+
   const mvBargeFile = path.join(process.cwd(), '00. MV_Barge&Source 2021,2022, 2023,2024-7-19.xlsx');
   if (!fs.existsSync(mvBargeFile)) {
     console.log('⚠️  MV Barge file not found, skipping...');
     return 0;
   }
-  
+
   const workbook = XLSX.readFile(mvBargeFile, { cellDates: true });
   const records: any[] = [];
-  
+
   for (const [year, config] of Object.entries(MV_BARGE_CONFIG)) {
     const sheet = workbook.Sheets[config.sheetName];
     if (!sheet) continue;
-    
+
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
     const headerRow = data[config.headerRowIndex] || [];
-    
+
     // Find column indices
     const noIdx = findColumnIndex(headerRow, ['NO']);
     const exportDmoIdx = findColumnIndex(headerRow, ['EXPORT / DMO']);
@@ -371,14 +371,14 @@ async function loadShipmentDetails(partnerIdMap: Map<string, string>): Promise<n
     const picIdx = findColumnIndex(headerRow, ['PIC', 'PIC ']);
     const buyerIdx = findColumnIndex(headerRow, ['BUYER']);
     const garIdx = findColumnIndex(headerRow, ['RESULT GAR (ARB)', 'RESULT GAR', 'GAR']);
-    
+
     for (let i = config.dataStartRowIndex; i < data.length; i++) {
       const row = data[i];
       if (isEmptyRow(row)) continue;
-      
+
       const buyerName = normalizePartnerName(row[buyerIdx]);
       const supplierName = normalizePartnerName(row[iupOpIdx]);
-      
+
       const record = {
         no: noIdx !== -1 ? parseFloat(row[noIdx]) : null,
         exportDmo: exportDmoIdx !== -1 ? String(row[exportDmoIdx] || '').trim() : null,
@@ -407,13 +407,13 @@ async function loadShipmentDetails(partnerIdMap: Map<string, string>): Promise<n
         // Mark incomplete if critical data missing
         supplier: buyerName === 'Unknown' || !row[blDateIdx] ? 'Incomplete' : supplierName,
       };
-      
+
       records.push(record);
     }
-    
+
     console.log(`  ✓ Extracted ${year}: ${records.length} records`);
   }
-  
+
   // Batch insert
   if (records.length > 0) {
     await prisma.shipmentDetail.createMany({
@@ -422,7 +422,7 @@ async function loadShipmentDetails(partnerIdMap: Map<string, string>): Promise<n
     });
     console.log(`\n✅ Loaded ${records.length} ShipmentDetail records`);
   }
-  
+
   return records.length;
 }
 
@@ -432,23 +432,23 @@ async function loadShipmentDetails(partnerIdMap: Map<string, string>): Promise<n
 
 async function loadDailyDeliveries(partnerIdMap: Map<string, string>): Promise<number> {
   console.log('\n📋 PHASE 5: Loading DailyDelivery records...');
-  
+
   const dailyFile = path.join(process.cwd(), '10.Daily Delivery Report (Recap Shipment) 2020, 2021, 2022, 2023, 2024, 2025, 2026.xlsx');
   if (!fs.existsSync(dailyFile)) {
     console.log('⚠️  Daily Delivery file not found, skipping...');
     return 0;
   }
-  
+
   const workbook = XLSX.readFile(dailyFile, { cellDates: true });
   const records: any[] = [];
-  
+
   for (const [year, config] of Object.entries(DAILY_DELIVERY_CONFIG)) {
     const sheet = workbook.Sheets[config.sheetName];
     if (!sheet) continue;
-    
+
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
     const headerRow = data[config.headerRowIndex] || [];
-    
+
     // Find column indices
     const statusIdx = findColumnIndex(headerRow, ['Status', 'Status ', 'Shipment Status']);
     const buyerIdx = findColumnIndex(headerRow, ['Buyer', 'Project / Buyer', 'Project Name']);
@@ -466,14 +466,14 @@ async function loadDailyDeliveries(partnerIdMap: Map<string, string>): Promise<n
     const garIdx = findColumnIndex(headerRow, ['ACTUAL GAR', 'ACTUAL GCV (GAR&GAD)', 'Actual GAR']);
     const poNoIdx = findColumnIndex(headerRow, ['Contract No.', 'PO No']);
     const blDateIdx = findColumnIndex(headerRow, ['BL DATE', 'BL Date']);
-    
+
     for (let i = config.dataStartRowIndex; i < data.length; i++) {
       const row = data[i];
       if (isEmptyRow(row)) continue;
-      
+
       const buyerName = normalizePartnerName(row[buyerIdx]);
       const supplierName = normalizePartnerName(row[supplierIdx]);
-      
+
       const record = {
         reportType: row[areaIdx]?.toString().includes('EXPORT') ? 'export' : 'domestic',
         year: parseInt(year, 10),
@@ -495,13 +495,13 @@ async function loadDailyDeliveries(partnerIdMap: Map<string, string>): Promise<n
         contractNo: poNoIdx !== -1 ? String(row[poNoIdx] || '').trim() : null,
         blDate: blDateIdx !== -1 ? parseExcelDate(row[blDateIdx]) : null,
       };
-      
+
       records.push(record);
     }
-    
+
     console.log(`  ✓ Extracted ${year}: ${records.length} records`);
   }
-  
+
   // Batch insert
   if (records.length > 0) {
     await prisma.dailyDelivery.createMany({
@@ -510,7 +510,7 @@ async function loadDailyDeliveries(partnerIdMap: Map<string, string>): Promise<n
     });
     console.log(`\n✅ Loaded ${records.length} DailyDelivery records`);
   }
-  
+
   return records.length;
 }
 
@@ -520,7 +520,7 @@ async function loadDailyDeliveries(partnerIdMap: Map<string, string>): Promise<n
 
 async function createQualityResults(): Promise<number> {
   console.log('\n🧪 PHASE 6: Creating QualityResult records...');
-  
+
   // Find shipments with GAR data
   const shipmentsWithQuality = await prisma.shipmentDetail.findMany({
     where: {
@@ -534,7 +534,7 @@ async function createQualityResults(): Promise<number> {
       blDate: true,
     },
   });
-  
+
   const qualityRecords = shipmentsWithQuality.map(s => ({
     cargoId: s.id,
     cargoName: s.nomination || 'Unknown',
@@ -542,7 +542,7 @@ async function createQualityResults(): Promise<number> {
     samplingDate: s.blDate,
     status: 'completed',
   }));
-  
+
   if (qualityRecords.length > 0) {
     await prisma.qualityResult.createMany({
       data: qualityRecords,
@@ -550,7 +550,7 @@ async function createQualityResults(): Promise<number> {
     });
     console.log(`✅ Created ${qualityRecords.length} QualityResult records`);
   }
-  
+
   return qualityRecords.length;
 }
 
@@ -563,26 +563,26 @@ async function main() {
   console.log('║  HISTORICAL DATA MIGRATION (Excel → Production DB)       ║');
   console.log('║  Strategy: Clean & Load | Date Format: DD/MM/YYYY        ║');
   console.log('╚═══════════════════════════════════════════════════════════╝');
-  
+
   try {
     // Phase 1: Extract Partners
     const partnersMap = await extractPartnersFromExcel();
-    
+
     // Phase 2: Seed Partners
     const partnerIdMap = await seedPartners(partnersMap);
-    
+
     // Phase 3: Clean Dummy Data
     await cleanDummyData();
-    
+
     // Phase 4: Load ShipmentDetail
     const shipmentCount = await loadShipmentDetails(partnerIdMap);
-    
+
     // Phase 5: Load DailyDelivery
     const deliveryCount = await loadDailyDeliveries(partnerIdMap);
-    
+
     // Phase 6: Create QualityResults
     const qualityCount = await createQualityResults();
-    
+
     // Final Summary
     console.log('\n╔═══════════════════════════════════════════════════════════╗');
     console.log('║                    MIGRATION COMPLETE                     ║');
@@ -594,14 +594,14 @@ async function main() {
     console.log(`║  ─────────────────────────────────────────────────────    ║`);
     console.log(`║  TOTAL MIGRATED:        ${String(shipmentCount + deliveryCount).padStart(4)} records              ║`);
     console.log('╚═══════════════════════════════════════════════════════════╝');
-    
+
     if (shipmentCount + deliveryCount < 2157) {
       console.log('\n⚠️  WARNING: Total records below target of 2,157');
       console.log('    Check Excel files and sheet configurations');
     } else {
       console.log('\n✅ Target of 2,157+ records achieved!');
     }
-    
+
   } catch (error) {
     console.error('\n❌ Migration failed:', error);
     throw error;

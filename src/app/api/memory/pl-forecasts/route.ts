@@ -9,9 +9,15 @@ export async function GET(req: Request) {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        // Check if sync is requested (via query parameter)
+        // Sync only when explicitly requested: ?sync or ?sync=1 / true / yes
+        // Normal cache-busting params like ?t=... must NOT trigger sync.
         const url = new URL(req.url);
-        const shouldSync = url.searchParams.has('sync') || url.searchParams.has('t');
+        const syncRaw = url.searchParams.get('sync');
+        const shouldSync =
+            url.searchParams.has('sync') &&
+            (syncRaw === null ||
+                syncRaw === '' ||
+                ['1', 'true', 'yes'].includes(syncRaw.toLowerCase()));
 
         // Sync from Google Sheets if requested (to get latest data)
         if (shouldSync) {
@@ -24,7 +30,29 @@ export async function GET(req: Request) {
         }
 
         // Read from DB cache (fast read path)
-        const forecasts = await SheetsFirstService.listPLForecasts();
+        let forecasts = await SheetsFirstService.listPLForecasts();
+
+        // Auto-heal once when cache is empty (common after accidental soft-delete sync)
+        if (!shouldSync && forecasts.length === 0) {
+            try {
+                await SheetsFirstService.syncPLForecastsFromSheet();
+                forecasts = await SheetsFirstService.listPLForecasts();
+            } catch (healError) {
+                console.error("Auto-heal sync failed (non-critical):", healError);
+            }
+        }
+
+        // Safety net: if everything was accidentally soft-deleted, restore visibility.
+        if (forecasts.length === 0) {
+            const deletedCount = await prisma.pLForecast.count({ where: { isDeleted: true } });
+            if (deletedCount > 0) {
+                await prisma.pLForecast.updateMany({
+                    where: { isDeleted: true },
+                    data: { isDeleted: false },
+                });
+                forecasts = await SheetsFirstService.listPLForecasts();
+            }
+        }
 
         return NextResponse.json({ success: true, forecasts });
     } catch (error) {

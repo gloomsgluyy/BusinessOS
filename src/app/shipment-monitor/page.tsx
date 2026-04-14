@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useDailyDeliveryStore } from "@/store/daily-delivery-store";
@@ -17,15 +16,229 @@ import { AIAgent } from "@/lib/ai-agent";
 import { ReportModal } from "@/components/shared/report-modal";
 import { Toast, ToastType } from "@/components/shared/toast";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 const normalizeKey = (v?: string | null) => (v || "").toUpperCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+const monthToNumber: Record<string, number> = {
+    JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5,
+    JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11,
+    MEI: 4, AGU: 7, OKT: 9, DES: 11,
+};
+
+const parseFlexibleDate = (value?: string | null): Date | null => {
+    if (!value) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+
+    const direct = new Date(raw);
+    if (!Number.isNaN(direct.getTime())) return direct;
+
+    const dmY = raw.match(/^(\d{1,2})\s*[-\/]?\s*([A-Za-z]{3,})(?:\s+(\d{2,4}))?$/);
+    if (dmY) {
+        const day = Number(dmY[1]);
+        const monthKey = dmY[2].slice(0, 3).toUpperCase();
+        const month = monthToNumber[monthKey];
+        const yearPart = dmY[3] ? Number(dmY[3]) : null;
+        if (month !== undefined && yearPart) {
+            const year = yearPart < 100 ? 2000 + yearPart : yearPart;
+            const d = new Date(year, month, day);
+            if (!Number.isNaN(d.getTime())) return d;
+        }
+    }
+
+    return null;
+};
+
+const parseYearFromLaycan = (laycan?: string | null): number | null => {
+    if (!laycan) return null;
+    const m = String(laycan).match(/\b(19|20)\d{2}\b/);
+    return m ? Number(m[0]) : null;
+};
+
+const getShipmentYear = (s: ShipmentDetail): number | null => {
+    if (s.year && Number.isFinite(s.year)) return s.year;
+    const byLaycan = parseYearFromLaycan(s.laycan);
+    if (byLaycan) return byLaycan;
+    const byBl = parseFlexibleDate(s.bl_date);
+    if (byBl) return byBl.getFullYear();
+    const byCreated = parseFlexibleDate(s.created_at);
+    if (byCreated) return byCreated.getFullYear();
+    return null;
+};
+
+const getShipmentDate = (s: ShipmentDetail): Date | null => {
+    const byBl = parseFlexibleDate(s.bl_date);
+    if (byBl) return byBl;
+    const byEta = parseFlexibleDate(s.eta);
+    if (byEta) return byEta;
+    const byCreated = parseFlexibleDate(s.created_at);
+    if (byCreated) return byCreated;
+    return null;
+};
+
+const formatLaycanWithYear = (s: ShipmentDetail): string => {
+    if (!s.laycan) {
+        const d = getShipmentDate(s);
+        return d
+            ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+            : "-";
+    }
+    const laycanRaw = String(s.laycan).trim();
+    if (/\b(19|20)\d{2}\b/.test(laycanRaw)) return laycanRaw;
+    const y = getShipmentYear(s);
+    return y ? `${laycanRaw} ${y}` : laycanRaw;
+};
+
+const isExportType = (s: ShipmentDetail): boolean => {
+    const t = normalizeKey(s.type || s.export_dmo || "");
+    if (t.includes("LOCAL") || t.includes("DMO") || t.includes("DOMESTIC")) return false;
+    return true;
+};
+
+const getCounterparty = (s: ShipmentDetail): { role: "Buyer" | "Vendor"; value: string } => {
+    const buyer = (s.buyer || "").trim();
+    const vendor = (s.source || s.supplier || s.iup_op || "").trim();
+    if (isExportType(s)) {
+        return { role: "Buyer", value: buyer || vendor || "-" };
+    }
+    return { role: "Vendor", value: vendor || buyer || "-" };
+};
+
+type SummaryStatus = "upcoming" | "loading" | "in_transit" | "completed" | "cancelled" | "unknown";
+
+const normalizeShipmentStatus = (raw?: string | null): SummaryStatus => {
+    const s = normalizeKey(raw);
+    if (!s) return "unknown";
+
+    if (s.includes("CANCEL")) return "cancelled";
+
+    if (
+        s.includes("DONE") ||
+        s.includes("COMPLETE") ||
+        s.includes("COMPLETELY") ||
+        s.includes("DISCHARGED") ||
+        s === "DONE SHIPMENT"
+    ) return "completed";
+
+    if (s.includes("IN TRANSIT") || s.includes("ANCHORAGE") || s.includes("DISCH")) return "in_transit";
+    if (s.includes("LOADING PROCESS") || s.includes("LOADING PROSES") || s === "LOADING") return "loading";
+    if (s.includes("UPCOMING") || s.includes("WAITING") || s.includes("DRAFT") || s.includes("PLANNED")) return "upcoming";
+
+    return "unknown";
+};
+
+function parseNominationEntries(value?: string | null): string[] {
+    const raw = String(value || "").replace(/\r/g, "\n").trim();
+    if (!raw) return [];
+
+    const normalized = raw
+        .replace(/\s+/g, " ")
+        .replace(/\s+i\s*[\.\/]?\s*o\s*\.?\s+/gi, " | ")
+        .replace(/\n+/g, " | ");
+
+    const entries = normalized
+        .split("|")
+        .map((x) => x.trim().replace(/^[-,.;:]+/, "").trim())
+        .filter(Boolean);
+
+    const unique: string[] = [];
+    for (const e of entries) {
+        if (!unique.some((u) => normalizeKey(u) === normalizeKey(e))) unique.push(e);
+    }
+    return unique;
+}
+
+function NominationDisplay({
+    value,
+    compact = false,
+}: {
+    value?: string | null;
+    compact?: boolean;
+}) {
+    const entries = React.useMemo(() => parseNominationEntries(value), [value]);
+    const [open, setOpen] = React.useState(false);
+
+    if (entries.length === 0) {
+        return <p className="font-semibold text-foreground break-words">-</p>;
+    }
+
+    const primary = entries[0];
+    const extra = Math.max(0, entries.length - 1);
+    const summary = extra > 0 ? `${primary} (+${extra} more)` : primary;
+
+    if (compact) {
+        return (
+            <div className="space-y-1">
+                <p className="font-semibold text-foreground break-words">{summary}</p>
+                {extra > 0 && (
+                    <button
+                        type="button"
+                        onClick={() => setOpen((v) => !v)}
+                        className="text-[10px] font-semibold text-primary hover:underline"
+                    >
+                        {open ? "Hide list" : "Show list"}
+                    </button>
+                )}
+                {open && (
+                    <ul className="space-y-1">
+                        {entries.map((entry, idx) => (
+                            <li key={`${entry}-${idx}`} className="text-[11px] text-foreground/90 break-words">
+                                {idx + 1}. {entry}
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+        );
+    }
+
+    return <p className="font-semibold text-foreground break-words">{summary}</p>;
+}
+
+function ExpandableText({
+    text,
+    maxChars = 120,
+    className = "",
+}: {
+    text?: string | null;
+    maxChars?: number;
+    className?: string;
+}) {
+    const [expanded, setExpanded] = React.useState(false);
+    const normalized = String(text || "-").replace(/\s+/g, " ").trim();
+
+    if (normalized.length <= maxChars) {
+        return <p className={className}>{normalized}</p>;
+    }
+
+    const compact = `${normalized.slice(0, maxChars).trimEnd()}...`;
+
+    return (
+        <div className="space-y-1">
+            <p className={className}>{expanded ? normalized : compact}</p>
+            <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="text-[10px] font-semibold text-primary hover:underline"
+            >
+                {expanded ? "Show less" : "Show more"}
+            </button>
+        </div>
+    );
+}
 
 export default function ShipmentMonitorPage() {
-    const [isInitializing, setIsInitializing] = React.useState(true);
+    const [, setIsInitializing] = React.useState(false);
+    const searchParams = useSearchParams();
+    const router = useRouter();
+    const pathname = usePathname();
+    const didApplyDeepLinkRef = React.useRef<string | null>(null);
+    const didApplyTabFromUrlRef = React.useRef(false);
+    const openedViaDeepLinkRef = React.useRef(false);
 
-    const { shipments, syncFromMemory, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
+    const { shipments, projects, syncFromMemory, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
     const { dailyDeliveries, syncDeliveries, addDelivery, updateDelivery, deleteDelivery } = useDailyDeliveryStore();
 
     React.useEffect(() => {
@@ -33,15 +246,76 @@ export default function ShipmentMonitorPage() {
         syncDeliveries();
     }, [syncFromMemory, syncDeliveries]);
     const [mainTab, setMainTab] = React.useState<"MV Barge" | "Daily Delivery" | "Route Optimizer" | "Analytics" | "Risk Assessment">("MV Barge");
-    const [activeTab, setActiveTab] = React.useState<ShipmentStatus | "all">("all");
+    const [activeTab, setActiveTab] = React.useState<"all" | "upcoming" | "loading" | "in_transit" | "completed" | "cancelled">("all");
     const [activeView, setActiveView] = React.useState<"list" | "card" | "map">("list");
     const [detailShipment, setDetailShipment] = React.useState<ShipmentDetail | null>(null);
     const [detailModalTab, setDetailModalTab] = React.useState<"overview" | "blending" | "timeline" | "risk">("overview");
+    const [showChildBargeDetails, setShowChildBargeDetails] = React.useState(false);
     const [editShipment, setEditShipment] = React.useState<ShipmentDetail | null>(null);
     const [editForm, setEditForm] = React.useState<Partial<ShipmentDetail>>({});
     const [expandedRows, setExpandedRows] = React.useState<Set<string>>(new Set());
     const [searchQuery, setSearchQuery] = React.useState("");
+    const [yearFilter, setYearFilter] = React.useState<string>("all");
+    const [dateFrom, setDateFrom] = React.useState("");
+    const [dateTo, setDateTo] = React.useState("");
+    const [sortBy, setSortBy] = React.useState<"latest" | "oldest" | "qty_desc" | "qty_asc">("latest");
     const [showReportModal, setShowReportModal] = React.useState(false);
+
+    React.useEffect(() => {
+        setShowChildBargeDetails(false);
+    }, [detailShipment?.id]);
+
+    React.useEffect(() => {
+        if (didApplyTabFromUrlRef.current) return;
+        const tabParam = (searchParams.get("tab") || "").toLowerCase();
+        const validTabs = new Set(["all", "upcoming", "loading", "in_transit", "completed", "cancelled"]);
+        if (validTabs.has(tabParam)) {
+            setActiveTab(tabParam as "all" | "upcoming" | "loading" | "in_transit" | "completed" | "cancelled");
+        }
+        didApplyTabFromUrlRef.current = true;
+    }, [searchParams]);
+
+    React.useEffect(() => {
+        const openId = searchParams.get("open");
+        if (!openId) return;
+        if (shipments.length === 0) return;
+        if (didApplyDeepLinkRef.current === openId) return;
+
+        const target =
+            shipments.find((s) => String(s.id) === openId) ||
+            shipments.find((s) => String(s.no || "") === openId);
+
+        if (!target) return;
+
+        setMainTab("MV Barge");
+        setDetailShipment(target);
+        didApplyDeepLinkRef.current = openId;
+        openedViaDeepLinkRef.current = true;
+    }, [searchParams, shipments]);
+
+    const closeDetailModal = React.useCallback(() => {
+        setDetailShipment(null);
+        setShowChildBargeDetails(false);
+
+        if (openedViaDeepLinkRef.current) {
+            openedViaDeepLinkRef.current = false;
+            didApplyDeepLinkRef.current = null;
+            setActiveTab("all");
+            router.replace(pathname, { scroll: false });
+        }
+    }, [router, pathname]);
+
+    React.useEffect(() => {
+        if (!detailShipment) return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                closeDetailModal();
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [detailShipment, closeDetailModal]);
 
     // Interactive Modal States
     const [showDailyForm, setShowDailyForm] = React.useState(false);
@@ -175,15 +449,123 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
         setEditForm({ ...sh });
     };
 
-    const filtered = shipments.filter((s) => {
-        const matchesTab = activeTab === "all" || s.status === activeTab;
-        if (!matchesTab) return false;
-        if (searchQuery) {
-            const q = searchQuery.toLowerCase();
-            return (s.mv_project_name || s.shipment_number || "").toLowerCase().includes(q) || (s.source || s.buyer || "").toLowerCase().includes(q) || (s.nomination || s.vessel_name || "").toLowerCase().includes(q);
+    const openCreateShipment = () => {
+        setEditShipment({} as any);
+        setEditForm({
+            status: "upcoming",
+            year: new Date().getFullYear(),
+            type: "export",
+        });
+    };
+
+    const projectOptions = React.useMemo(() => {
+        const names = new Set<string>();
+        projects.forEach((p) => {
+            const name = (p.name || "").trim();
+            if (name) names.add(name);
+        });
+        shipments.forEach((s) => {
+            const name = (s.mv_project_name || "").trim();
+            if (name) names.add(name);
+        });
+        return Array.from(names).sort((a, b) => a.localeCompare(b));
+    }, [projects, shipments]);
+
+    const selectedProjectMeta = React.useMemo(() => {
+        const key = normalizeKey(editForm.mv_project_name || "");
+        if (!key) return null;
+        return projects.find((p) => normalizeKey(p.name) === key) || null;
+    }, [editForm.mv_project_name, projects]);
+
+    React.useEffect(() => {
+        if (!selectedProjectMeta) return;
+        setEditForm((prev) => {
+            if (prev.buyer) return prev;
+            if (!selectedProjectMeta.buyer) return prev;
+            return { ...prev, buyer: selectedProjectMeta.buyer };
+        });
+    }, [selectedProjectMeta]);
+
+    const uniqueYears = React.useMemo(() => {
+        return Array.from(new Set(
+            shipments
+                .map((s) => getShipmentYear(s))
+                .filter((y): y is number => y !== null)
+        )).sort((a, b) => b - a);
+    }, [shipments]);
+
+    const statusCounts = React.useMemo(() => {
+        const counts = {
+            upcoming: 0,
+            loading: 0,
+            in_transit: 0,
+            completed: 0,
+            cancelled: 0,
+            unknown: 0,
+        };
+        for (const s of shipments) {
+            const key = normalizeShipmentStatus(s.status);
+            counts[key] += 1;
         }
-        return true;
-    });
+        return counts;
+    }, [shipments]);
+
+    const filtered = React.useMemo(() => {
+        const start = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null;
+        const end = dateTo ? new Date(`${dateTo}T23:59:59`) : null;
+
+        const rows = shipments.filter((s) => {
+            const canonicalStatus = normalizeShipmentStatus(s.status);
+            const matchesTab = activeTab === "all" || canonicalStatus === activeTab;
+            if (!matchesTab) return false;
+
+            if (searchQuery) {
+                const q = searchQuery.toLowerCase();
+                const matchesSearch = (s.mv_project_name || s.shipment_number || "").toLowerCase().includes(q)
+                    || (s.source || s.buyer || "").toLowerCase().includes(q)
+                    || (s.nomination || s.vessel_name || "").toLowerCase().includes(q);
+                if (!matchesSearch) return false;
+            }
+
+            if (yearFilter !== "all") {
+                const yr = getShipmentYear(s);
+                if (!yr || String(yr) !== yearFilter) return false;
+            }
+
+            if (start || end) {
+                const d = getShipmentDate(s);
+                if (!d) return false;
+                if (start && d < start) return false;
+                if (end && d > end) return false;
+            }
+
+            return true;
+        });
+
+        rows.sort((a, b) => {
+            const aYear = getShipmentYear(a) || 0;
+            const bYear = getShipmentYear(b) || 0;
+            const aNo = a.no || 0;
+            const bNo = b.no || 0;
+            const aQty = safeNum(a.qty_plan || a.quantity_loaded);
+            const bQty = safeNum(b.qty_plan || b.quantity_loaded);
+            const aDate = getShipmentDate(a)?.getTime() || 0;
+            const bDate = getShipmentDate(b)?.getTime() || 0;
+
+            if (sortBy === "qty_desc") return bQty - aQty;
+            if (sortBy === "qty_asc") return aQty - bQty;
+            if (sortBy === "oldest") {
+                if (aYear !== bYear) return aYear - bYear;
+                if (aDate !== bDate) return aDate - bDate;
+                return aNo - bNo;
+            }
+            if (aYear !== bYear) return bYear - aYear;
+            if (aDate !== bDate) return bDate - aDate;
+            return bNo - aNo;
+        });
+
+        return rows;
+    }, [shipments, activeTab, searchQuery, yearFilter, dateFrom, dateTo, sortBy]);
 
     const shipmentFamily = React.useMemo(() => {
         if (!detailShipment) return [];
@@ -215,15 +597,16 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
 
     const stats = {
         total: shipments.length,
-        loading: shipments.filter(s => s.status === "loading" || s.status === "waiting_loading").length,
-        intransit: shipments.filter(s => s.status === "in_transit" || s.status === "anchorage" || s.status === "discharging").length,
-        completed: shipments.filter(s => s.status === "completed").length,
-        revenue: shipments.reduce((sum, s) => sum + (safeNum(s.qty_plan || s.quantity_loaded) * safeNum(s.harga_actual_fob_mv || s.sales_price)), 0),
-        gp: shipments.reduce((sum, s) => sum + (safeNum(s.qty_plan || s.quantity_loaded) * safeNum(s.margin_mt)), 0),
-        volume: shipments.reduce((sum, s) => sum + safeNum(s.qty_plan || s.quantity_loaded), 0)
+        upcoming: statusCounts.upcoming,
+        loading: statusCounts.loading,
+        intransit: statusCounts.in_transit,
+        completed: statusCounts.completed,
+        cancelled: statusCounts.cancelled,
+        revenue: shipments.reduce((sum, s) => sum + (safeNum(s.quantity_loaded || s.qty_plan || s.qty_cob) * safeNum(s.harga_actual_fob_mv || s.sales_price || s.sp)), 0),
+        gp: shipments.reduce((sum, s) => sum + (safeNum(s.quantity_loaded || s.qty_plan || s.qty_cob) * safeNum(s.margin_mt)), 0),
+        volume: shipments.reduce((sum, s) => sum + safeNum(s.quantity_loaded || s.qty_plan || s.qty_cob), 0)
     };
 
-    if (isInitializing) return <GlobalLoading />;
 
     return (
         <AppShell>
@@ -241,7 +624,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                         </div>
                         <div className="flex gap-2 relative z-10">
                             <button onClick={() => setShowReportModal(true)} className="btn-outline text-xs h-9 hidden sm:flex"><Download className="w-3.5 h-3.5 mr-1.5" /> Download Report</button>
-                            <button onClick={() => setEditShipment({} as any)} className="btn-primary text-xs h-9 hidden sm:flex">+ Create Shipment</button>
+                            <button onClick={openCreateShipment} className="btn-primary text-xs h-9 hidden sm:flex">+ Create Shipment</button>
                         </div>
                     </div>
 
@@ -249,10 +632,10 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                         {[
                             { label: "Total Shipments", value: stats.total, color: "text-blue-500", bg: "bg-blue-500/20", icon: Package },
                             { label: "Total Volume", value: `${(stats.volume / 1000).toFixed(0)}K MT`, color: "text-indigo-500", bg: "bg-indigo-500/20", icon: TrendingUp },
-                            { label: "Confirmed", value: shipments.filter(s => (s.status as any) === 'confirmed' || s.status === 'waiting_loading').length, color: "text-blue-500", bg: "bg-blue-500/20", icon: CheckCircle2 },
-                            { label: "Loading", value: shipments.filter(s => s.status === 'loading').length, color: "text-amber-500", bg: "bg-amber-500/20", icon: Anchor },
-                            { label: "In Transit", value: shipments.filter(s => s.status === 'in_transit').length, color: "text-purple-500", bg: "bg-purple-500/20", icon: Ship },
-                            { label: "Completed", value: shipments.filter(s => s.status === 'completed').length, color: "text-emerald-500", bg: "bg-emerald-500/20", icon: CheckCircle2 },
+                            { label: "Upcoming", value: stats.upcoming, color: "text-blue-500", bg: "bg-blue-500/20", icon: Clock },
+                            { label: "Loading", value: stats.loading, color: "text-amber-500", bg: "bg-amber-500/20", icon: Anchor },
+                            { label: "In Transit", value: stats.intransit, color: "text-purple-500", bg: "bg-purple-500/20", icon: Ship },
+                            { label: "Completed", value: stats.completed, color: "text-emerald-500", bg: "bg-emerald-500/20", icon: CheckCircle2 },
                         ].map((metric, i) => {
                             const Icon = metric.icon;
                             return (
@@ -303,7 +686,8 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                 </div>
 
                 {/* Filters & View Toggles */}
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="flex flex-col gap-3">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div className="flex bg-accent/30 p-1 rounded-xl">
                         <button onClick={() => setActiveView("list")} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all", activeView === "list" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}><List className="w-3.5 h-3.5" /> List View</button>
                         <button onClick={() => setActiveView("card")} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all", activeView === "card" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}><Package className="w-3.5 h-3.5" /> Card View</button>
@@ -314,6 +698,51 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                         <div className="relative flex-1 md:w-64">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                             <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search shipments..." className="w-full pl-9 pr-4 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-primary/50 transition-colors" />
+                        </div>
+                    </div>
+                </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-accent/20 text-xs text-muted-foreground xl:col-span-2">
+                            <Filter className="w-3.5 h-3.5" />
+                            <span>
+                                Sorted by: {sortBy === "latest" ? "Year latest first, then date/no desc" : sortBy === "oldest" ? "Year oldest first, then date/no asc" : sortBy === "qty_desc" ? "Volume largest first" : "Volume smallest first"}
+                            </span>
+                        </div>
+                        <select
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value as any)}
+                            className="px-3 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-primary/50"
+                        >
+                            <option value="latest">Sort: Latest</option>
+                            <option value="oldest">Sort: Oldest</option>
+                            <option value="qty_desc">Sort: Volume Desc</option>
+                            <option value="qty_asc">Sort: Volume Asc</option>
+                        </select>
+                        <select
+                            value={yearFilter}
+                            onChange={(e) => setYearFilter(e.target.value)}
+                            className="px-3 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-primary/50"
+                        >
+                            <option value="all">All Years</option>
+                            {uniqueYears.map((y) => (
+                                <option key={y} value={String(y)}>{y}</option>
+                            ))}
+                        </select>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="date"
+                                value={dateFrom}
+                                onChange={(e) => setDateFrom(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-primary/50"
+                                title="Date from (BL Date / ETA / Created)"
+                            />
+                            <input
+                                type="date"
+                                value={dateTo}
+                                onChange={(e) => setDateTo(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-primary/50"
+                                title="Date to (BL Date / ETA / Created)"
+                            />
                         </div>
                     </div>
                 </div>
@@ -567,19 +996,18 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                 ) : (
                     <>
                         <div className="flex items-center gap-2 flex-wrap mb-2">
-                            <button onClick={() => setActiveTab("all")} className={cn("filter-chip text-white", activeTab === "all" ? "filter-chip-active text-white border-transparent" : "filter-chip-inactive bg-white/10")}>
+                            <button onClick={() => setActiveTab("all")} className={cn("filter-chip", activeTab === "all" ? "bg-white text-black font-bold border-transparent" : "bg-white text-muted-foreground border-border hover:text-foreground")}>
                                 all ({stats.total})
                             </button>
-                            {["Done Shipment", "Upcoming", "Loading", "In Transit", "Completed"].map((s) => {
-                                const val = s.toLowerCase() === "in transit" ? "in_transit" : s === "Done Shipment" ? "done_shipment" : s.toLowerCase();
-                                const count = s === "Done Shipment" ? shipments.filter(sh => sh.status === "done_shipment").length :
-                                    s === "Upcoming" ? shipments.filter(sh => sh.status === "upcoming").length :
-                                        s === "Loading" ? shipments.filter(sh => sh.status === "loading").length :
-                                            s === "In Transit" ? shipments.filter(sh => sh.status === "in_transit").length :
-                                                shipments.filter(sh => sh.status === "completed").length;
+                            {[
+                                { label: "Upcoming", value: "upcoming" as const, count: stats.upcoming },
+                                { label: "Loading", value: "loading" as const, count: stats.loading },
+                                { label: "In Transit", value: "in_transit" as const, count: stats.intransit },
+                                { label: "Completed", value: "completed" as const, count: stats.completed },
+                            ].map((item) => {
                                 return (
-                                    <button key={s} onClick={() => setActiveTab(val as any)} className={cn("filter-chip", activeTab === val ? "bg-white text-black font-bold border-transparent" : "bg-white text-muted-foreground border-border")}>
-                                        {s} ({count})
+                                    <button key={item.value} onClick={() => setActiveTab(item.value)} className={cn("filter-chip", activeTab === item.value ? "bg-white text-black font-bold border-transparent" : "bg-white text-muted-foreground border-border")}>
+                                        {item.label} ({item.count})
                                     </button>
                                 );
                             })}
@@ -589,13 +1017,14 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-slide-up">
                                 {filtered.map((sh) => {
                                     const stCfg = SHIPMENT_STATUSES.find((s) => s.value === sh.status);
+                                    const cp = getCounterparty(sh);
                                     return (
                                         <div key={sh.id} className="card-custom p-4 flex flex-col justify-between hover:border-primary/50 transition-colors group cursor-pointer" onClick={() => setDetailShipment(sh)}>
                                             <div>
                                                 <div className="flex justify-between items-start mb-3">
                                                     <div>
-                                                        <h3 className="font-bold text-lg text-primary group-hover:underline decoration-primary/50 underline-offset-4">{sh.mv_project_name || sh.shipment_number || `#${sh.no}`}</h3>
-                                                        <p className="text-xs text-muted-foreground">{sh.source || sh.buyer} • {sh.origin || ""}</p>
+                                                        <h3 className="font-bold text-lg text-primary group-hover:underline decoration-primary/50 underline-offset-4">{sh.mv_project_name || sh.vessel_name || sh.shipment_number || `#${sh.no}`}</h3>
+                                                        <p className="text-xs text-muted-foreground">{cp.role}: {cp.value} | {sh.origin || "-"} | Year {getShipmentYear(sh) || "-"}</p>
                                                     </div>
                                                     <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
                                                         {stCfg?.label}
@@ -621,7 +1050,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 </div>
                                             </div>
                                             <div className="pt-3 border-t border-border/50 flex justify-between items-center text-xs text-muted-foreground">
-                                                <span className="flex items-center gap-1"><Anchor className="w-3.5 h-3.5" /> {sh.laycan || sh.bl_date || "Pending"}</span>
+                                                <span className="flex items-center gap-1"><Anchor className="w-3.5 h-3.5" /> {formatLaycanWithYear(sh)}</span>
                                                 <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button onClick={(e) => { e.stopPropagation(); openEdit(sh); }} className="p-1 hover:text-foreground"><Edit className="w-3.5 h-3.5" /></button>
                                                 </div>
@@ -642,7 +1071,8 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">NO</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">EXP/DMO</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">MV / Project</th>
-                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Source</th>
+                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Year</th>
+                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Buyer/Vendor</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Nomination</th>
                                                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Qty Plan</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Laycan</th>
@@ -656,6 +1086,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                             {filtered.map((sh) => {
                                                 const stCfg = SHIPMENT_STATUSES.find((s) => s.value === sh.status);
                                                 const isExpanded = expandedRows.has(sh.id);
+                                                const cp = getCounterparty(sh);
 
                                                 return (
                                                     <React.Fragment key={sh.id}>
@@ -667,11 +1098,12 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                             </td>
                                                             <td className="px-4 py-3 font-medium text-xs text-primary">{sh.no || "-"}</td>
                                                             <td className="px-4 py-3 text-xs">{sh.export_dmo || "-"}</td>
-                                                            <td className="px-4 py-3 text-xs font-semibold">{sh.mv_project_name || sh.shipment_number || "-"}</td>
-                                                            <td className="px-4 py-3 text-xs text-muted-foreground">{sh.source || sh.supplier || "-"}</td>
+                                                            <td className="px-4 py-3 text-xs font-semibold">{sh.mv_project_name || sh.vessel_name || sh.shipment_number || "-"}</td>
+                                                            <td className="px-4 py-3 text-xs font-semibold text-primary/90">{getShipmentYear(sh) || "-"}</td>
+                                                            <td className="px-4 py-3 text-xs text-muted-foreground">{cp.value}</td>
                                                             <td className="px-4 py-3 text-xs">{sh.nomination || sh.vessel_name || sh.barge_name || "-"}</td>
                                                             <td className="px-4 py-3 text-right text-xs font-semibold">{(sh.qty_plan || sh.quantity_loaded) ? safeNum(sh.qty_plan || sh.quantity_loaded).toLocaleString() : "-"}</td>
-                                                            <td className="px-4 py-3 text-[10px] text-muted-foreground">{sh.laycan || sh.bl_date || "-"}</td>
+                                                            <td className="px-4 py-3 text-[10px] text-muted-foreground">{formatLaycanWithYear(sh)}</td>
                                                             <td className="px-4 py-3 text-right text-xs font-mono">{(sh.harga_actual_fob_mv || sh.sales_price) ? `$${safeFmt(sh.harga_actual_fob_mv || sh.sales_price)}` : "-"}</td>
                                                             <td className="px-4 py-3 text-right text-xs font-mono font-medium text-emerald-500">{sh.hpb ? `$${safeFmt(sh.hpb)}` : (sh.margin_mt ? `$${safeFmt(sh.margin_mt)}` : "-")}</td>
                                                             <td className="px-4 py-3">
@@ -694,7 +1126,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                         {/* Expanded Detail Row */}
                                                         {isExpanded && (
                                                             <tr className="bg-accent/5 border-b border-border/30">
-                                                                <td colSpan={13} className="px-6 py-4">
+                                                                <td colSpan={14} className="px-6 py-4">
                                                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                                                                         {/* Shipping Details */}
                                                                         <div className="space-y-2">
@@ -702,7 +1134,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                                                 <Anchor className="w-3 h-3" /> Shipping Details
                                                                             </h4>
                                                                             <div className="space-y-1.5 text-xs bg-background/50 p-3 rounded-lg border border-border/50">
-                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Source:</span><span className="font-medium text-right">{sh.source || sh.supplier}</span></div>
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">{cp.role}:</span><span className="font-medium text-right">{cp.value}</span></div>
                                                                                 <div className="flex justify-between"><span className="text-muted-foreground">Jetty/Port:</span><span className="font-medium text-right">{sh.jetty_loading_port || sh.loading_port || "-"}</span></div>
                                                                                 <div className="flex justify-between"><span className="text-muted-foreground">IUP/OP:</span><span className="font-medium text-right">{sh.iup_op || "-"}</span></div>
                                                                                 <div className="flex justify-between"><span className="text-muted-foreground">Shipment Flow:</span><span className="font-medium text-right">{sh.shipment_flow || "-"}</span></div>
@@ -1037,20 +1469,30 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                 {/* Detail Modal (Keep current structure for View detail) */}
                 {detailShipment && (
                     <div className="modal-overlay">
-                        <div className="modal-backdrop" onClick={() => setDetailShipment(null)} />
-                        <div className="modal-content max-w-[900px] w-full bg-card border border-border shadow-2xl p-6 flex flex-col max-h-[90vh] rounded-xl">
-                            <div className="flex justify-between items-start mb-4">
-                                <div>
-                                    <h3 className="text-sm font-bold text-foreground mb-3">Shipment Details</h3>
-                                    <h2 className="text-3xl font-black text-foreground mb-1">{detailShipment.vessel_name || detailShipment.mv_project_name || detailShipment.shipment_number || "Shipment Detail"}</h2>
-                                    <p className="text-sm text-muted-foreground">{detailShipment.buyer} - {detailShipment.supplier}</p>
+                        <div className="modal-backdrop" onClick={closeDetailModal} />
+                        <div className="modal-content w-full max-w-5xl bg-card border border-border shadow-2xl p-4 sm:p-6 flex flex-col max-h-[92vh] overflow-hidden rounded-xl">
+                            <div className="flex flex-col gap-4 mb-4">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <h3 className="text-xs sm:text-sm font-bold text-foreground mb-2">Shipment Details</h3>
+                                        <h2 className="text-3xl sm:text-4xl font-black text-foreground leading-[1.05] break-words">
+                                            {detailShipment.vessel_name || detailShipment.mv_project_name || detailShipment.shipment_number || "Shipment Detail"}
+                                        </h2>
+                                        <p className="text-xs sm:text-sm text-muted-foreground mt-1 break-words">
+                                            {[detailShipment.buyer, detailShipment.supplier].filter(Boolean).join(" • ") || "-"}
+                                        </p>
+                                    </div>
+                                    <button onClick={closeDetailModal} className="p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg transition-colors shrink-0">
+                                        <X className="w-5 h-5" />
+                                    </button>
                                 </div>
-                                <div className="flex items-start gap-4">
-                                    <div className="flex items-center gap-2 mt-8">
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                         <span className="px-3 py-1.5 rounded-md text-xs font-bold text-white bg-emerald-500">
                                             {SHIPMENT_STATUSES.find(s => s.value === detailShipment.status)?.label || "Completed"}
                                         </span>
-                                        <button onClick={() => { setEditShipment(detailShipment); setEditForm({ ...detailShipment }); setDetailShipment(null); }} className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded-md hover:bg-accent text-xs font-semibold text-foreground transition-colors">
+                                        <button onClick={() => { setEditShipment(detailShipment); setEditForm({ ...detailShipment }); closeDetailModal(); }} className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded-md hover:bg-accent text-xs font-semibold text-foreground transition-colors">
                                             <Edit className="w-3.5 h-3.5" /> Edit
                                         </button>
                                         <button onClick={async () => {
@@ -1058,7 +1500,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 try {
                                                     await deleteShipment(detailShipment.id);
                                                     setToast({ message: "Shipment deleted successfully!", type: "success" });
-                                                    setDetailShipment(null);
+                                                    closeDetailModal();
                                                 } catch (error) {
                                                     setToast({ message: "Failed to delete shipment.", type: "error" });
                                                 }
@@ -1067,120 +1509,155 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                             <Trash2 className="w-3.5 h-3.5" /> Delete
                                         </button>
                                     </div>
-                                    <button onClick={() => setDetailShipment(null)} className="p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg transition-colors"><X className="w-5 h-5" /></button>
                                 </div>
                             </div>
 
-                            <div className="flex justify-center mb-6 pt-2">
-                                <div className="flex items-center gap-1 bg-accent/40 p-1.5 rounded-xl border border-border/40">
-                                    <button onClick={() => setDetailModalTab("overview")} className={cn("px-5 py-2 rounded-lg text-sm font-bold transition-all", detailModalTab === "overview" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Overview</button>
-                                    <button onClick={() => setDetailModalTab("blending")} className={cn("px-5 py-2 rounded-lg text-sm font-bold transition-all", detailModalTab === "blending" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Blending Details</button>
-                                    <button onClick={() => setDetailModalTab("timeline")} className={cn("px-5 py-2 rounded-lg text-sm font-bold transition-all", detailModalTab === "timeline" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Timeline</button>
-                                    <button onClick={() => setDetailModalTab("risk")} className={cn("px-5 py-2 rounded-lg text-sm font-bold transition-all", detailModalTab === "risk" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Risk Analysis</button>
+                            <div className="mb-4">
+                                <div className="grid grid-cols-2 md:flex md:items-center gap-1.5 bg-accent/40 p-1.5 rounded-xl border border-border/40">
+                                    <button onClick={() => setDetailModalTab("overview")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "overview" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Overview</button>
+                                    <button onClick={() => setDetailModalTab("blending")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "blending" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Blending Details</button>
+                                    <button onClick={() => setDetailModalTab("timeline")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "timeline" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Timeline</button>
+                                    <button onClick={() => setDetailModalTab("risk")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "risk" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Risk Analysis</button>
                                 </div>
                             </div>
 
-                            <div className="overflow-y-auto pr-2 pb-4 space-y-4">
+                            <div className="overflow-y-auto overflow-x-hidden pr-1 sm:pr-2 pb-2 sm:pb-4 space-y-4">
                                 {detailModalTab === "overview" && (
                                     <div className="space-y-6 animate-fade-in">
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
                                             {/* Unified Shipment Identity */}
-                                            <div className="border border-border/60 rounded-xl p-5 bg-background/50 flex flex-col shadow-sm">
-                                                <h4 className="text-xs font-bold flex items-center gap-2 mb-4 text-primary uppercase tracking-wider">
+                                            <div className="border border-border/60 rounded-xl p-4 sm:p-5 bg-background/60 shadow-sm">
+                                                <h4 className="text-[11px] sm:text-xs font-bold flex items-center gap-2 mb-3 text-primary uppercase tracking-wider">
                                                     <Package className="w-4 h-4" /> Logistics Identity
                                                 </h4>
-                                                <div className="space-y-3 text-[11px] mt-auto">
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Project:</span><span className="font-bold text-foreground">{detailShipment.mv_project_name || "-"}</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Vessel:</span><span className="font-semibold text-foreground">{detailShipment.vessel_name || detailShipment.nomination || "-"}</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Barge:</span><span className="font-semibold text-foreground">{detailShipment.barge_name || "-"}</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Source:</span><span className="font-bold text-primary">{detailShipment.source || "-"}</span></div>
+                                                <div className="space-y-2.5 text-xs sm:text-[13px]">
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Project</span><span className="font-semibold text-foreground break-words">{detailShipment.mv_project_name || detailShipment.vessel_name || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Vessel</span><span className="font-semibold text-foreground break-words">{detailShipment.vessel_name || detailShipment.nomination || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Barge</span><span className="font-medium text-foreground break-words">{detailShipment.barge_name || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">{getCounterparty(detailShipment).role}</span><span className="font-bold text-primary break-words">{getCounterparty(detailShipment).value}</span></div>
                                                 </div>
                                             </div>
 
                                             {/* Port & Period Details */}
-                                            <div className="border border-border/60 rounded-xl p-5 bg-background/50 flex flex-col shadow-sm">
-                                                <h4 className="text-xs font-bold flex items-center gap-2 mb-4 text-primary uppercase tracking-wider">
+                                            <div className="border border-border/60 rounded-xl p-4 sm:p-5 bg-background/60 shadow-sm">
+                                                <h4 className="text-[11px] sm:text-xs font-bold flex items-center gap-2 mb-3 text-primary uppercase tracking-wider">
                                                     <Anchor className="w-4 h-4" /> Port & Timeline
                                                 </h4>
-                                                <div className="space-y-3 text-[11px] mt-auto">
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Loading Port:</span><span className="font-semibold text-foreground">{detailShipment.jetty_loading_port || detailShipment.loading_port || "-"}</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Discharge Port:</span><span className="font-semibold text-foreground">{detailShipment.discharge_port || "-"}</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Laycan:</span><span className="font-bold text-foreground">{detailShipment.laycan || "-"}</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Region:</span><span className="font-semibold text-muted-foreground">{detailShipment.origin || "-"}</span></div>
+                                                <div className="space-y-2.5 text-xs sm:text-[13px]">
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Load Port</span><span className="font-semibold text-foreground break-words">{detailShipment.jetty_loading_port || detailShipment.loading_port || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Discharge</span><span className="font-medium text-foreground break-words">{detailShipment.discharge_port || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Laycan</span><span className="font-semibold text-foreground break-words">{formatLaycanWithYear(detailShipment)}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Region</span><span className="font-medium text-muted-foreground break-words">{detailShipment.origin || "-"}</span></div>
                                                 </div>
                                             </div>
 
                                             {/* Financial & Quantities */}
-                                            <div className="border border-border/60 rounded-xl p-5 bg-emerald-500/5 border-emerald-500/20 flex flex-col shadow-sm">
-                                                <h4 className="text-xs font-bold flex items-center gap-2 mb-4 text-emerald-600 uppercase tracking-wider">
+                                            <div className="border border-emerald-500/20 rounded-xl p-4 sm:p-5 bg-emerald-500/5 shadow-sm">
+                                                <h4 className="text-[11px] sm:text-xs font-bold flex items-center gap-2 mb-3 text-emerald-600 uppercase tracking-wider">
                                                     <DollarSign className="w-4 h-4" /> Commercials
                                                 </h4>
-                                                <div className="space-y-3 text-[11px] mt-auto">
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Qty Loaded:</span><span className="font-black text-foreground">{detailShipment.quantity_loaded?.toLocaleString() || "0"} MT</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Sales Price:</span><span className="font-bold text-emerald-600">${safeNum(detailShipment.sales_price || detailShipment.sp)}/MT</span></div>
-                                                    <div className="flex justify-between items-center"><span className="text-muted-foreground uppercase">Margin:</span><span className="font-bold text-blue-600">${safeNum(detailShipment.margin_mt)}/MT</span></div>
-                                                    <div className="flex justify-between items-center border-t border-emerald-500/10 pt-2"><span className="text-muted-foreground uppercase">Est. Revenue:</span><span className="font-black text-emerald-700">${((detailShipment.quantity_loaded || 0) * safeNum(detailShipment.sales_price || detailShipment.sp)).toLocaleString()}</span></div>
+                                                <div className="space-y-2.5 text-xs sm:text-[13px]">
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Qty Loaded</span><span className="font-black text-foreground break-words">{detailShipment.quantity_loaded?.toLocaleString() || "0"} MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Sales Price</span><span className="font-bold text-emerald-600 break-words">${safeNum(detailShipment.sales_price || detailShipment.sp)}/MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Margin</span><span className="font-bold text-blue-600 break-words">${safeNum(detailShipment.margin_mt)}/MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3 border-t border-emerald-500/10 pt-2"><span className="text-muted-foreground uppercase">Est. Revenue</span><span className="font-black text-emerald-700 break-words">${((detailShipment.quantity_loaded || 0) * safeNum(detailShipment.sales_price || detailShipment.sp)).toLocaleString()}</span></div>
                                                 </div>
                                             </div>
                                         </div>
 
                                         {/* Operational & Legal Details */}
-                                        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-5 shadow-sm">
-                                            <h4 className="text-xs font-bold flex items-center gap-2 mb-4 text-blue-600 uppercase tracking-wider">
+                                        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 sm:p-5 shadow-sm">
+                                            <h4 className="text-[11px] sm:text-xs font-bold flex items-center gap-2 mb-3 text-blue-600 uppercase tracking-wider">
                                                 <ShieldCheck className="w-4 h-4" /> Operational & Legal
                                             </h4>
-                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-[11px]">
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">IUP OP:</p><p className="font-bold text-foreground">{detailShipment.iup_op || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Shipment Flow:</p><p className="font-bold text-foreground">{detailShipment.shipment_flow || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Product:</p><p className="font-bold text-foreground">{detailShipment.product || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Analysis Method:</p><p className="font-bold text-foreground">{detailShipment.analysis_method || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">DMO / Export:</p><p className="font-bold text-foreground">{detailShipment.export_dmo || "EXPORT"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">BL Date:</p><p className="font-bold text-foreground">{detailShipment.bl_date ? new Date(detailShipment.bl_date).toLocaleDateString() : "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Nomination:</p><p className="font-bold text-foreground">{detailShipment.nomination || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Buyer:</p><p className="font-bold text-foreground">{detailShipment.buyer || "-"}</p></div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs sm:text-[13px]">
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">IUP OP</p><p className="font-semibold text-foreground break-words">{detailShipment.iup_op || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Shipment Flow</p><p className="font-semibold text-foreground break-words">{detailShipment.shipment_flow || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Product</p><p className="font-semibold text-foreground break-words">{detailShipment.product || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Analysis Method</p><p className="font-semibold text-foreground break-words">{detailShipment.analysis_method || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">DMO / Export</p><p className="font-semibold text-foreground break-words">{detailShipment.export_dmo || "EXPORT"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">BL Date</p><p className="font-semibold text-foreground break-words">{detailShipment.bl_date ? new Date(detailShipment.bl_date).toLocaleDateString() : "-"}</p></div>
+                                                <div className="space-y-1">
+                                                    <p className="text-muted-foreground uppercase text-[10px]">Nomination</p>
+                                                    <NominationDisplay value={detailShipment.nomination} compact />
+                                                </div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Buyer</p><p className="font-semibold text-foreground break-words">{detailShipment.buyer || "-"}</p></div>
                                                 {/* New Fields */}
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">No. SPAL:</p><p className="font-bold text-foreground">{detailShipment.no_spal || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">No. SI:</p><p className="font-bold text-foreground">{detailShipment.no_si || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">Surveyor LHV:</p><p className="font-bold text-foreground">{detailShipment.surveyor_lhv || "-"}</p></div>
-                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[9px]">LHV Terbit:</p><p className="font-bold text-foreground text-emerald-500">{detailShipment.lhv_terbit ? "YES" : "NO"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">No. SPAL</p><p className="font-semibold text-foreground break-words">{detailShipment.no_spal || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">No. SI</p><p className="font-semibold text-foreground break-words">{detailShipment.no_si || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">Surveyor LHV</p><p className="font-semibold text-foreground break-words">{detailShipment.surveyor_lhv || "-"}</p></div>
+                                                <div className="space-y-1"><p className="text-muted-foreground uppercase text-[10px]">LHV Terbit</p><p className="font-semibold text-foreground">{detailShipment.lhv_terbit ? "YES" : "NO"}</p></div>
                                             </div>
                                         </div>
 
                                         {shipmentFamily.length > 0 && (
                                             <div className="p-4 bg-accent/20 rounded-xl border border-border/50">
-                                                <h5 className="text-[10px] font-bold text-muted-foreground uppercase mb-3 flex items-center gap-1.5">
-                                                    <Anchor className="w-3 h-3" /> Child Barge Details ({shipmentFamily.length})
-                                                </h5>
-                                                <div className="overflow-x-auto">
-                                                    <table className="w-full text-[11px]">
-                                                        <thead>
-                                                            <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border/40">
-                                                                <th className="py-2 pr-3">Nomination</th>
-                                                                <th className="py-2 pr-3">Jetty / Loading Port</th>
-                                                                <th className="py-2 pr-3">Source</th>
-                                                                <th className="py-2 pr-3 text-right">Plan (MT)</th>
-                                                                <th className="py-2 pr-3 text-right">Actual (MT)</th>
-                                                                <th className="py-2 pr-3">Status</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {shipmentFamily.slice(0, 12).map((item) => (
-                                                                <tr key={item.id} className="border-b border-border/20">
-                                                                    <td className="py-2 pr-3 font-semibold text-foreground">{item.nomination || item.barge_name || "-"}</td>
-                                                                    <td className="py-2 pr-3 text-muted-foreground">{item.jetty_loading_port || item.loading_port || "-"}</td>
-                                                                    <td className="py-2 pr-3 text-foreground">{item.source || "-"}</td>
-                                                                    <td className="py-2 pr-3 text-right text-blue-500 font-semibold">{safeNum(item.qty_plan).toLocaleString()}</td>
-                                                                    <td className="py-2 pr-3 text-right text-emerald-500 font-semibold">{safeNum(item.qty_cob || item.quantity_loaded).toLocaleString()}</td>
-                                                                    <td className="py-2 pr-3">{item.shipment_status || item.status || "-"}</td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <h5 className="text-[10px] sm:text-[11px] font-bold text-muted-foreground uppercase flex items-center gap-1.5">
+                                                        <Anchor className="w-3 h-3" /> Child Barge Details ({shipmentFamily.length})
+                                                    </h5>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowChildBargeDetails((v) => !v)}
+                                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border bg-background/70 hover:bg-accent text-[10px] font-semibold"
+                                                    >
+                                                        {showChildBargeDetails ? "Hide Detail" : "Show Detail"}
+                                                        {showChildBargeDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                                    </button>
                                                 </div>
-                                                {shipmentFamily.length > 12 && (
-                                                    <p className="text-[10px] text-muted-foreground mt-2">
-                                                        Showing first 12 details. Total child rows: {shipmentFamily.length}.
-                                                    </p>
+
+                                                {showChildBargeDetails && (
+                                                    <>
+                                                        <div className="md:hidden space-y-2 mt-3">
+                                                            {shipmentFamily.slice(0, 8).map((item) => (
+                                                                <div key={item.id} className="rounded-lg border border-border/50 bg-background/60 p-3 text-xs space-y-1.5">
+                                                            <NominationDisplay value={item.nomination || item.barge_name || "-"} />
+                                                                    <p className="text-muted-foreground break-words">{item.jetty_loading_port || item.loading_port || "-"}</p>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground">Plan</span>
+                                                                        <span className="font-semibold text-blue-500">{safeNum(item.qty_plan).toLocaleString()} MT</span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground">Actual</span>
+                                                                        <span className="font-semibold text-emerald-500">{safeNum(item.qty_cob || item.quantity_loaded).toLocaleString()} MT</span>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        <div className="hidden md:block overflow-x-auto mt-3">
+                                                            <table className="w-full text-[11px]">
+                                                                <thead>
+                                                                    <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border/40">
+                                                                        <th className="py-2 pr-3">Nomination</th>
+                                                                        <th className="py-2 pr-3">Jetty / Loading Port</th>
+                                                                        <th className="py-2 pr-3">Source</th>
+                                                                        <th className="py-2 pr-3 text-right">Plan (MT)</th>
+                                                                        <th className="py-2 pr-3 text-right">Actual (MT)</th>
+                                                                        <th className="py-2 pr-3">Status</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {shipmentFamily.slice(0, 12).map((item) => (
+                                                                        <tr key={item.id} className="border-b border-border/20">
+                                                                    <td className="py-2 pr-3 font-semibold text-foreground">
+                                                                        <NominationDisplay value={item.nomination || item.barge_name || "-"} />
+                                                                    </td>
+                                                                            <td className="py-2 pr-3 text-muted-foreground">{item.jetty_loading_port || item.loading_port || "-"}</td>
+                                                                            <td className="py-2 pr-3 text-foreground">{item.source || "-"}</td>
+                                                                            <td className="py-2 pr-3 text-right text-blue-500 font-semibold">{safeNum(item.qty_plan).toLocaleString()}</td>
+                                                                            <td className="py-2 pr-3 text-right text-emerald-500 font-semibold">{safeNum(item.qty_cob || item.quantity_loaded).toLocaleString()}</td>
+                                                                            <td className="py-2 pr-3">{item.shipment_status || item.status || "-"}</td>
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                        {shipmentFamily.length > 12 && (
+                                                            <p className="text-[10px] text-muted-foreground mt-2">
+                                                                Showing first 12 details. Total child rows: {shipmentFamily.length}.
+                                                            </p>
+                                                        )}
+                                                    </>
                                                 )}
                                             </div>
                                         )}
@@ -1209,6 +1686,24 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <div className="space-y-2 text-[11px]">
                                                     <div className="flex justify-between"><span className="text-muted-foreground">PIC:</span><span className="font-medium">{detailShipment.pic || "-"}</span></div>
                                                     <div className="flex justify-between"><span className="text-muted-foreground">Internal No:</span><span className="font-mono text-muted-foreground">#{detailShipment.no || "NEW"}</span></div>
+                                                    <div className="mt-2 border-t border-border/30 pt-2">
+                                                        <p className="text-[10px] uppercase text-muted-foreground font-semibold mb-1">Status Reason</p>
+                                                        <p className="text-foreground">
+                                                            {detailShipment.status_reason || detailShipment.issue_notes || "No issue reason captured."}
+                                                        </p>
+                                                    </div>
+                                                    {detailShipment.pending_items && detailShipment.pending_items.length > 0 && (
+                                                        <div className="mt-2">
+                                                            <p className="text-[10px] uppercase text-muted-foreground font-semibold mb-1">Pending Items</p>
+                                                            <ul className="list-disc ml-4 space-y-0.5">
+                                                                {detailShipment.pending_items.slice(0, 6).map((item, idx) => (
+                                                                    <li key={`${item}-${idx}`} className="text-foreground">
+                                                                        {item}
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        </div>
+                                                    )}
                                                     <div className="mt-2 text-muted-foreground italic border-t border-border/30 pt-2">
                                                         {detailShipment.remarks || "No additional operational remarks for this shipment."}
                                                     </div>
@@ -1395,8 +1890,25 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                     <h3 className="text-[10px] font-bold text-primary uppercase flex items-center gap-1.5"><Package className="w-3 h-3" /> Shipment Identity</h3>
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">MV / Project Name</label>
-                                    <input type="text" value={editForm.mv_project_name || ""} onChange={(e) => setEditForm({ ...editForm, mv_project_name: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs font-bold text-primary" />
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Select Project (Primary)</label>
+                                    <input
+                                        list="shipment-project-options"
+                                        type="text"
+                                        value={editForm.mv_project_name || ""}
+                                        onChange={(e) => setEditForm({ ...editForm, mv_project_name: e.target.value })}
+                                        placeholder="Type project name (e.g. SRE...)"
+                                        className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs font-bold text-primary"
+                                    />
+                                    <datalist id="shipment-project-options">
+                                        {projectOptions.map((name) => (
+                                            <option key={name} value={name} />
+                                        ))}
+                                    </datalist>
+                                    <p className="text-[10px] text-muted-foreground">
+                                        {selectedProjectMeta
+                                            ? `Project found • Segment: ${selectedProjectMeta.segment || "-"} • Buyer: ${selectedProjectMeta.buyer || "-"} • Created: ${selectedProjectMeta.created_at ? new Date(selectedProjectMeta.created_at).toLocaleDateString("en-GB") : "-"}`
+                                            : "Project not found in master yet. You can still save, or add this project first in Projects module."}
+                                    </p>
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Status</label>

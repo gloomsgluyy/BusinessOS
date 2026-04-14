@@ -10,6 +10,23 @@ async function triggerPush() {
     PushService.debouncedPush("shipmentDetail").catch(err => console.error("Optional Sheet push failed:", err));
 }
 
+async function tryAuditLog(userId: string, userName: string, action: string, entityId: string, details: string) {
+    try {
+        await prisma.auditLog.create({
+            data: {
+                userId,
+                userName,
+                action,
+                entity: "ShipmentDetail",
+                entityId,
+                details,
+            },
+        });
+    } catch (error: any) {
+        console.warn("[shipments] audit skipped:", error?.code || error?.message);
+    }
+}
+
 function parseNum(v: any): number | null {
     if (v === null || v === undefined || v === "") return null;
     const n = parseFloat(String(v));
@@ -22,19 +39,221 @@ function parseDate(v: any): Date | null {
     return isNaN(d.getTime()) ? null : d;
 }
 
-export async function GET() {
+function cleanText(v: unknown): string | null {
+    if (v === null || v === undefined) return null;
+    const text = String(v).replace(/\s+/g, " ").trim();
+    return text || null;
+}
+
+function normalizeKey(v: unknown): string {
+    return (cleanText(v) || "").toUpperCase();
+}
+
+const HEADER_LIKE_TOKENS = new Set([
+    "NO",
+    "NO.",
+    "STATUS",
+    "ORIGIN",
+    "MV PROJECT NAME",
+    "MV NAME",
+    "SOURCE",
+    "IUP OP",
+    "SHIPMENT FLOW",
+    "JETTY",
+    "JETTY LOADING PORT",
+    "LAYCAN",
+    "NOMINATION",
+    "QTY",
+    "QTY MT",
+    "PLAN",
+    "COB",
+    "REMARKS",
+    "SHIPMENT STATUS",
+    "ISSUE",
+    "BL DATE",
+    "BUYER",
+    "EXPORT",
+    "EXPORT DMO",
+    "LOADING PORT"
+]);
+
+function isHeaderLikeValue(v: unknown): boolean {
+    const n = normalizeKey(v);
+    return !!n && HEADER_LIKE_TOKENS.has(n);
+}
+
+function looksLikeNarrativeText(v: unknown): boolean {
+    const text = cleanText(v);
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    return (
+        text.length > 60 ||
+        lower.includes("issue") ||
+        lower.includes("terms payment") ||
+        lower.includes("kontrak") ||
+        lower.includes("dokumen") ||
+        lower.includes("harga")
+    );
+}
+
+function isNoiseShipmentRecord(s: any): boolean {
+    if (
+        isHeaderLikeValue(s?.mvProjectName) ||
+        isHeaderLikeValue(s?.nomination) ||
+        isHeaderLikeValue(s?.source) ||
+        isHeaderLikeValue(s?.shipmentFlow) ||
+        isHeaderLikeValue(s?.shipmentStatus)
+    ) return true;
+
+    const qty = parseNum(s?.quantityLoaded) ?? parseNum(s?.qtyPlan) ?? parseNum(s?.qtyCob) ?? 0;
+    const hasIdentity = Boolean(
+        cleanText(s?.mvProjectName) ||
+        cleanText(s?.vesselName) ||
+        cleanText(s?.nomination) ||
+        cleanText(s?.bargeName)
+    );
+
+    const hasCounterparty = Boolean(cleanText(s?.buyer) || cleanText(s?.supplier) || cleanText(s?.source));
+    const hasShipmentStatus = Boolean(cleanText(s?.shipmentStatus));
+    const likelyNarrativePort = looksLikeNarrativeText(s?.loadingPort) || looksLikeNarrativeText(s?.jettyLoadingPort);
+    if (qty <= 0 && !cleanText(s?.nomination) && !hasCounterparty && !hasShipmentStatus && likelyNarrativePort) {
+        return true;
+    }
+
+    return !hasIdentity && qty <= 0;
+}
+
+function sanitizeEntityName(v: unknown): string | null {
+    const t = cleanText(v);
+    if (!t) return null;
+    if (isHeaderLikeValue(t)) return null;
+    return t;
+}
+
+function isExportShipment(s: any): boolean {
+    const type = normalizeKey(s?.type);
+    const expDmo = normalizeKey(s?.exportDmo);
+    if (type.includes("LOCAL") || type.includes("DMO") || type.includes("DOMESTIC")) return false;
+    if (expDmo.includes("DMO") || expDmo.includes("LOCAL") || expDmo.includes("DOMESTIC")) return false;
+    return true;
+}
+
+function inferBuyerFromFlow(flow: unknown): string | null {
+    const raw = cleanText(flow);
+    if (!raw) return null;
+    const stopwords = new Set([
+        "MSE", "MKLS", "CMD", "BAC", "LJT", "BUYER", "SUPPLIER", "OPS", "FLOW", "I/O", "IO", "AND", "OR",
+        "SHIPMENT", "SHIPMENT FLOW", "LOADING", "PORT", "JETTY", "TBA"
+    ]);
+    const tokens = raw
+        .split(/[-–>/,|]+/)
+        .map((t) => cleanText(t))
+        .filter((t): t is string => Boolean(t));
+    for (let i = tokens.length - 1; i >= 0; i--) {
+        const token = tokens[i];
+        const norm = normalizeKey(token);
+        if (!norm || stopwords.has(norm)) continue;
+        if (norm.length <= 2) continue;
+        return token;
+    }
+    return null;
+}
+
+function splitReasonItems(...parts: Array<unknown>): string[] {
+    const out: string[] = [];
+    for (const part of parts) {
+        const text = cleanText(part);
+        if (!text) continue;
+        const chunks = text
+            .split(/\r?\n|;|•|\||\u2022|,|\s{2,}/g)
+            .map((x) => cleanText(x))
+            .filter((x): x is string => Boolean(x));
+        for (const chunk of chunks) {
+            const key = normalizeKey(chunk);
+            if (!key) continue;
+            if (HEADER_LIKE_TOKENS.has(key)) continue;
+            if (key.length < 3) continue;
+            if (!out.some((existing) => normalizeKey(existing) === key)) {
+                out.push(chunk);
+            }
+        }
+    }
+    return out.slice(0, 8);
+}
+
+function deriveStatusReason(s: any): string | null {
+    const reason =
+        cleanText(s?.issueNotes) ||
+        cleanText(s?.remarks) ||
+        null;
+    if (reason) return reason;
+
+    const status = normalizeKey(s?.status || s?.shipmentStatus);
+    if (status.includes("CANCEL")) return "Shipment cancelled (reason not captured in source).";
+    if (status.includes("WAIT") || status.includes("UPCOMING")) return "Waiting operational readiness.";
+    return null;
+}
+
+export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const { searchParams } = new URL(req.url);
+        const lite = ["1", "true", "yes"].includes((searchParams.get("lite") || "").toLowerCase());
+        const includeTimeline = ["1", "true", "yes"].includes((searchParams.get("timeline") || "").toLowerCase());
 
         // DATABASE-FIRST: Read directly from database
         const shipments = await prisma.shipmentDetail.findMany({
             where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
+            orderBy: { createdAt: "desc" },
+            ...(lite
+                ? {
+                    select: {
+                        id: true,
+                        no: true,
+                        exportDmo: true,
+                        status: true,
+                        origin: true,
+                        mvProjectName: true,
+                        source: true,
+                        iupOp: true,
+                        shipmentFlow: true,
+                        jettyLoadingPort: true,
+                        laycan: true,
+                        nomination: true,
+                        qtyPlan: true,
+                        qtyCob: true,
+                        remarks: true,
+                        hargaActualFob: true,
+                        hargaActualFobMv: true,
+                        hpb: true,
+                        shipmentStatus: true,
+                        issueNotes: true,
+                        blDate: true,
+                        pic: true,
+                        sp: true,
+                        year: true,
+                        quantityLoaded: true,
+                        salesPrice: true,
+                        marginMt: true,
+                        buyer: true,
+                        supplier: true,
+                        vesselName: true,
+                        bargeName: true,
+                        loadingPort: true,
+                        dischargePort: true,
+                        type: true,
+                        createdAt: true,
+                        updatedAt: true,
+                        isDeleted: true,
+                    }
+                }
+                : {})
         });
 
-        const shipmentIds = shipments.map((s) => s.id);
-        const timeline = shipmentIds.length
+        const cleanShipments = shipments.filter((s) => !isNoiseShipmentRecord(s));
+        const shipmentIds = cleanShipments.map((s) => s.id);
+        const timeline = includeTimeline && !lite && shipmentIds.length
             ? await prisma.timelineMilestone.findMany({
                 where: { shipmentId: { in: shipmentIds } },
                 orderBy: { date: "asc" }
@@ -48,16 +267,67 @@ export async function GET() {
             timelineByShipment.set(item.shipmentId, existing);
         }
 
-        const enriched = shipments.map((s) => {
+        // Build buyer consensus by mother-vessel/project group
+        const buyerVotesByGroup = new Map<string, Map<string, number>>();
+        for (const s of cleanShipments) {
+            const groupKey = normalizeKey(s.vesselName || s.mvProjectName || s.nomination);
+            const buyer = sanitizeEntityName(s.buyer);
+            if (!groupKey || !buyer) continue;
+            const votes = buyerVotesByGroup.get(groupKey) || new Map<string, number>();
+            votes.set(buyer, (votes.get(buyer) || 0) + 1);
+            buyerVotesByGroup.set(groupKey, votes);
+        }
+
+        const consensusBuyerByGroup = new Map<string, string>();
+        buyerVotesByGroup.forEach((votes, groupKey) => {
+            let winner = "";
+            let maxVote = -1;
+            votes.forEach((vote, candidate) => {
+                if (vote > maxVote) {
+                    winner = candidate;
+                    maxVote = vote;
+                }
+            });
+            if (winner) consensusBuyerByGroup.set(groupKey, winner);
+        });
+
+        const enriched = cleanShipments.map((s) => {
             const milestones = timelineByShipment.get(s.id) || [];
+            const groupKey = normalizeKey(s.vesselName || s.mvProjectName || s.nomination);
+            const inferredBuyer =
+                sanitizeEntityName(s.buyer) ||
+                consensusBuyerByGroup.get(groupKey) ||
+                inferBuyerFromFlow(s.shipmentFlow) ||
+                null;
+            const inferredSupplier =
+                sanitizeEntityName(s.supplier) ||
+                sanitizeEntityName(s.source) ||
+                sanitizeEntityName(s.iupOp) ||
+                null;
+            const exportShipment = isExportShipment(s);
+            const counterpartyRole = exportShipment ? "buyer" : "vendor";
+            const counterparty = exportShipment
+                ? (inferredBuyer || inferredSupplier || sanitizeEntityName(s.mvProjectName) || "TBA Buyer")
+                : (inferredSupplier || inferredBuyer || sanitizeEntityName(s.mvProjectName) || "TBA Vendor");
+            const statusReason = deriveStatusReason(s);
+            const pendingItems = splitReasonItems(s?.issueNotes, s?.remarks);
+
             return {
                 ...s,
-                milestones: milestones.map((m) => ({
-                    title: m.title,
-                    subtitle: `${m.date.toISOString().slice(0, 10)}${m.description ? ` - ${m.description}` : ""}`,
-                    status: "completed",
-                    date: m.date
-                }))
+                buyer: inferredBuyer,
+                supplier: inferredSupplier,
+                counterpartyRole,
+                counterparty,
+                statusReason,
+                pendingItems,
+                milestones: includeTimeline
+                    ? milestones.map((m) => ({
+                        title: m.title,
+                        subtitle: `${m.date.toISOString().slice(0, 10)}${m.description ? ` - ${m.description}` : ""}`,
+                        status: "completed",
+                        date: m.date
+                    }))
+                    : []
             };
         });
 
@@ -76,9 +346,8 @@ export async function POST(req: Request) {
         const data = await req.json();
 
         // DATABASE-FIRST: Write to database as primary source
-        const shipment = await prisma.$transaction(async (tx) => {
-            const newShipment = await tx.shipmentDetail.create({
-                data: {
+        const shipment = await prisma.shipmentDetail.create({
+            data: {
                     no: data.no ? parseInt(data.no) : null,
                     exportDmo: data.exportDmo,
                     status: data.status || "upcoming",
@@ -123,32 +392,27 @@ export async function POST(req: Request) {
                     resultGar: parseNum(data.resultGar),
                     year: data.year || new Date().getFullYear(),
                     // Detailed/Unified fields
-                    quantityLoaded: parseNum(data.quantity_loaded),
-                    salesPrice: parseNum(data.sales_price),
-                    marginMt: parseNum(data.margin_mt),
+                    quantityLoaded: parseNum(data.quantity_loaded ?? data.quantityLoaded),
+                    salesPrice: parseNum(data.sales_price ?? data.salesPrice),
+                    marginMt: parseNum(data.margin_mt ?? data.marginMt),
                     buyer: data.buyer,
-                    vesselName: data.vessel_name,
-                    bargeName: data.barge_name,
-                    loadingPort: data.loading_port,
-                    dischargePort: data.discharge_port,
+                    supplier: data.supplier || data.source,
+                    vesselName: data.vessel_name ?? data.vesselName,
+                    bargeName: data.barge_name ?? data.bargeName,
+                    loadingPort: data.loading_port ?? data.loadingPort,
+                    dischargePort: data.discharge_port ?? data.dischargePort,
                     product: data.product,
-                    analysisMethod: data.analysis_method,
+                    analysisMethod: data.analysis_method ?? data.analysisMethod,
+                    type: data.type || "export",
                 }
-            });
-
-            await tx.auditLog.create({
-                data: {
-                    userId: session.user.id,
-                    userName: session.user.name || "Unknown",
-                    action: "CREATE",
-                    entity: "ShipmentDetail",
-                    entityId: newShipment.id,
-                    details: JSON.stringify({ mvProjectName: newShipment.mvProjectName, status: newShipment.status })
-                }
-            });
-
-            return newShipment;
         });
+        await tryAuditLog(
+            session.user.id,
+            session.user.name || "Unknown",
+            "CREATE",
+            shipment.id,
+            JSON.stringify({ mvProjectName: shipment.mvProjectName, status: shipment.status })
+        );
 
         // Optional push to Sheets for backup/export
         await triggerPush();
@@ -156,7 +420,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: true, shipment });
     } catch (error) {
         console.error("POST /api/memory/shipments error:", error);
-        return NextResponse.json({ error: "Failed to create shipment" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to create shipment", details: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
 }
 
@@ -172,10 +436,9 @@ export async function PUT(req: Request) {
         if (!existing || existing.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
         // DATABASE-FIRST: Update database as primary source
-        const shipment = await prisma.$transaction(async (tx) => {
-            const updated = await tx.shipmentDetail.update({
-                where: { id: data.id },
-                data: {
+        const shipment = await prisma.shipmentDetail.update({
+            where: { id: data.id },
+            data: {
                     no: data.no !== undefined ? (data.no ? parseInt(data.no) : null) : undefined,
                     exportDmo: data.exportDmo, status: data.status, origin: data.origin,
                     mvProjectName: data.mvProjectName, source: data.source, iupOp: data.iupOp,
@@ -205,29 +468,33 @@ export async function PUT(req: Request) {
                     resultGar: data.resultGar !== undefined ? parseNum(data.resultGar) : undefined,
                     year: data.year,
                     // Detailed/Unified fields
-                    quantityLoaded: data.quantity_loaded !== undefined ? parseNum(data.quantity_loaded) : undefined,
-                    salesPrice: data.sales_price !== undefined ? parseNum(data.sales_price) : undefined,
-                    marginMt: data.margin_mt !== undefined ? parseNum(data.margin_mt) : undefined,
+                    quantityLoaded: data.quantity_loaded !== undefined
+                        ? parseNum(data.quantity_loaded)
+                        : (data.quantityLoaded !== undefined ? parseNum(data.quantityLoaded) : undefined),
+                    salesPrice: data.sales_price !== undefined
+                        ? parseNum(data.sales_price)
+                        : (data.salesPrice !== undefined ? parseNum(data.salesPrice) : undefined),
+                    marginMt: data.margin_mt !== undefined
+                        ? parseNum(data.margin_mt)
+                        : (data.marginMt !== undefined ? parseNum(data.marginMt) : undefined),
                     buyer: data.buyer,
-                    vesselName: data.vessel_name,
-                    bargeName: data.barge_name,
-                    loadingPort: data.loading_port,
-                    dischargePort: data.discharge_port,
+                    supplier: data.supplier !== undefined ? data.supplier : undefined,
+                    vesselName: data.vessel_name !== undefined ? data.vessel_name : (data.vesselName !== undefined ? data.vesselName : undefined),
+                    bargeName: data.barge_name !== undefined ? data.barge_name : (data.bargeName !== undefined ? data.bargeName : undefined),
+                    loadingPort: data.loading_port !== undefined ? data.loading_port : (data.loadingPort !== undefined ? data.loadingPort : undefined),
+                    dischargePort: data.discharge_port !== undefined ? data.discharge_port : (data.dischargePort !== undefined ? data.dischargePort : undefined),
                     product: data.product,
-                    analysisMethod: data.analysis_method,
+                    analysisMethod: data.analysis_method !== undefined ? data.analysis_method : (data.analysisMethod !== undefined ? data.analysisMethod : undefined),
+                    type: data.type !== undefined ? data.type : undefined,
                 }
-            });
-
-            await tx.auditLog.create({
-                data: {
-                    userId: session.user.id, userName: session.user.name || "Unknown",
-                    action: "UPDATE", entity: "ShipmentDetail", entityId: updated.id,
-                    details: JSON.stringify(data)
-                }
-            });
-
-            return updated;
         });
+        await tryAuditLog(
+            session.user.id,
+            session.user.name || "Unknown",
+            "UPDATE",
+            shipment.id,
+            JSON.stringify(data)
+        );
 
         // Optional push to Sheets for backup/export
         await triggerPush();
@@ -235,7 +502,7 @@ export async function PUT(req: Request) {
         return NextResponse.json({ success: true, shipment });
     } catch (error) {
         console.error("PUT /api/memory/shipments error:", error);
-        return NextResponse.json({ error: "Failed to update shipment" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to update shipment", details: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
 }
 
@@ -252,16 +519,14 @@ export async function DELETE(req: Request) {
         if (!existing || existing.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
         // DATABASE-FIRST: Delete from database as primary source
-        await prisma.$transaction(async (tx) => {
-            await tx.shipmentDetail.update({ where: { id }, data: { isDeleted: true } });
-            await tx.auditLog.create({
-                data: {
-                    userId: session.user.id, userName: session.user.name || "Unknown",
-                    action: "DELETE", entity: "ShipmentDetail", entityId: id,
-                    details: JSON.stringify({ isDeleted: true })
-                }
-            });
-        });
+        await prisma.shipmentDetail.update({ where: { id }, data: { isDeleted: true } });
+        await tryAuditLog(
+            session.user.id,
+            session.user.name || "Unknown",
+            "DELETE",
+            id,
+            JSON.stringify({ isDeleted: true })
+        );
 
         // Optional push to Sheets for backup/export
         await triggerPush();
@@ -269,6 +534,6 @@ export async function DELETE(req: Request) {
         return NextResponse.json({ success: true });
     } catch (error) {
         console.error("DELETE /api/memory/shipments error:", error);
-        return NextResponse.json({ error: "Failed to delete shipment" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to delete shipment", details: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
 }

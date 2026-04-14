@@ -485,13 +485,31 @@ export class SheetsFirstService {
             const headers = rows[0];
             const dataRows = rows.slice(1);
 
-            // Helper to get column value by header name
-            const getCol = (row: any[], headerName: string) => {
-                const idx = headers.findIndex((h: string) => 
-                    h.trim().toUpperCase() === headerName.trim().toUpperCase()
-                );
+            const normalizeHeader = (value: any) => String(value || '').trim().toUpperCase();
+            const headerIndex = new Map<string, number>();
+            headers.forEach((h: any, idx: number) => {
+                const normalized = normalizeHeader(h);
+                if (normalized && !headerIndex.has(normalized)) headerIndex.set(normalized, idx);
+            });
+
+            const findHeaderIndex = (candidates: string[]): number => {
+                for (const candidate of candidates) {
+                    const idx = headerIndex.get(normalizeHeader(candidate));
+                    if (typeof idx === 'number') return idx;
+                }
+                return -1;
+            };
+
+            const getColByCandidates = (row: any[], candidates: string[]) => {
+                const idx = findHeaderIndex(candidates);
                 return idx >= 0 ? row[idx] : null;
             };
+
+            const idColIndex = findHeaderIndex(['ID']);
+            if (idColIndex < 0) {
+                console.warn('[SheetsFirstService] ID column not found in P&L sheet. Skipping sync to avoid destructive updates.');
+                return;
+            }
 
             const parseNum = (val: any): number => {
                 if (!val) return 0;
@@ -503,20 +521,20 @@ export class SheetsFirstService {
             const sheetIds = new Set<string>();
 
             for (const row of dataRows) {
-                const id = getCol(row, 'ID');
+                const id = String(row[idColIndex] ?? '').trim();
                 if (!id) continue;
 
                 sheetIds.add(id);
 
-                const buyer = getCol(row, 'PROJECT / BUYER') || getCol(row, 'BUYER') || 'Unknown';
-                const quantity = parseNum(getCol(row, 'QUANTITY'));
-                const sellingPrice = parseNum(getCol(row, 'SELLING PRICE'));
-                const buyingPrice = parseNum(getCol(row, 'BUYING PRICE'));
-                const freightCost = parseNum(getCol(row, 'FREIGHT COST'));
-                const otherCost = parseNum(getCol(row, 'OTHER COST'));
+                const buyer = getColByCandidates(row, ['PROJECT / BUYER', 'BUYER']) || 'Unknown';
+                const quantity = parseNum(getColByCandidates(row, ['QUANTITY']));
+                const sellingPrice = parseNum(getColByCandidates(row, ['SELLING PRICE']));
+                const buyingPrice = parseNum(getColByCandidates(row, ['BUYING PRICE']));
+                const freightCost = parseNum(getColByCandidates(row, ['FREIGHT COST']));
+                const otherCost = parseNum(getColByCandidates(row, ['OTHER COST']));
                 const grossProfitMt = sellingPrice - buyingPrice - freightCost - otherCost;
                 const totalGrossProfit = grossProfitMt * quantity;
-                const updatedAt = getCol(row, 'UPDATED AT') || new Date().toISOString();
+                const updatedAt = getColByCandidates(row, ['UPDATED AT']) || new Date().toISOString();
 
                 // Check if record exists
                 const existing = await prisma.pLForecast.findUnique({ where: { id } });
@@ -526,6 +544,7 @@ export class SheetsFirstService {
                     await prisma.pLForecast.update({
                         where: { id },
                         data: {
+                            isDeleted: false,
                             buyer,
                             quantity,
                             sellingPrice,
@@ -558,19 +577,29 @@ export class SheetsFirstService {
                 }
             }
 
-            // Mark records not in Sheet as deleted
-            const dbRecords = await prisma.pLForecast.findMany({
-                where: { isDeleted: false },
-                select: { id: true },
-            });
+            if (sheetIds.size === 0) {
+                console.warn('[SheetsFirstService] No valid IDs parsed from sheet rows. Skipping prune step.');
+                return;
+            }
 
-            for (const dbRecord of dbRecords) {
-                if (!sheetIds.has(dbRecord.id)) {
-                    await prisma.pLForecast.update({
-                        where: { id: dbRecord.id },
-                        data: { isDeleted: true },
-                    });
+            // Optional prune mode (disabled by default to prevent accidental mass-delete)
+            const allowPrune = process.env.PNL_SYNC_ALLOW_PRUNE === 'true';
+            if (allowPrune) {
+                const dbRecords = await prisma.pLForecast.findMany({
+                    where: { isDeleted: false },
+                    select: { id: true },
+                });
+
+                for (const dbRecord of dbRecords) {
+                    if (!sheetIds.has(dbRecord.id)) {
+                        await prisma.pLForecast.update({
+                            where: { id: dbRecord.id },
+                            data: { isDeleted: true },
+                        });
+                    }
                 }
+            } else {
+                console.log('[SheetsFirstService] Skipping prune of missing DB records (PNL_SYNC_ALLOW_PRUNE is not true).');
             }
 
             console.log('[SheetsFirstService] ✅ P&L Forecasts synced from Sheet');

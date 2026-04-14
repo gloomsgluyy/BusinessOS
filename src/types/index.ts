@@ -189,6 +189,23 @@ export interface SalesDeal {
     updated_at: string;
 }
 
+export interface ProjectItem {
+    id: string;
+    is_deleted?: boolean;
+    name: string;
+    segment?: string;
+    buyer?: string;
+    status?: string;
+    notes?: string;
+    created_by?: string;
+    created_by_name?: string;
+    approved_by?: string;
+    approved_by_name?: string;
+    approved_at?: string;
+    created_at: string;
+    updated_at: string;
+}
+
 // ── Shipment Monitor ──────────────────────────────────────────
 export type ShipmentStatus = "upcoming" | "done_shipment" | "loading" | "in_transit" | "completed" | "cancelled";
 
@@ -215,6 +232,7 @@ export interface ShipmentDetail {
     status_hpb?: string;
     shipment_status?: string;
     issue_notes?: string;
+    status_reason?: string;
     bl_date?: string;
     pic?: string;
     kuota_export?: string;

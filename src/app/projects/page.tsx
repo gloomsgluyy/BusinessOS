@@ -3,557 +3,492 @@
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { cn } from "@/lib/utils";
-import { FolderKanban, Calendar, TrendingUp, Plus, X, Ship, MapPin, Search, Loader2 } from "lucide-react";
-import { Toast } from "@/components/shared/toast";
+import { FolderKanban, Search, Plus, X, Edit, Trash2, CheckCircle2, XCircle, Clock3 } from "lucide-react";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
+import { ProjectItem, ShipmentDetail } from "@/types";
+import { useSearchParams } from "next/navigation";
 
-import GlobalLoading from "@/app/loading";
+type ProjectStatus = "waiting_approval" | "approved" | "rejected" | "upcoming" | "ongoing" | "completed" | "cancelled";
+
+type ProjectCard = {
+  id: string;
+  projectKey: string;
+  projectName: string;
+  buyer: string;
+  segment: string;
+  status: ProjectStatus;
+  year: number | null;
+  laycan: string;
+  shippingTerm: string;
+  shipmentCount: number;
+  volume: number;
+  revenue: number;
+  grossProfit: number;
+  rows: ShipmentDetail[];
+  sourceKind: "master" | "derived";
+  createdAt: string | null;
+  projectRecord?: ProjectItem;
+};
+
+type ProjectForm = {
+  name: string;
+  segment: string;
+  buyer: string;
+  status: string;
+  notes: string;
+};
+
+const safeNum = (v: unknown): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const cleanText = (v?: string | null): string | null => {
+  if (!v) return null;
+  const t = String(v).replace(/\s+/g, " ").trim();
+  return t || null;
+};
+
+const normalizeKey = (v?: string | null): string =>
+  (v || "").toUpperCase().replace(/\s+/g, " ").trim();
+
+const extractProjectName = (raw?: string | null): string | null => {
+  const text = cleanText(raw);
+  if (!text) return null;
+  const explicit = text.match(/project\s*:\s*([^\n\r]+)/i);
+  if (explicit?.[1]) return cleanText(explicit[1]);
+  const code = text.match(/\b([A-Z]{2,}[A-Z0-9_.\-\/]*_\d{2})\b/i);
+  if (code?.[1]) return cleanText(code[1]);
+  return null;
+};
+
+const deriveProjectName = (r?: ShipmentDetail): string => {
+  if (!r) return "Unmapped Project";
+  return (
+    extractProjectName(r.mv_project_name) ||
+    extractProjectName(r.vessel_name) ||
+    cleanText(r.mv_project_name) ||
+    cleanText(r.vessel_name) ||
+    "Unmapped Project"
+  );
+};
+
+const detectStatus = (rows: ShipmentDetail[]): ProjectStatus => {
+  const key = rows.map((r) => normalizeKey(r.status || r.shipment_status || "")).join(" ");
+  if (key.includes("CANCEL")) return "cancelled";
+  if (key.includes("LOADING") || key.includes("TRANSIT")) return "ongoing";
+  if (key.includes("UPCOMING") || key.includes("WAITING")) return "upcoming";
+  return "completed";
+};
+
+const mapMasterStatus = (s?: string | null): ProjectStatus => {
+  const key = normalizeKey(s);
+  if (key.includes("WAITING") || key.includes("PENDING_APPROVAL") || key.includes("WAITING_APPROVAL")) return "waiting_approval";
+  if (key.includes("APPROVE")) return "approved";
+  if (key.includes("REJECT")) return "rejected";
+  if (key.includes("CANCEL")) return "cancelled";
+  if (key.includes("COMPLETE") || key.includes("DONE")) return "completed";
+  if (key.includes("LOAD") || key.includes("ONGOING") || key.includes("TRANSIT")) return "ongoing";
+  return "upcoming";
+};
+
+const statusLabel: Record<ProjectStatus, string> = {
+  waiting_approval: "Waiting Approval",
+  approved: "Approved",
+  rejected: "Rejected",
+  upcoming: "Upcoming",
+  ongoing: "Ongoing",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+const statusBadgeClass = (status: ProjectStatus) =>
+  cn(
+    "text-[10px] font-bold px-2.5 py-1 rounded-md uppercase",
+    status === "waiting_approval" && "bg-amber-500/10 text-amber-600",
+    status === "approved" && "bg-sky-500/10 text-sky-600",
+    status === "rejected" && "bg-rose-500/10 text-rose-600",
+    status === "completed" && "bg-emerald-500/10 text-emerald-600",
+    status === "ongoing" && "bg-indigo-500/10 text-indigo-600",
+    status === "upcoming" && "bg-blue-500/10 text-blue-600",
+    status === "cancelled" && "bg-red-500/10 text-red-600",
+  );
+
+const fmtInt = (n: number): string => safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
+const fmtUsd = (n: number): string => `$${safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+
+const defaultForm: ProjectForm = { name: "", segment: "", buyer: "", status: "waiting_approval", notes: "" };
 
 export default function ProjectsPage() {
-  const { deals, syncFromMemory, addDeal, updateDeal } = useCommercialStore();
-
-  const [isInitializing, setIsInitializing] = React.useState(true);
+  const searchParams = useSearchParams();
+  const { currentUser } = useAuthStore();
+  const { shipments, projects, syncFromMemory, addProject, updateProject, deleteProject } = useCommercialStore();
+  const [, setIsInitializing] = React.useState(false);
+  const [search, setSearch] = React.useState(() => searchParams.get("q") || "");
+  const [yearFilter, setYearFilter] = React.useState("all");
+  const [statusFilter, setStatusFilter] = React.useState<"all" | ProjectStatus>("all");
+  const [selectedProject, setSelectedProject] = React.useState<ProjectCard | null>(null);
+  const [showForm, setShowForm] = React.useState(false);
+  const [editingProject, setEditingProject] = React.useState<ProjectItem | null>(null);
+  const [form, setForm] = React.useState<ProjectForm>(defaultForm);
+  const [saving, setSaving] = React.useState(false);
+  const role = String(currentUser?.role || "").toLowerCase();
+  const canApprove = role === "ceo" || role === "director";
 
   React.useEffect(() => {
     syncFromMemory().finally(() => setIsInitializing(false));
   }, [syncFromMemory]);
-  const { currentUser } = useAuthStore();
+  React.useEffect(() => {
+    const q = searchParams.get("q");
+    if (q) setSearch(q);
+  }, [searchParams]);
 
-  const [showForm, setShowForm] = React.useState(false);
-  const [isSaving, setIsSaving] = React.useState(false);
-  const [toast, setToast] = React.useState<{
-    message: string;
-    type: "success" | "error";
-  } | null>(null);
-  const [selectedProject, setSelectedProject] = React.useState<any | null>(
-    null,
+  const groupedShipments = React.useMemo(() => {
+    const map = new Map<string, ShipmentDetail[]>();
+    shipments.forEach((s) => {
+      const name = deriveProjectName(s);
+      const key = normalizeKey(name);
+      map.set(key, [...(map.get(key) || []), s]);
+    });
+    return map;
+  }, [shipments]);
+
+  const masterMap = React.useMemo(() => {
+    const map = new Map<string, ProjectItem>();
+    projects.forEach((p) => map.set(normalizeKey(p.name), p));
+    return map;
+  }, [projects]);
+
+  const cards = React.useMemo<ProjectCard[]>(() => {
+    const out: ProjectCard[] = [];
+
+    projects.forEach((p) => {
+      const key = normalizeKey(p.name);
+      const rows = groupedShipments.get(key) || [];
+      const years = rows.map((r) => safeNum(r.year)).filter((y) => y > 0);
+      const year = years.length ? Math.max(...years) : (p.created_at ? new Date(p.created_at).getFullYear() : null);
+      const volume = rows.reduce((s, r) => s + safeNum(r.qty_plan || r.quantity_loaded), 0);
+      const revenue = rows.reduce((s, r) => s + safeNum(r.qty_plan || r.quantity_loaded) * safeNum(r.harga_actual_fob_mv || r.sales_price), 0);
+      const grossProfit = rows.reduce((s, r) => {
+        const qty = safeNum(r.qty_plan || r.quantity_loaded);
+        const margin = safeNum(r.margin_mt) || (safeNum(r.harga_actual_fob_mv || r.sales_price) - safeNum(r.harga_actual_fob));
+        return s + qty * margin;
+      }, 0);
+      out.push({
+        id: p.id,
+        projectKey: key,
+        projectName: p.name,
+        buyer: cleanText(p.buyer) || cleanText(rows.find((r) => r.buyer)?.buyer) || "-",
+        segment: cleanText(p.segment) || "-",
+        status: (() => {
+          const masterStatus = mapMasterStatus(p.status);
+          if (["waiting_approval", "approved", "rejected", "cancelled"].includes(masterStatus)) {
+            return masterStatus;
+          }
+          return rows.length ? detectStatus(rows) : masterStatus;
+        })(),
+        year,
+        laycan: cleanText(rows.find((r) => r.laycan)?.laycan) || "TBA",
+        shippingTerm: cleanText(rows.find((r) => r.shipping_term)?.shipping_term) || "-",
+        shipmentCount: rows.length,
+        volume,
+        revenue,
+        grossProfit,
+        rows,
+        sourceKind: "master",
+        createdAt: p.created_at || null,
+        projectRecord: p,
+      });
+    });
+
+    groupedShipments.forEach((rows, key) => {
+      if (masterMap.has(key)) return;
+      const years = rows.map((r) => safeNum(r.year)).filter((y) => y > 0);
+      out.push({
+        id: `derived:${key}`,
+        projectKey: key,
+        projectName: deriveProjectName(rows[0]),
+        buyer: cleanText(rows.find((r) => r.buyer)?.buyer) || "-",
+        segment: "-",
+        status: detectStatus(rows),
+        year: years.length ? Math.max(...years) : null,
+        laycan: cleanText(rows.find((r) => r.laycan)?.laycan) || "TBA",
+        shippingTerm: cleanText(rows.find((r) => r.shipping_term)?.shipping_term) || "-",
+        shipmentCount: rows.length,
+        volume: rows.reduce((s, r) => s + safeNum(r.qty_plan || r.quantity_loaded), 0),
+        revenue: rows.reduce((s, r) => s + safeNum(r.qty_plan || r.quantity_loaded) * safeNum(r.harga_actual_fob_mv || r.sales_price), 0),
+        grossProfit: rows.reduce((s, r) => s + safeNum(r.qty_plan || r.quantity_loaded) * (safeNum(r.margin_mt) || (safeNum(r.harga_actual_fob_mv || r.sales_price) - safeNum(r.harga_actual_fob))), 0),
+        rows,
+        sourceKind: "derived",
+        createdAt: null,
+      });
+    });
+
+    return out.sort((a, b) => (b.year || 0) - (a.year || 0) || b.volume - a.volume);
+  }, [groupedShipments, projects, masterMap]);
+
+  const years = React.useMemo(
+    () => Array.from(new Set(cards.map((c) => c.year).filter((y): y is number => y !== null))).sort((a, b) => b - a),
+    [cards],
   );
-  const [search, setSearch] = React.useState("");
 
-  const [assigningVesselId, setAssigningVesselId] = React.useState<
-    string | null
-  >(null);
-  const [vesselNameInput, setVesselNameInput] = React.useState("");
-  const [isAssigning, setIsAssigning] = React.useState(false);
+  const filtered = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return cards.filter((p) => {
+      if (yearFilter !== "all" && String(p.year || "") !== yearFilter) return false;
+      if (statusFilter !== "all" && p.status !== statusFilter) return false;
+      if (!q) return true;
+      return [p.projectName, p.buyer, p.segment].some((x) => x.toLowerCase().includes(q));
+    });
+  }, [cards, search, yearFilter, statusFilter]);
 
-  const [form, setForm] = React.useState({
-    buyer: "",
-    quantity: 50000,
-    laycan_start: "",
-    laycan_end: "",
-    shipping_terms: "FOB",
-    buyer_country: "Indonesia",
-    gar: 4200,
-  });
+  const openCreate = () => {
+    setEditingProject(null);
+    setForm(defaultForm);
+    setShowForm(true);
+  };
 
-  const projects = deals.filter((d) => d.status === "confirmed");
-  const filteredProjects = projects.filter((p) =>
-    search
-      ? p.buyer.toLowerCase().includes(search.toLowerCase()) ||
-        p.id.toLowerCase().includes(search.toLowerCase())
-      : true,
-  );
+  const openEdit = (p: ProjectItem) => {
+    setEditingProject(p);
+    setForm({ name: p.name || "", segment: p.segment || "", buyer: p.buyer || "", status: p.status || "waiting_approval", notes: p.notes || "" });
+    setShowForm(true);
+  };
 
-  const handleCreateProject = async () => {
-    setIsSaving(true);
+  const saveProject = async () => {
+    if (!form.name.trim()) return;
+    setSaving(true);
     try {
-      await addDeal({
-        buyer: form.buyer,
-        buyer_country: form.buyer_country,
-        type: form.buyer_country === "Indonesia" ? "local" : "export",
-        shipping_terms: form.shipping_terms,
-        quantity: form.quantity,
-        price_per_mt: 50, // mock default
-        laycan_start: form.laycan_start,
-        laycan_end: form.laycan_end,
-        spec: { gar: form.gar, ts: 0.8, ash: 5.0, tm: 30 },
-        status: "confirmed", // auto confirm as active project
-        created_by: currentUser?.id || "system",
-        created_by_name: currentUser?.name || "System",
-        pic_id: currentUser?.id || "system",
-        pic_name: currentUser?.name || "System",
-        deal_number: `PRJ-${new Date().getFullYear()}${new Date().getMonth() + 1}-${Math.floor(100 + Math.random() * 900)}`,
-        total_value: form.quantity * 50,
-      } as any);
-      setToast({ message: "Project created successfully!", type: "success" });
+      if (editingProject) {
+        await updateProject(editingProject.id, { ...form, name: form.name.trim() });
+      } else {
+        await addProject({ ...form, name: form.name.trim() } as Omit<ProjectItem, "id" | "created_at" | "updated_at">);
+      }
       setShowForm(false);
-      setForm({
-        buyer: "",
-        quantity: 50000,
-        laycan_start: "",
-        laycan_end: "",
-        shipping_terms: "FOB",
-        buyer_country: "Indonesia",
-        gar: 4200,
-      });
-    } catch (error) {
-      setToast({ message: "Failed to create project", type: "error" });
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
-
-  const handleAssignVessel = async () => {
-    if (!assigningVesselId || !vesselNameInput.trim()) return;
-    setIsAssigning(true);
-    try {
-      await updateDeal(assigningVesselId, {
-        vessel_name: vesselNameInput.trim(),
-      } as any);
-      setToast({ message: "Vessel assigned successfully!", type: "success" });
-      // Update local selectedProject state
-      setSelectedProject({
-        ...selectedProject,
-        vessel_name: vesselNameInput.trim(),
-      });
-      setAssigningVesselId(null);
-    } catch (error) {
-      setToast({ message: "Failed to assign vessel", type: "error" });
-    } finally {
-      setIsAssigning(false);
-    }
-  };
-
-  if (isInitializing) return <GlobalLoading />;
 
   return (
     <AppShell>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fade-in relative z-10">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl md:text-2xl font-bold border-l-4 border-emerald-500 pl-3">
-              Sales Projects
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1 ml-4">
-              Manage execution of confirmed sales contracts
-            </p>
+            <h1 className="text-xl md:text-2xl font-bold border-l-4 border-emerald-500 pl-3">Projects (MV/Project Centric)</h1>
+            <p className="text-sm text-muted-foreground mt-1 ml-4">Project sudah bisa add/edit dan jadi acuan shipment.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={openCreate} className="btn-primary text-xs h-9"><Plus className="w-3.5 h-3.5 mr-1.5" />Add Project</button>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search project..."
-                className="pl-9 pr-4 py-2 w-48 focus:w-64 transition-all rounded-lg bg-accent/30 border border-border text-xs outline-none focus:border-emerald-500"
-              />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="pl-9 pr-4 py-2 w-56 rounded-lg bg-accent/30 border border-border text-xs outline-none focus:border-emerald-500" />
             </div>
-            <button
-              onClick={() => setShowForm(!showForm)}
-              className="btn-primary w-fit shadow-lg shadow-emerald-500/20 bg-emerald-600 hover:bg-emerald-700"
-            >
-              <Plus className="w-4 h-4 mr-1.5" /> New Project
-            </button>
+            <select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-xs">
+              <option value="all">All Year</option>
+              {years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
+            </select>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-xs">
+              <option value="all">All Status</option>
+              <option value="waiting_approval">Waiting Approval</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="upcoming">Upcoming</option>
+              <option value="ongoing">Ongoing</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
           </div>
         </div>
-
-        {/* Create Project Form */}
-        {showForm && (
-          <div className="card-elevated p-5 space-y-4 animate-scale-in border border-emerald-500/30 bg-emerald-500/5 shadow-emerald-500/10">
-            <h3 className="text-sm font-semibold text-emerald-600 border-b border-emerald-500/20 pb-2">
-              Add Independent Project
-            </h3>
-            <p className="text-xs text-muted-foreground mb-4">
-              Create a new active sales project directly without undergoing P&L
-              workflow.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase">
-                  Buyer Name
-                </label>
-                <input
-                  value={form.buyer}
-                  onChange={(e) => setForm({ ...form, buyer: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  placeholder="e.g. PT KEPCO"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase">
-                  Country
-                </label>
-                <select
-                  value={form.buyer_country}
-                  onChange={(e) =>
-                    setForm({ ...form, buyer_country: e.target.value })
-                  }
-                  className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                >
-                  <option value="Indonesia">Indonesia</option>
-                  <option value="South Korea">South Korea</option>
-                  <option value="Japan">Japan</option>
-                  <option value="China">China</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase">
-                  Target QTY (MT)
-                </label>
-                <input
-                  type="number"
-                  value={form.quantity}
-                  onChange={(e) =>
-                    setForm({ ...form, quantity: +e.target.value })
-                  }
-                  className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase">
-                  Terms
-                </label>
-                <select
-                  value={form.shipping_terms}
-                  onChange={(e) =>
-                    setForm({ ...form, shipping_terms: e.target.value })
-                  }
-                  className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                >
-                  <option value="FOB">FOB</option>
-                  <option value="CIF">CIF</option>
-                  <option value="CFR">CFR</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase">
-                  Target GAR
-                </label>
-                <input
-                  type="number"
-                  value={form.gar}
-                  onChange={(e) => setForm({ ...form, gar: +e.target.value })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase">
-                  Laycan Start
-                </label>
-                <input
-                  type="date"
-                  value={form.laycan_start}
-                  onChange={(e) =>
-                    setForm({ ...form, laycan_start: e.target.value })
-                  }
-                  className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase">
-                  Laycan End
-                </label>
-                <input
-                  type="date"
-                  value={form.laycan_end}
-                  onChange={(e) =>
-                    setForm({ ...form, laycan_end: e.target.value })
-                  }
-                  className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                />
-              </div>
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={handleCreateProject}
-                className="btn-primary bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
-                disabled={!form.buyer || !form.laycan_start || isSaving}
-              >
-                {isSaving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save Project"
-                )}
-              </button>
-              <button
-                onClick={() => setShowForm(false)}
-                className="px-4 py-2 rounded-lg text-sm text-emerald-700/70 hover:bg-emerald-500/10 transition-colors font-medium"
-                disabled={isSaving}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredProjects.map((p, i) => {
-            return (
-              <div
-                key={p.id}
-                onClick={() => setSelectedProject(p)}
-                className={cn(
-                  "card-interactive cursor-pointer p-0 overflow-hidden animate-slide-up hover:border-emerald-500/30 group",
-                  `delay-${Math.min((i % 5) + 1, 5)}`,
-                )}
-              >
-                <div className="p-5 space-y-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-bold text-base line-clamp-1 group-hover:text-emerald-500 transition-colors">
-                        {p.buyer}
-                      </h3>
-                      <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                        {p.deal_number || p.id}
-                      </p>
-                    </div>
-                    <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-600 px-2.5 py-1 rounded-md uppercase tracking-wider">
-                      ACTIVE
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 pt-2">
-                    <div>
-                      <p className="text-[10px] text-muted-foreground uppercase font-semibold">
-                        Tonnage
-                      </p>
-                      <p className="text-sm font-bold font-mono text-emerald-600">
-                        {p.quantity.toLocaleString()} MT
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-muted-foreground uppercase font-semibold">
-                        Shipping
-                      </p>
-                      <p className="text-sm font-bold">{p.shipping_terms}</p>
-                    </div>
-                  </div>
+          {filtered.map((p) => (
+            <div key={p.id} onClick={() => setSelectedProject(p)} className="card-interactive cursor-pointer p-5 space-y-3">
+              <div className="flex justify-between items-start gap-2">
+                <div className="min-w-0">
+                  <h3 className="font-bold text-base truncate">{p.projectName}</h3>
+                  <p className="text-[11px] text-muted-foreground">Buyer: {p.buyer} • Segment: {p.segment}</p>
+                  {p.projectRecord?.approved_by_name && (
+                    <p className="text-[10px] text-muted-foreground">Approved by: {p.projectRecord.approved_by_name}</p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground">{p.sourceKind === "master" ? "Master project" : "Derived from shipments"}</p>
                 </div>
-
-                <div className="flex gap-px pt-px bg-border/50">
-                  <div className="flex-1 flex flex-col items-center justify-center p-3 bg-card/80 backdrop-blur group-hover:bg-accent/30 transition-colors">
-                    <Calendar className="w-3.5 h-3.5 mb-1.5 text-muted-foreground" />
-                    <span className="text-[10px] font-semibold text-muted-foreground uppercase">
-                      Laycan
-                    </span>
-                    <span className="text-xs font-bold text-center mt-0.5">
-                      {p.laycan_start || "TBA"}
-                    </span>
-                  </div>
-                  <div className="flex-1 flex flex-col items-center justify-center p-3 bg-card/80 backdrop-blur group-hover:bg-accent/30 transition-colors">
-                    <TrendingUp className="w-3.5 h-3.5 mb-1.5 text-muted-foreground" />
-                    <span className="text-[10px] font-semibold text-muted-foreground uppercase">
-                      Specs
-                    </span>
-                    <span className="text-xs font-bold text-center mt-0.5 whitespace-nowrap">
-                      GAR {p.spec?.gar || "N/A"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {filteredProjects.length === 0 && (
-          <div className="text-center py-16 px-8 card-elevated border-dashed border-2">
-            <FolderKanban className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4" />
-            <h3 className="text-lg font-bold mb-1">No Active Projects</h3>
-            <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-              Confirmed deals from the Sales Monitor will automatically appear
-              here as active projects.
-            </p>
-          </div>
-        )}
-
-        {/* Detail Modal */}
-        {selectedProject && (
-          <div className="modal-overlay z-50 fixed inset-0 flex items-center justify-center p-4">
-            <div
-              className="modal-backdrop absolute inset-0 bg-background/80 backdrop-blur-sm"
-              onClick={() => setSelectedProject(null)}
-            />
-            <div className="modal-content relative bg-card border border-border w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl animate-scale-in">
-              {/* Header */}
-              <div className="flex items-center justify-between p-6 border-b border-border bg-accent/10">
-                <div>
-                  <div className="flex items-center gap-3 mb-1">
-                    <h2 className="text-2xl font-bold">
-                      {selectedProject.buyer}
-                    </h2>
-                    <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-600 px-2.5 py-1 rounded-md uppercase tracking-wider">
-                      ACTIVE PROJECT
-                    </span>
-                  </div>
-                  <p className="text-sm text-muted-foreground font-mono">
-                    {selectedProject.deal_number || selectedProject.id} ·{" "}
-                    {selectedProject.buyer_country}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setSelectedProject(null)}
-                  className="p-2 hover:bg-accent/80 rounded-xl transition-colors shrink-0"
-                >
-                  <X className="w-5 h-5 text-muted-foreground" />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-8">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-5 rounded-xl bg-accent/20 border border-border/50">
-                  <div>
-                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider mb-1">
-                      Tonnage
-                    </p>
-                    <p className="text-lg font-bold font-mono text-emerald-600">
-                      {selectedProject.quantity.toLocaleString()} MT
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider mb-1">
-                      Shipping
-                    </p>
-                    <p className="text-lg font-bold">
-                      {selectedProject.shipping_terms}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider mb-1">
-                      Type
-                    </p>
-                    <p className="text-lg font-bold capitalize">
-                      {selectedProject.type}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider mb-1">
-                      Spec
-                    </p>
-                    <p className="text-lg font-bold">
-                      GAR {selectedProject.spec?.gar}
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="text-sm font-bold tracking-tight mb-4 flex items-center gap-2 border-b border-border pb-2">
-                    <Calendar className="w-4 h-4 text-emerald-500" /> Laycan
-                    Schedule
-                  </h4>
-                  <div className="flex flex-col sm:flex-row gap-0 sm:gap-6 p-5 rounded-xl border border-border bg-card">
-                    <div className="flex-1">
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">
-                        Start Date
-                      </p>
-                      <p className="font-semibold text-base">
-                        {selectedProject.laycan_start || "Pending Date"}
-                      </p>
-                    </div>
-                    <div className="w-px bg-border my-2 hidden sm:block" />
-                    <div className="h-px w-full bg-border my-4 sm:hidden" />
-                    <div className="flex-1">
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">
-                        End Date
-                      </p>
-                      <p className="font-semibold text-base">
-                        {selectedProject.laycan_end || "Pending Date"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="text-sm font-bold tracking-tight mb-4 flex items-center gap-2 border-b border-border pb-2">
-                    <Ship className="w-4 h-4 text-sky-500" /> Vessel &
-                    Operations
-                  </h4>
-                  {selectedProject.vessel_name ? (
-                    <div className="p-5 rounded-xl border border-sky-500/20 bg-sky-500/5">
-                      <div className="flex justify-between items-start mb-4">
-                        <div>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                            Vessel Assigned
-                          </p>
-                          <p className="font-bold text-sky-600 text-lg">
-                            {selectedProject.vessel_name}
-                          </p>
-                        </div>
-                        <div className="w-10 h-10 rounded-full bg-sky-500/10 flex items-center justify-center shrink-0">
-                          <Ship className="w-5 h-5 text-sky-500" />
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button className="px-4 py-2 bg-background border border-border shadow-sm rounded-lg text-xs font-bold hover:bg-accent transition-colors flex items-center gap-1.5">
-                          <MapPin className="w-3.5 h-3.5" /> Track Vessel
-                        </button>
-                        <button className="px-4 py-2 bg-background border border-border shadow-sm rounded-lg text-xs font-bold hover:bg-accent transition-colors">
-                          Nominate Surveyor
-                        </button>
-                      </div>
-                    </div>
-                  ) : assigningVesselId === selectedProject.id ? (
-                    <div className="p-5 rounded-xl border border-sky-500/20 bg-sky-500/5 space-y-3">
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                        Assign Vessel
-                      </p>
-                      <input
-                        autoFocus
-                        value={vesselNameInput}
-                        onChange={(e) => setVesselNameInput(e.target.value)}
-                        placeholder="e.g. MV Bulk Prosperity"
-                        className="w-full px-3 py-2 text-sm rounded-lg border border-border outline-none focus:border-sky-500"
-                      />
-                      <div className="flex gap-2 pt-1">
-                        <button
-                          onClick={handleAssignVessel}
-                          disabled={isAssigning || !vesselNameInput.trim()}
-                          className="px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-sm transition-colors disabled:opacity-50"
-                        >
-                          {isAssigning ? "Saving..." : "Save"}
-                        </button>
-                        <button
-                          onClick={() => setAssigningVesselId(null)}
-                          disabled={isAssigning}
-                          className="px-4 py-1.5 rounded-lg bg-background border border-border hover:bg-accent text-xs font-bold transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-8 rounded-xl border border-dashed border-border/80 bg-accent/10 text-center flex flex-col items-center">
-                      <Ship className="w-10 h-10 text-muted-foreground/30 mb-3" />
-                      <p className="text-base font-bold mb-1">
-                        No Vessel Assigned
-                      </p>
-                      <p className="text-xs text-muted-foreground mb-4 max-w-xs mx-auto leading-relaxed">
-                        Vessel nomination is pending from buyer/logistics.
-                        Please coordinate with operations.
-                      </p>
-                      <button
-                        onClick={() => {
-                          setAssigningVesselId(selectedProject.id);
-                          setVesselNameInput("");
-                        }}
-                        className="px-5 py-2 rounded-lg bg-background border border-border text-xs font-bold hover:bg-accent transition-colors shadow-sm"
-                      >
-                        Assign Vessel Now
-                      </button>
-                    </div>
+                <div className="flex items-center gap-1">
+                  <span className={statusBadgeClass(p.status)}>{statusLabel[p.status] || p.status}</span>
+                  {p.projectRecord && (
+                    <button onClick={(e) => { e.stopPropagation(); openEdit(p.projectRecord!); }} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground" title="Edit">
+                      <Edit className="w-3.5 h-3.5" />
+                    </button>
                   )}
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div><p className="text-muted-foreground">Volume</p><p className="font-bold">{fmtInt(p.volume)} MT</p></div>
+                <div><p className="text-muted-foreground">Revenue</p><p className="font-bold">{fmtUsd(p.revenue)}</p></div>
+                <div><p className="text-muted-foreground">Rows</p><p className="font-bold">{fmtInt(p.shipmentCount)}</p></div>
+                <div><p className="text-muted-foreground">Year</p><p className="font-bold">{p.year || "-"}</p></div>
+              </div>
+            </div>
+          ))}
+        </div>
 
-              <div className="p-6 border-t border-border bg-accent/5 flex justify-end gap-3 rounded-b-2xl">
-                <button
-                  className="px-6 py-2 rounded-lg bg-background border border-border text-sm font-bold shadow-sm hover:bg-accent transition-colors"
-                  onClick={() => setSelectedProject(null)}
-                >
-                  Close
-                </button>
+        {filtered.length === 0 && (
+          <div className="text-center py-16 px-8 card-elevated border-dashed border-2">
+            <FolderKanban className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4" />
+            <h3 className="text-lg font-bold mb-1">No Project Data</h3>
+            <p className="text-sm text-muted-foreground">Tidak ada project yang cocok dengan filter saat ini.</p>
+          </div>
+        )}
+
+        {showForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setShowForm(false)} />
+            <div className="relative w-full max-w-xl rounded-2xl bg-card border border-border shadow-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold">{editingProject ? "Edit Project" : "Add Project"}</h2>
+                <button onClick={() => setShowForm(false)} className="p-2 rounded-md hover:bg-accent"><X className="w-4 h-4 text-muted-foreground" /></button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Project Name *" className="md:col-span-2 px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <input value={form.segment} onChange={(e) => setForm((f) => ({ ...f, segment: e.target.value }))} placeholder="Segment" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <input value={form.buyer} onChange={(e) => setForm((f) => ({ ...f, buyer: e.target.value }))} placeholder="Buyer" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm">
+                  <option value="waiting_approval">Waiting Approval</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="upcoming">Upcoming</option>
+                  <option value="ongoing">Ongoing</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+                <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={3} placeholder="Notes" className="md:col-span-2 px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm resize-none" />
+              </div>
+              <div className="flex justify-between items-center pt-2 border-t border-border">
+                {editingProject ? (
+                  <button onClick={async () => {
+                    if (!window.confirm("Delete this project?")) return;
+                    await deleteProject(editingProject.id);
+                    setShowForm(false);
+                  }} className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-semibold hover:bg-red-500/20">
+                    <Trash2 className="w-3.5 h-3.5 mr-1.5 inline" />Delete
+                  </button>
+                ) : <span />}
+                <div className="flex gap-2">
+                  <button onClick={() => setShowForm(false)} className="px-3 py-2 rounded-lg text-sm hover:bg-accent">Cancel</button>
+                  <button onClick={saveProject} disabled={saving || !form.name.trim()} className="btn-primary text-sm px-3 py-2 disabled:opacity-60">{saving ? "Saving..." : "Save Project"}</button>
+                </div>
               </div>
             </div>
           </div>
         )}
-        {toast && (
-          <Toast
-            message={toast.message}
-            type={toast.type}
-            onClose={() => setToast(null)}
-          />
+
+        {selectedProject && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setSelectedProject(null)} />
+            <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl bg-card border border-border shadow-2xl">
+              <div className="flex items-center justify-between p-5 border-b border-border">
+                <div>
+                  <h2 className="text-xl font-bold">{selectedProject.projectName}</h2>
+                  <p className="text-xs text-muted-foreground">Buyer: {selectedProject.buyer} • Segment: {selectedProject.segment}</p>
+                </div>
+                <button onClick={() => setSelectedProject(null)} className="p-2 rounded-lg hover:bg-accent"><X className="w-4 h-4 text-muted-foreground" /></button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div className="card-elevated p-3"><p className="text-[10px] text-muted-foreground">Rows</p><p className="font-bold">{fmtInt(selectedProject.shipmentCount)}</p></div>
+                  <div className="card-elevated p-3"><p className="text-[10px] text-muted-foreground">Volume</p><p className="font-bold">{fmtInt(selectedProject.volume)} MT</p></div>
+                  <div className="card-elevated p-3"><p className="text-[10px] text-muted-foreground">Revenue</p><p className="font-bold">{fmtUsd(selectedProject.revenue)}</p></div>
+                  <div className="card-elevated p-3"><p className="text-[10px] text-muted-foreground">Gross Profit</p><p className="font-bold">{fmtUsd(selectedProject.grossProfit)}</p></div>
+                </div>
+                {selectedProject.projectRecord && (
+                  <div className="card-elevated p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">Approval Status</p>
+                        <div className="flex items-center gap-2">
+                          <span className={statusBadgeClass(mapMasterStatus(selectedProject.projectRecord.status))}>
+                            {statusLabel[mapMasterStatus(selectedProject.projectRecord.status)]}
+                          </span>
+                          {selectedProject.projectRecord.approved_by_name && (
+                            <span className="text-xs text-muted-foreground">
+                              by {selectedProject.projectRecord.approved_by_name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {canApprove && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={async () => {
+                              if (!selectedProject.projectRecord) return;
+                              await updateProject(selectedProject.projectRecord.id, { status: "approved" });
+                              await syncFromMemory({ force: true });
+                              setSelectedProject(null);
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/30 hover:bg-emerald-500/20"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />
+                            Approve
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!selectedProject.projectRecord) return;
+                              await updateProject(selectedProject.projectRecord.id, { status: "rejected" });
+                              await syncFromMemory({ force: true });
+                              setSelectedProject(null);
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/30 hover:bg-rose-500/20"
+                          >
+                            <XCircle className="w-3.5 h-3.5 inline mr-1" />
+                            Reject
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!selectedProject.projectRecord) return;
+                              await updateProject(selectedProject.projectRecord.id, { status: "waiting_approval" });
+                              await syncFromMemory({ force: true });
+                              setSelectedProject(null);
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 text-amber-700 border border-amber-500/30 hover:bg-amber-500/20"
+                          >
+                            <Clock3 className="w-3.5 h-3.5 inline mr-1" />
+                            Set Waiting
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <div className="card-elevated p-4">
+                  <h4 className="text-sm font-bold mb-3">Child Shipment Details</h4>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border/60 text-muted-foreground">
+                          <th className="text-left py-2 pr-3">Nomination</th>
+                          <th className="text-left py-2 pr-3">Jetty/Port</th>
+                          <th className="text-left py-2 pr-3">Laycan</th>
+                          <th className="text-left py-2 pr-3">Status</th>
+                          <th className="text-right py-2 pr-3">Qty</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedProject.rows.slice(0, 15).map((r) => (
+                          <tr key={r.id} className="border-b border-border/30">
+                            <td className="py-2 pr-3">{r.nomination || r.barge_name || "-"}</td>
+                            <td className="py-2 pr-3">{r.jetty_loading_port || r.loading_port || "-"}</td>
+                            <td className="py-2 pr-3">{r.laycan || "-"}</td>
+                            <td className="py-2 pr-3">{r.shipment_status || r.status || "-"}</td>
+                            <td className="py-2 pr-3 text-right">{fmtInt(safeNum(r.qty_plan || r.quantity_loaded))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </AppShell>

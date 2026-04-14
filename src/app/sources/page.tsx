@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import GlobalLoading from "@/app/loading";
 import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { KYC_STATUSES, PSI_STATUSES } from "@/lib/constants";
@@ -31,7 +30,7 @@ const emptySource: Partial<SourceSupplier> = {
 };
 
 export default function SourcesPage() {
-    const [isInitializing, setIsInitializing] = React.useState(true);
+    const [, setIsInitializing] = React.useState(false);
 
     const { sources, syncFromMemory, addSource, updateSource, deleteSource } = useCommercialStore();
 
@@ -117,7 +116,6 @@ export default function SourcesPage() {
         return acc;
     }, {} as Record<string, { count: number, totalStock: number }>);
 
-    if (isInitializing) return <GlobalLoading />;
 
     return (
         <AppShell>

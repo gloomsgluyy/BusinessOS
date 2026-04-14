@@ -3,8 +3,19 @@
 import React from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppShell } from "@/components/layout/app-shell";
+import { DISABLE_SKELETON_LOADERS } from "@/lib/feature-flags";
 
 export default function GlobalLoading() {
+  if (DISABLE_SKELETON_LOADERS) {
+    return (
+      <AppShell>
+        <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto w-full">
+          <div className="text-sm text-muted-foreground">Loading data...</div>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto space-y-6 w-full animate-fade-in">
