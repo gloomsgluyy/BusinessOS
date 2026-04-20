@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PushService } from "@/lib/push-to-sheets";
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 // DATABASE-FIRST: Optional push to Sheets for backup/export
 async function triggerPush() {
@@ -11,14 +12,33 @@ async function triggerPush() {
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+        const url = new URL(req.url);
+        const pagination = parsePaginationParams(url.searchParams);
+
+        const where = { isDeleted: false };
+
+        if (pagination) {
+            const [tasks, totalItems] = await Promise.all([
+                prisma.taskItem.findMany({
+                    where,
+                    orderBy: { createdAt: pagination.sortOrder },
+                    skip: pagination.skip,
+                    take: pagination.take,
+                }),
+                prisma.taskItem.count({ where }),
+            ]);
+            const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+            return NextResponse.json({ success: true, tasks, meta });
+        }
+
         // DATABASE-FIRST: Read directly from database
         const tasks = await prisma.taskItem.findMany({
-            where: { isDeleted: false },
+            where,
             orderBy: { createdAt: "desc" }
         });
 

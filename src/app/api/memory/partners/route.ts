@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { syncPartnersToSheet } from "@/app/actions/sheet-actions";
 
 import { PushService } from "@/lib/push-to-sheets";
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 async function triggerPush() {
     PushService.debouncedPush("partner").catch(err => console.error("Push failed:", err));
@@ -156,29 +157,38 @@ async function bootstrapPartnersFromOperationalData() {
     return toCreate.length;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        let partners = await prisma.partner.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
-        });
+        const url = new URL(req.url);
+        const pagination = parsePaginationParams(url.searchParams);
+        const where = { isDeleted: false };
 
-        if (partners.length === 0) {
+        // Bootstrap if no partners exist
+        const count = await prisma.partner.count({ where });
+        if (count === 0) {
             try {
-                const created = await bootstrapPartnersFromOperationalData();
-                if (created > 0) {
-                    partners = await prisma.partner.findMany({
-                        where: { isDeleted: false },
-                        orderBy: { createdAt: "desc" }
-                    });
-                }
+                await bootstrapPartnersFromOperationalData();
             } catch (bootstrapError) {
                 console.error("Partner bootstrap failed (non-critical):", bootstrapError);
             }
         }
+
+        if (pagination) {
+            const [partners, totalItems] = await Promise.all([
+                prisma.partner.findMany({ where, orderBy: { createdAt: pagination.sortOrder }, skip: pagination.skip, take: pagination.take }),
+                prisma.partner.count({ where }),
+            ]);
+            const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+            return NextResponse.json({ success: true, partners, meta });
+        }
+
+        const partners = await prisma.partner.findMany({
+            where,
+            orderBy: { createdAt: "desc" }
+        });
 
         return NextResponse.json({ success: true, partners });
     } catch (error) {

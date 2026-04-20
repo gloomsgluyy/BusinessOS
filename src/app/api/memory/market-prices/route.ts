@@ -19,19 +19,33 @@ async function tryAuditLog(userId: string, userName: string, action: string, ent
         console.warn("[AuditLog] Skipped — user not found in DB (stale session?):", err?.code);
     }
 }
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+        const url = new URL(req.url);
+        const pagination = parsePaginationParams(url.searchParams);
+        const where = { isDeleted: false };
+
+        if (pagination) {
+            const [prices, totalItems] = await Promise.all([
+                prisma.marketPrice.findMany({ where, orderBy: { date: pagination.sortOrder }, skip: pagination.skip, take: pagination.take }),
+                prisma.marketPrice.count({ where }),
+            ]);
+            const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+            return NextResponse.json({ success: true, prices, meta });
+        }
+
         // DATABASE-FIRST: Read directly from database
         const prices = await prisma.marketPrice.findMany({
-            where: { isDeleted: false },
+            where,
             orderBy: { date: "desc" }
         });
 

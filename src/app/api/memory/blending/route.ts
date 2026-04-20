@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { syncAllBlendingToSheet } from "@/app/actions/sheet-actions";
 
 import { PushService } from "@/lib/push-to-sheets";
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 async function triggerPush() {
     try {
@@ -14,24 +15,36 @@ async function triggerPush() {
     }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        const simulations = await prisma.blendingSimulation.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
-        });
+        const url = new URL(req.url);
+        const pagination = parsePaginationParams(url.searchParams);
+        const where = { isDeleted: false };
 
-        // Parse inputs JSON
-        const formatted = simulations.map(s => {
+        const formatSim = (s: any) => {
             let inputs: any[] = [];
             try { inputs = JSON.parse(s.inputs); } catch { inputs = []; }
             return { ...s, inputs };
+        };
+
+        if (pagination) {
+            const [simulations, totalItems] = await Promise.all([
+                prisma.blendingSimulation.findMany({ where, orderBy: { createdAt: pagination.sortOrder }, skip: pagination.skip, take: pagination.take }),
+                prisma.blendingSimulation.count({ where }),
+            ]);
+            const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+            return NextResponse.json({ success: true, blendingHistory: simulations.map(formatSim), meta });
+        }
+
+        const simulations = await prisma.blendingSimulation.findMany({
+            where,
+            orderBy: { createdAt: "desc" }
         });
 
-        return NextResponse.json({ success: true, blendingHistory: formatted });
+        return NextResponse.json({ success: true, blendingHistory: simulations.map(formatSim) });
     } catch (error) {
         console.error("GET /api/memory/blending error:", error);
         return NextResponse.json({ error: "Failed to fetch blending simulations" }, { status: 500 });

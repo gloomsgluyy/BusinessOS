@@ -8,6 +8,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PushService } from "@/lib/push-to-sheets";
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 async function triggerPush() {
     PushService.debouncedPush("meetingItem").catch(err => console.error("Optional Sheet push failed:", err));
@@ -17,19 +18,16 @@ async function triggerPush() {
  * GET - Read from Database (Source of Truth)
  * Flow: Read from DB → Return DB data
  */
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        console.log("[GET /api/memory/meetings] Reading from database (source of truth)");
+        const url = new URL(req.url);
+        const pagination = parsePaginationParams(url.searchParams);
+        const where = { isDeleted: false };
 
-        const meetings = await prisma.meetingItem.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
-        });
-
-        const formattedMeetings = meetings.map(meeting => {
+        const formatMeeting = (meeting: any) => {
             let attendees: string[] = [];
             if (meeting.attendees) {
                 try {
@@ -39,15 +37,24 @@ export async function GET() {
                     attendees = meeting.attendees.split(',').map((a: string) => a.trim()).filter(Boolean);
                 }
             }
+            return { ...meeting, attendees };
+        };
 
-            return {
-                ...meeting,
-                attendees,
-            };
+        if (pagination) {
+            const [meetings, totalItems] = await Promise.all([
+                prisma.meetingItem.findMany({ where, orderBy: { createdAt: pagination.sortOrder }, skip: pagination.skip, take: pagination.take }),
+                prisma.meetingItem.count({ where }),
+            ]);
+            const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+            return NextResponse.json({ success: true, meetings: meetings.map(formatMeeting), meta });
+        }
+
+        const meetings = await prisma.meetingItem.findMany({
+            where,
+            orderBy: { createdAt: "desc" }
         });
 
-        console.log(`[GET /api/memory/meetings] Returning ${formattedMeetings.length} meetings from database`);
-        return NextResponse.json({ success: true, meetings: formattedMeetings });
+        return NextResponse.json({ success: true, meetings: meetings.map(formatMeeting) });
     } catch (error) {
         console.error("GET /api/memory/meetings error:", error);
         return NextResponse.json({ error: "Failed to fetch meetings" }, { status: 500 });
@@ -64,7 +71,7 @@ export async function POST(req: Request) {
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const data = await req.json();
-        
+
         const meetingId = `MEET-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
         console.log("[POST /api/memory/meetings] Writing to database (source of truth)...");
@@ -122,7 +129,7 @@ export async function PUT(req: Request) {
 
         const existingRecord = await prisma.meetingItem.findUnique({ where: { id: data.id } });
         if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
-        
+
         const userRole = session.user.role?.toLowerCase() || "";
         if (existingRecord.createdBy !== session.user.id && !["ceo", "director", "manager"].includes(userRole)) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -185,7 +192,7 @@ export async function DELETE(req: Request) {
 
         const existingRecord = await prisma.meetingItem.findUnique({ where: { id } });
         if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
-        
+
         const userRole = session.user.role?.toLowerCase() || "";
         if (existingRecord.createdBy !== session.user.id && !["ceo", "director", "manager"].includes(userRole)) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });

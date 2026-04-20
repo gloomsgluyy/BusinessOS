@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PushService } from "@/lib/push-to-sheets";
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -229,6 +230,7 @@ export async function GET(req: Request) {
                         hpb: true,
                         shipmentStatus: true,
                         issueNotes: true,
+                        statusReason: true,
                         blDate: true,
                         pic: true,
                         sp: true,
@@ -309,7 +311,7 @@ export async function GET(req: Request) {
             const counterparty = exportShipment
                 ? (inferredBuyer || inferredSupplier || sanitizeEntityName(s.mvProjectName) || "TBA Buyer")
                 : (inferredSupplier || inferredBuyer || sanitizeEntityName(s.mvProjectName) || "TBA Vendor");
-            const statusReason = deriveStatusReason(s);
+            const statusReason = (s as any).statusReason || deriveStatusReason(s);
             const pendingItems = splitReasonItems(s?.issueNotes, s?.remarks);
 
             return {
@@ -331,6 +333,15 @@ export async function GET(req: Request) {
             };
         });
 
+        // Apply pagination after enrichment (since noise filtering changes total count)
+        const pagination = parsePaginationParams(searchParams);
+        if (pagination) {
+            const totalItems = enriched.length;
+            const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+            const paginated = enriched.slice(pagination.skip, pagination.skip + pagination.take);
+            return NextResponse.json({ success: true, shipments: paginated, meta });
+        }
+
         return NextResponse.json({ success: true, shipments: enriched });
     } catch (error) {
         console.error("GET /api/memory/shipments error:", error);
@@ -348,63 +359,73 @@ export async function POST(req: Request) {
         // DATABASE-FIRST: Write to database as primary source
         const shipment = await prisma.shipmentDetail.create({
             data: {
-                    no: data.no ? parseInt(data.no) : null,
-                    exportDmo: data.exportDmo,
-                    status: data.status || "upcoming",
-                    origin: data.origin,
-                    mvProjectName: data.mvProjectName,
-                    source: data.source,
-                    iupOp: data.iupOp,
-                    shipmentFlow: data.shipmentFlow,
-                    jettyLoadingPort: data.jettyLoadingPort,
-                    laycan: data.laycan,
-                    nomination: data.nomination,
-                    qtyPlan: parseNum(data.qtyPlan),
-                    qtyCob: parseNum(data.qtyCob),
-                    remarks: data.remarks,
-                    hargaActualFob: parseNum(data.hargaActualFob),
-                    hargaActualFobMv: parseNum(data.hargaActualFobMv),
-                    hpb: parseNum(data.hpb),
-                    statusHpb: data.statusHpb,
-                    shipmentStatus: data.shipmentStatus,
-                    issueNotes: data.issueNotes,
-                    blDate: parseDate(data.blDate),
-                    pic: data.pic || session.user.name,
-                    kuotaExport: data.kuotaExport,
-                    surveyorLhv: data.surveyorLhv,
-                    completelyLoaded: parseDate(data.completelyLoaded),
-                    lhvTerbit: parseDate(data.lhvTerbit),
-                    lossGainCargo: parseNum(data.lossGainCargo),
-                    sp: parseNum(data.sp),
-                    deadfreight: parseNum(data.deadfreight),
-                    jarak: parseNum(data.jarak),
-                    shippingTerm: data.shippingTerm,
-                    shippingRate: parseNum(data.shippingRate),
-                    priceFreight: parseNum(data.priceFreight),
-                    allowance: data.allowance,
-                    demm: data.demm,
-                    noSpal: data.noSpal,
-                    noSi: data.noSi,
-                    sentToSupplier: data.sentToSupplier,
-                    sentToBargeOwner: data.sentToBargeOwner,
-                    noInvoiceMkls: data.noInvoiceMkls,
-                    coaDate: parseDate(data.coaDate),
-                    resultGar: parseNum(data.resultGar),
-                    year: data.year || new Date().getFullYear(),
-                    // Detailed/Unified fields
-                    quantityLoaded: parseNum(data.quantity_loaded ?? data.quantityLoaded),
-                    salesPrice: parseNum(data.sales_price ?? data.salesPrice),
-                    marginMt: parseNum(data.margin_mt ?? data.marginMt),
-                    buyer: data.buyer,
-                    supplier: data.supplier || data.source,
-                    vesselName: data.vessel_name ?? data.vesselName,
-                    bargeName: data.barge_name ?? data.bargeName,
-                    loadingPort: data.loading_port ?? data.loadingPort,
-                    dischargePort: data.discharge_port ?? data.dischargePort,
-                    product: data.product,
-                    analysisMethod: data.analysis_method ?? data.analysisMethod,
-                    type: data.type || "export",
-                }
+                no: data.no ? parseInt(data.no) : null,
+                exportDmo: data.exportDmo,
+                status: data.status || "upcoming",
+                origin: data.origin,
+                mvProjectName: data.mvProjectName,
+                source: data.source,
+                iupOp: data.iupOp,
+                shipmentFlow: data.shipmentFlow,
+                jettyLoadingPort: data.jettyLoadingPort,
+                laycan: data.laycan,
+                nomination: data.nomination,
+                qtyPlan: parseNum(data.qtyPlan),
+                qtyCob: parseNum(data.qtyCob),
+                remarks: data.remarks,
+                hargaActualFob: parseNum(data.hargaActualFob),
+                hargaActualFobMv: parseNum(data.hargaActualFobMv),
+                hpb: parseNum(data.hpb),
+                statusHpb: data.statusHpb,
+                shipmentStatus: data.shipmentStatus,
+                issueNotes: data.issueNotes,
+                statusReason: (() => {
+                    let reason = data.statusReason ?? data.status_reason ?? null;
+                    if (reason) reason = String(reason).slice(0, 500);
+                    const st = (data.status || "").toLowerCase();
+                    const shipSt = (data.shipmentStatus || "").toLowerCase();
+                    const isOnGoing = ["upcoming", "loading", "in_transit"].includes(st);
+                    const isPending = shipSt.includes("pending") || shipSt.includes("waiting");
+                    if (!reason && isOnGoing && isPending) reason = "Waiting operational readiness.";
+                    return reason;
+                })(),
+                blDate: parseDate(data.blDate),
+                pic: data.pic || session.user.name,
+                kuotaExport: data.kuotaExport,
+                surveyorLhv: data.surveyorLhv,
+                completelyLoaded: parseDate(data.completelyLoaded),
+                lhvTerbit: parseDate(data.lhvTerbit),
+                lossGainCargo: parseNum(data.lossGainCargo),
+                sp: parseNum(data.sp),
+                deadfreight: parseNum(data.deadfreight),
+                jarak: parseNum(data.jarak),
+                shippingTerm: data.shippingTerm,
+                shippingRate: parseNum(data.shippingRate),
+                priceFreight: parseNum(data.priceFreight),
+                allowance: data.allowance,
+                demm: data.demm,
+                noSpal: data.noSpal,
+                noSi: data.noSi,
+                sentToSupplier: data.sentToSupplier,
+                sentToBargeOwner: data.sentToBargeOwner,
+                noInvoiceMkls: data.noInvoiceMkls,
+                coaDate: parseDate(data.coaDate),
+                resultGar: parseNum(data.resultGar),
+                year: data.year || new Date().getFullYear(),
+                // Detailed/Unified fields
+                quantityLoaded: parseNum(data.quantity_loaded ?? data.quantityLoaded),
+                salesPrice: parseNum(data.sales_price ?? data.salesPrice),
+                marginMt: parseNum(data.margin_mt ?? data.marginMt),
+                buyer: data.buyer,
+                supplier: data.supplier || data.source,
+                vesselName: data.vessel_name ?? data.vesselName,
+                bargeName: data.barge_name ?? data.bargeName,
+                loadingPort: data.loading_port ?? data.loadingPort,
+                dischargePort: data.discharge_port ?? data.dischargePort,
+                product: data.product,
+                analysisMethod: data.analysis_method ?? data.analysisMethod,
+                type: data.type || "export",
+            }
         });
         await tryAuditLog(
             session.user.id,
@@ -439,54 +460,55 @@ export async function PUT(req: Request) {
         const shipment = await prisma.shipmentDetail.update({
             where: { id: data.id },
             data: {
-                    no: data.no !== undefined ? (data.no ? parseInt(data.no) : null) : undefined,
-                    exportDmo: data.exportDmo, status: data.status, origin: data.origin,
-                    mvProjectName: data.mvProjectName, source: data.source, iupOp: data.iupOp,
-                    shipmentFlow: data.shipmentFlow, jettyLoadingPort: data.jettyLoadingPort,
-                    laycan: data.laycan, nomination: data.nomination,
-                    qtyPlan: data.qtyPlan !== undefined ? parseNum(data.qtyPlan) : undefined,
-                    qtyCob: data.qtyCob !== undefined ? parseNum(data.qtyCob) : undefined,
-                    remarks: data.remarks, hargaActualFob: data.hargaActualFob !== undefined ? parseNum(data.hargaActualFob) : undefined,
-                    hargaActualFobMv: data.hargaActualFobMv !== undefined ? parseNum(data.hargaActualFobMv) : undefined,
-                    hpb: data.hpb !== undefined ? parseNum(data.hpb) : undefined,
-                    statusHpb: data.statusHpb, shipmentStatus: data.shipmentStatus, issueNotes: data.issueNotes,
-                    blDate: data.blDate !== undefined ? parseDate(data.blDate) : undefined,
-                    pic: data.pic, kuotaExport: data.kuotaExport, surveyorLhv: data.surveyorLhv,
-                    completelyLoaded: data.completelyLoaded !== undefined ? parseDate(data.completelyLoaded) : undefined,
-                    lhvTerbit: data.lhvTerbit !== undefined ? parseDate(data.lhvTerbit) : undefined,
-                    lossGainCargo: data.lossGainCargo !== undefined ? parseNum(data.lossGainCargo) : undefined,
-                    sp: data.sp !== undefined ? parseNum(data.sp) : undefined,
-                    deadfreight: data.deadfreight !== undefined ? parseNum(data.deadfreight) : undefined,
-                    jarak: data.jarak !== undefined ? parseNum(data.jarak) : undefined,
-                    shippingTerm: data.shippingTerm, shippingRate: data.shippingRate !== undefined ? parseNum(data.shippingRate) : undefined,
-                    priceFreight: data.priceFreight !== undefined ? parseNum(data.priceFreight) : undefined,
-                    allowance: data.allowance, demm: data.demm, noSpal: data.noSpal, noSi: data.noSi,
-                    sentToSupplier: data.sentToSupplier,
-                    sentToBargeOwner: data.sentToBargeOwner,
-                    noInvoiceMkls: data.noInvoiceMkls,
-                    coaDate: data.coaDate !== undefined ? parseDate(data.coaDate) : undefined,
-                    resultGar: data.resultGar !== undefined ? parseNum(data.resultGar) : undefined,
-                    year: data.year,
-                    // Detailed/Unified fields
-                    quantityLoaded: data.quantity_loaded !== undefined
-                        ? parseNum(data.quantity_loaded)
-                        : (data.quantityLoaded !== undefined ? parseNum(data.quantityLoaded) : undefined),
-                    salesPrice: data.sales_price !== undefined
-                        ? parseNum(data.sales_price)
-                        : (data.salesPrice !== undefined ? parseNum(data.salesPrice) : undefined),
-                    marginMt: data.margin_mt !== undefined
-                        ? parseNum(data.margin_mt)
-                        : (data.marginMt !== undefined ? parseNum(data.marginMt) : undefined),
-                    buyer: data.buyer,
-                    supplier: data.supplier !== undefined ? data.supplier : undefined,
-                    vesselName: data.vessel_name !== undefined ? data.vessel_name : (data.vesselName !== undefined ? data.vesselName : undefined),
-                    bargeName: data.barge_name !== undefined ? data.barge_name : (data.bargeName !== undefined ? data.bargeName : undefined),
-                    loadingPort: data.loading_port !== undefined ? data.loading_port : (data.loadingPort !== undefined ? data.loadingPort : undefined),
-                    dischargePort: data.discharge_port !== undefined ? data.discharge_port : (data.dischargePort !== undefined ? data.dischargePort : undefined),
-                    product: data.product,
-                    analysisMethod: data.analysis_method !== undefined ? data.analysis_method : (data.analysisMethod !== undefined ? data.analysisMethod : undefined),
-                    type: data.type !== undefined ? data.type : undefined,
-                }
+                no: data.no !== undefined ? (data.no ? parseInt(data.no) : null) : undefined,
+                exportDmo: data.exportDmo, status: data.status, origin: data.origin,
+                mvProjectName: data.mvProjectName, source: data.source, iupOp: data.iupOp,
+                shipmentFlow: data.shipmentFlow, jettyLoadingPort: data.jettyLoadingPort,
+                laycan: data.laycan, nomination: data.nomination,
+                qtyPlan: data.qtyPlan !== undefined ? parseNum(data.qtyPlan) : undefined,
+                qtyCob: data.qtyCob !== undefined ? parseNum(data.qtyCob) : undefined,
+                remarks: data.remarks, hargaActualFob: data.hargaActualFob !== undefined ? parseNum(data.hargaActualFob) : undefined,
+                hargaActualFobMv: data.hargaActualFobMv !== undefined ? parseNum(data.hargaActualFobMv) : undefined,
+                hpb: data.hpb !== undefined ? parseNum(data.hpb) : undefined,
+                statusHpb: data.statusHpb, shipmentStatus: data.shipmentStatus, issueNotes: data.issueNotes,
+                statusReason: data.statusReason !== undefined ? (data.statusReason ? String(data.statusReason).slice(0, 500) : data.statusReason) : (data.status_reason !== undefined ? (data.status_reason ? String(data.status_reason).slice(0, 500) : data.status_reason) : undefined),
+                blDate: data.blDate !== undefined ? parseDate(data.blDate) : undefined,
+                pic: data.pic, kuotaExport: data.kuotaExport, surveyorLhv: data.surveyorLhv,
+                completelyLoaded: data.completelyLoaded !== undefined ? parseDate(data.completelyLoaded) : undefined,
+                lhvTerbit: data.lhvTerbit !== undefined ? parseDate(data.lhvTerbit) : undefined,
+                lossGainCargo: data.lossGainCargo !== undefined ? parseNum(data.lossGainCargo) : undefined,
+                sp: data.sp !== undefined ? parseNum(data.sp) : undefined,
+                deadfreight: data.deadfreight !== undefined ? parseNum(data.deadfreight) : undefined,
+                jarak: data.jarak !== undefined ? parseNum(data.jarak) : undefined,
+                shippingTerm: data.shippingTerm, shippingRate: data.shippingRate !== undefined ? parseNum(data.shippingRate) : undefined,
+                priceFreight: data.priceFreight !== undefined ? parseNum(data.priceFreight) : undefined,
+                allowance: data.allowance, demm: data.demm, noSpal: data.noSpal, noSi: data.noSi,
+                sentToSupplier: data.sentToSupplier,
+                sentToBargeOwner: data.sentToBargeOwner,
+                noInvoiceMkls: data.noInvoiceMkls,
+                coaDate: data.coaDate !== undefined ? parseDate(data.coaDate) : undefined,
+                resultGar: data.resultGar !== undefined ? parseNum(data.resultGar) : undefined,
+                year: data.year,
+                // Detailed/Unified fields
+                quantityLoaded: data.quantity_loaded !== undefined
+                    ? parseNum(data.quantity_loaded)
+                    : (data.quantityLoaded !== undefined ? parseNum(data.quantityLoaded) : undefined),
+                salesPrice: data.sales_price !== undefined
+                    ? parseNum(data.sales_price)
+                    : (data.salesPrice !== undefined ? parseNum(data.salesPrice) : undefined),
+                marginMt: data.margin_mt !== undefined
+                    ? parseNum(data.margin_mt)
+                    : (data.marginMt !== undefined ? parseNum(data.marginMt) : undefined),
+                buyer: data.buyer,
+                supplier: data.supplier !== undefined ? data.supplier : undefined,
+                vesselName: data.vessel_name !== undefined ? data.vessel_name : (data.vesselName !== undefined ? data.vesselName : undefined),
+                bargeName: data.barge_name !== undefined ? data.barge_name : (data.bargeName !== undefined ? data.bargeName : undefined),
+                loadingPort: data.loading_port !== undefined ? data.loading_port : (data.loadingPort !== undefined ? data.loadingPort : undefined),
+                dischargePort: data.discharge_port !== undefined ? data.discharge_port : (data.dischargePort !== undefined ? data.dischargePort : undefined),
+                product: data.product,
+                analysisMethod: data.analysis_method !== undefined ? data.analysis_method : (data.analysisMethod !== undefined ? data.analysisMethod : undefined),
+                type: data.type !== undefined ? data.type : undefined,
+            }
         });
         await tryAuditLog(
             session.user.id,

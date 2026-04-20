@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -57,14 +58,32 @@ async function tryAuditLog(userId: string, userName: string, action: string, ent
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     await ensureProjectTable();
 
+    const url = new URL(req.url);
+    const pagination = parsePaginationParams(url.searchParams);
+    const where = { isDeleted: false };
+
+    if (pagination) {
+      const [projects, totalItems] = await Promise.all([
+        prisma.projectItem.findMany({
+          where,
+          orderBy: { createdAt: pagination.sortOrder },
+          skip: pagination.skip,
+          take: pagination.take,
+        }),
+        prisma.projectItem.count({ where }),
+      ]);
+      const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+      return NextResponse.json({ success: true, projects, meta });
+    }
+
     const projects = await prisma.projectItem.findMany({
-      where: { isDeleted: false },
+      where,
       orderBy: { createdAt: "desc" },
     });
 

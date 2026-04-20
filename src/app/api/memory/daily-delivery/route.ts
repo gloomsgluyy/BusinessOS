@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { appendRow, upsertRow, deleteRow, findRowIndex } from "@/lib/google-sheets";
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 const SHEET_TAB = "Daily Delivery";
@@ -19,11 +20,25 @@ function parseDate(v: any): Date | null {
 }
 function fmtDate(d: Date | null): string { return d ? d.toISOString().split('T')[0] : ""; }
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const records = await prisma.dailyDelivery.findMany({ where: { isDeleted: false }, orderBy: { createdAt: "desc" } });
+
+        const url = new URL(req.url);
+        const pagination = parsePaginationParams(url.searchParams);
+        const where = { isDeleted: false };
+
+        if (pagination) {
+            const [records, totalItems] = await Promise.all([
+                prisma.dailyDelivery.findMany({ where, orderBy: { createdAt: pagination.sortOrder }, skip: pagination.skip, take: pagination.take }),
+                prisma.dailyDelivery.count({ where }),
+            ]);
+            const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+            return NextResponse.json({ success: true, dailyDeliveries: records, meta });
+        }
+
+        const records = await prisma.dailyDelivery.findMany({ where, orderBy: { createdAt: "desc" } });
         return NextResponse.json({ success: true, dailyDeliveries: records });
     } catch (error) {
         console.error("GET /api/memory/daily-delivery error:", error);
@@ -96,7 +111,7 @@ export async function PUT(req: Request) {
             data: {
                 reportType: data.reportType, year: data.year,
                 shipmentStatus: data.shipmentStatus, buyer: data.buyer, pod: data.pod,
-                shippingTerm: data.shippingTerm, 
+                shippingTerm: data.shippingTerm,
                 latestEtaPod: data.latestEtaPod !== undefined ? parseDate(data.latestEtaPod) : undefined,
                 arriveAtPod: data.arriveAtPod !== undefined ? parseDate(data.arriveAtPod) : undefined,
                 keterlambatan: data.keterlambatan, pol: data.pol, laycanPol: data.laycanPol,

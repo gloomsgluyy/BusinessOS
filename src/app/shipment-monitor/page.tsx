@@ -330,10 +330,10 @@ export default function ShipmentMonitorPage() {
             setDailyForm({ ...data });
         } else {
             setEditDailyData(null);
-            setDailyForm({ 
-                report_type: "domestic", year: 2026, buyer: "", mv_barge_nomination: "", 
-                bl_quantity: 0, issue: "", shipment_status: "upcoming", pod: "", 
-                shipping_term: "FOB", pol: "", area: "", supplier: "", project: "", flow: "" 
+            setDailyForm({
+                report_type: "domestic", year: 2026, buyer: "", mv_barge_nomination: "",
+                bl_quantity: 0, issue: "", shipment_status: "upcoming", pod: "",
+                shipping_term: "FOB", pol: "", area: "", supplier: "", project: "", flow: ""
             });
         }
         setActiveDailyTab("general");
@@ -351,7 +351,7 @@ export default function ShipmentMonitorPage() {
                 setToast({ message: "Daily log added", type: "success" });
             }
             setShowDailyForm(false);
-        } catch(e) {
+        } catch (e) {
             setToast({ message: "Failed to save daily log", type: "error" });
         } finally {
             setIsSaving(false);
@@ -364,7 +364,7 @@ export default function ShipmentMonitorPage() {
         try {
             await deleteDelivery(id);
             setToast({ message: "Daily log deleted", type: "success" });
-        } catch(e) {
+        } catch (e) {
             setToast({ message: "Failed to delete log", type: "error" });
         }
     };
@@ -688,19 +688,19 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                 {/* Filters & View Toggles */}
                 <div className="flex flex-col gap-3">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div className="flex bg-accent/30 p-1 rounded-xl">
-                        <button onClick={() => setActiveView("list")} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all", activeView === "list" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}><List className="w-3.5 h-3.5" /> List View</button>
-                        <button onClick={() => setActiveView("card")} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all", activeView === "card" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}><Package className="w-3.5 h-3.5" /> Card View</button>
-                        <button onClick={() => setActiveView("map")} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all", activeView === "map" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}><MapIcon className="w-3.5 h-3.5" /> Map View</button>
-                    </div>
+                        <div className="flex bg-accent/30 p-1 rounded-xl">
+                            <button onClick={() => setActiveView("list")} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all", activeView === "list" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}><List className="w-3.5 h-3.5" /> List View</button>
+                            <button onClick={() => setActiveView("card")} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all", activeView === "card" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}><Package className="w-3.5 h-3.5" /> Card View</button>
+                            <button onClick={() => setActiveView("map")} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all", activeView === "map" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}><MapIcon className="w-3.5 h-3.5" /> Map View</button>
+                        </div>
 
-                    <div className="flex items-center gap-2 w-full md:w-auto">
-                        <div className="relative flex-1 md:w-64">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search shipments..." className="w-full pl-9 pr-4 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-primary/50 transition-colors" />
+                        <div className="flex items-center gap-2 w-full md:w-auto">
+                            <div className="relative flex-1 md:w-64">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search shipments..." className="w-full pl-9 pr-4 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-primary/50 transition-colors" />
+                            </div>
                         </div>
                     </div>
-                </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
                         <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-accent/20 text-xs text-muted-foreground xl:col-span-2">
                             <Filter className="w-3.5 h-3.5" />
@@ -1030,6 +1030,9 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                         {stCfg?.label}
                                                     </span>
                                                 </div>
+                                                {sh.status_reason && ["upcoming", "loading", "in_transit"].includes(sh.status) && (
+                                                    <p className="text-[10px] text-amber-500/90 mt-1 line-clamp-2"><AlertTriangle className="w-3 h-3 inline mr-1" />{sh.status_reason}</p>
+                                                )}
                                                 <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs mb-4">
                                                     <div>
                                                         <p className="text-muted-foreground text-[10px] uppercase">MV/Nomination</p>
@@ -1079,6 +1082,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">FOB MV</th>
                                                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">HPB</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Status</th>
+                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Pending Reason</th>
                                                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase w-16">Actions</th>
                                             </tr>
                                         </thead>
@@ -1110,6 +1114,13 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                                 <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
                                                                     {stCfg?.label}
                                                                 </span>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-xs text-muted-foreground max-w-[200px]" title={sh.status_reason || ""}>
+                                                                {sh.status_reason ? (
+                                                                    <span className="truncate block">{sh.status_reason.length > 60 ? sh.status_reason.slice(0, 60) + "..." : sh.status_reason}</span>
+                                                                ) : (
+                                                                    <span className="text-muted-foreground/50">-</span>
+                                                                )}
                                                             </td>
                                                             <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                                                                 <div className="flex items-center justify-end gap-1">
@@ -1611,7 +1622,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                         <div className="md:hidden space-y-2 mt-3">
                                                             {shipmentFamily.slice(0, 8).map((item) => (
                                                                 <div key={item.id} className="rounded-lg border border-border/50 bg-background/60 p-3 text-xs space-y-1.5">
-                                                            <NominationDisplay value={item.nomination || item.barge_name || "-"} />
+                                                                    <NominationDisplay value={item.nomination || item.barge_name || "-"} />
                                                                     <p className="text-muted-foreground break-words">{item.jetty_loading_port || item.loading_port || "-"}</p>
                                                                     <div className="flex items-center justify-between">
                                                                         <span className="text-muted-foreground">Plan</span>
@@ -1639,9 +1650,9 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                                                 <tbody>
                                                                     {shipmentFamily.slice(0, 12).map((item) => (
                                                                         <tr key={item.id} className="border-b border-border/20">
-                                                                    <td className="py-2 pr-3 font-semibold text-foreground">
-                                                                        <NominationDisplay value={item.nomination || item.barge_name || "-"} />
-                                                                    </td>
+                                                                            <td className="py-2 pr-3 font-semibold text-foreground">
+                                                                                <NominationDisplay value={item.nomination || item.barge_name || "-"} />
+                                                                            </td>
                                                                             <td className="py-2 pr-3 text-muted-foreground">{item.jetty_loading_port || item.loading_port || "-"}</td>
                                                                             <td className="py-2 pr-3 text-foreground">{item.source || "-"}</td>
                                                                             <td className="py-2 pr-3 text-right text-blue-500 font-semibold">{safeNum(item.qty_plan).toLocaleString()}</td>
@@ -1992,6 +2003,21 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">General Remarks</label>
                                     <input type="text" value={editForm.remarks || ""} onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
                                 </div>
+                                <div className="space-y-1.5 col-span-2 mt-2">
+                                    <label className="text-[10px] font-semibold text-amber-500 uppercase flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Status Reason (Pending/Waiting)</label>
+                                    <textarea
+                                        value={editForm.status_reason || ""}
+                                        onChange={(e) => setEditForm({ ...editForm, status_reason: e.target.value })}
+                                        maxLength={500}
+                                        rows={3}
+                                        placeholder="Describe why this shipment is pending/waiting..."
+                                        className="w-full px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20 focus:border-amber-500/50 text-xs resize-none"
+                                    />
+                                    <p className="text-[9px] text-muted-foreground">{(editForm.status_reason || "").length}/500 characters</p>
+                                    {["upcoming", "loading", "in_transit"].includes(editForm.status || "") && !editForm.status_reason && (
+                                        <p className="text-[10px] text-amber-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Recommended: provide a reason for on-going shipments</p>
+                                    )}
+                                </div>
 
                                 {/* Operational & Legal (Historical Data) */}
                                 <div className="col-span-2 border-b border-border/30 pb-2 mb-1 mt-3">
@@ -2039,12 +2065,12 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">LHV Terbit (Boolean)</label>
-                                    <select 
-                                        value={editForm.lhv_terbit ? "true" : "false"} 
-                                        onChange={(e) => setEditForm({ 
-                                            ...editForm, 
-                                            lhv_terbit: e.target.value === "true" ? new Date().toISOString() : "" 
-                                        })} 
+                                    <select
+                                        value={editForm.lhv_terbit ? "true" : "false"}
+                                        onChange={(e) => setEditForm({
+                                            ...editForm,
+                                            lhv_terbit: e.target.value === "true" ? new Date().toISOString() : ""
+                                        })}
                                         className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs"
                                     >
                                         <option value="true">YES</option>

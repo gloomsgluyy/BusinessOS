@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { appendRow, upsertRow, deleteRow, findRowIndex } from "@/lib/google-sheets";
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 const SHEET_TAB = "Outstanding Payment";
@@ -19,11 +20,25 @@ function parseDate(v: any): Date | null {
 }
 function fmtDate(d: Date | null): string { return d ? d.toISOString().split('T')[0] : ""; }
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const records = await prisma.outstandingPayment.findMany({ where: { isDeleted: false }, orderBy: { createdAt: "desc" } });
+
+        const url = new URL(req.url);
+        const pagination = parsePaginationParams(url.searchParams);
+        const where = { isDeleted: false };
+
+        if (pagination) {
+            const [records, totalItems] = await Promise.all([
+                prisma.outstandingPayment.findMany({ where, orderBy: { createdAt: pagination.sortOrder }, skip: pagination.skip, take: pagination.take }),
+                prisma.outstandingPayment.count({ where }),
+            ]);
+            const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+            return NextResponse.json({ success: true, outstandingPayments: records, meta });
+        }
+
+        const records = await prisma.outstandingPayment.findMany({ where, orderBy: { createdAt: "desc" } });
         return NextResponse.json({ success: true, outstandingPayments: records });
     } catch (error) {
         console.error("GET /api/memory/outstanding-payment error:", error);

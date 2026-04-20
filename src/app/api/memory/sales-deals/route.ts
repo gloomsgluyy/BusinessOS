@@ -3,20 +3,34 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PushService } from "@/lib/push-to-sheets";
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 // Note: This syncs from "Projects" sheet
 async function triggerPush() {
     PushService.debouncedPush("salesDeal").catch(err => console.error("Optional Sheet push failed:", err));
 }
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+        const url = new URL(req.url);
+        const pagination = parsePaginationParams(url.searchParams);
+        const where = { isDeleted: false };
+
+        if (pagination) {
+            const [deals, totalItems] = await Promise.all([
+                prisma.salesDeal.findMany({ where, orderBy: { createdAt: pagination.sortOrder }, skip: pagination.skip, take: pagination.take }),
+                prisma.salesDeal.count({ where }),
+            ]);
+            const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+            return NextResponse.json({ success: true, deals, meta });
+        }
+
         // DATABASE-FIRST: Read directly from database
         const deals = await prisma.salesDeal.findMany({
-            where: { isDeleted: false },
+            where,
             orderBy: { createdAt: "desc" }
         });
 

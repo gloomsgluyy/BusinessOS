@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { SheetsFirstService } from "@/lib/sheets-first-service";
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 export async function GET(req: Request) {
     try {
@@ -52,6 +53,15 @@ export async function GET(req: Request) {
                 });
                 forecasts = await SheetsFirstService.listPLForecasts();
             }
+        }
+
+        // Apply pagination after all sync/heal operations
+        const pagination = parsePaginationParams(url.searchParams);
+        if (pagination) {
+            const totalItems = forecasts.length;
+            const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+            const paginated = forecasts.slice(pagination.skip, pagination.skip + pagination.take);
+            return NextResponse.json({ success: true, forecasts: paginated, meta });
         }
 
         return NextResponse.json({ success: true, forecasts });
@@ -126,7 +136,7 @@ export async function PUT(req: Request) {
 
         const data = await req.json();
         console.log('[API PUT] Received data:', JSON.stringify(data, null, 2));
-        
+
         if (!data.id) return NextResponse.json({ error: "Forecast ID missing" }, { status: 400 });
 
         const existingRecord = await prisma.pLForecast.findUnique({ where: { id: data.id } });
@@ -134,9 +144,9 @@ export async function PUT(req: Request) {
             console.log('[API PUT] Record not found or deleted:', data.id);
             return NextResponse.json({ error: "Not found" }, { status: 404 });
         }
-        
+
         console.log('[API PUT] Existing record:', JSON.stringify(existingRecord, null, 2));
-        
+
         const userRole = session.user.role?.toLowerCase() || "";
         if (existingRecord.createdBy !== session.user.id && !["ceo", "director", "manager"].includes(userRole)) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -162,7 +172,7 @@ export async function PUT(req: Request) {
         const buyingPrice = updateData.buyingPrice !== undefined ? updateData.buyingPrice : existingRecord.buyingPrice;
         const freightCost = updateData.freightCost !== undefined ? updateData.freightCost : existingRecord.freightCost;
         const otherCost = updateData.otherCost !== undefined ? updateData.otherCost : existingRecord.otherCost;
-        
+
         updateData.grossProfitMt = sellingPrice - buyingPrice - freightCost - otherCost;
         updateData.totalGrossProfit = updateData.grossProfitMt * quantity;
         updateData.quantity = quantity;
@@ -210,7 +220,7 @@ export async function DELETE(req: Request) {
 
         const existingRecord = await prisma.pLForecast.findUnique({ where: { id } });
         if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
-        
+
         const userRole = session.user.role?.toLowerCase() || "";
         if (existingRecord.createdBy !== session.user.id && !["ceo", "director", "manager"].includes(userRole)) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });

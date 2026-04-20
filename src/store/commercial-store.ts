@@ -228,7 +228,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             const mapped: SalesDeal = {
                 id: deal.id, deal_number: deal.dealNumber, status: deal.status as SalesDealStatus, buyer: deal.buyer, buyer_country: deal.buyerCountry,
                 type: deal.type, shipping_terms: deal.shippingTerms, quantity: deal.quantity, price_per_mt: deal.pricePerMt, total_value: deal.totalValue,
-                laycan_start: deal.laycanStart, laycan_end: deal.laycanEnd, vessel_name: deal.vesselName, 
+                laycan_start: deal.laycanStart, laycan_end: deal.laycanEnd, vessel_name: deal.vesselName,
                 spec: { gar: deal.gar || 0, ts: deal.ts || 0, ash: deal.ash || 0, tm: deal.tm || 0 },
                 project_id: deal.projectId, pic_id: deal.picId, pic_name: deal.picName, created_by: deal.createdBy, created_by_name: deal.createdByName,
                 created_at: deal.createdAt, updated_at: deal.updatedAt, is_deleted: deal.isDeleted
@@ -255,7 +255,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.vessel_name !== undefined) body.vesselName = u.vessel_name;
         if (u.project_id !== undefined) body.projectId = u.project_id;
         if (u.pic_name !== undefined) body.picName = u.pic_name;
-        
+
         // Handle nested spec fields
         if (u.spec) {
             if (u.spec.gar !== undefined) body.gar = u.spec.gar;
@@ -393,6 +393,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             product: s.product,
             analysis_method: s.analysis_method,
             type: s.type,
+            statusReason: s.status_reason,
         };
         const res = await fetch("/api/memory/shipments", {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
@@ -478,6 +479,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.sent_to_barge_owner !== undefined) body.sentToBargeOwner = u.sent_to_barge_owner;
         if (u.no_invoice_mkls !== undefined) body.noInvoiceMkls = u.no_invoice_mkls;
         if (u.year !== undefined) body.year = u.year;
+        if (u.status_reason !== undefined) body.statusReason = u.status_reason;
 
         await fetch("/api/memory/shipments", {
             method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
@@ -1089,198 +1091,198 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                     const blendRes = payloads["blending"];
 
                     set((state) => {
-                    const updates: Partial<CommercialState> = {};
+                        const updates: Partial<CommercialState> = {};
 
-                // Shipments merge
-                if (shipRes?.success && shipRes.shipments) {
-                    const mappedShipments: ShipmentDetail[] = shipRes.shipments.map((s: any) => ({
-                        id: s.id, no: s.no, export_dmo: s.exportDmo, status: s.status,
-                        origin: s.origin, mv_project_name: s.mvProjectName, source: s.source,
-                        iup_op: s.iupOp, shipment_flow: s.shipmentFlow, jetty_loading_port: s.jettyLoadingPort,
-                        laycan: s.laycan, nomination: s.nomination, qty_plan: s.qtyPlan, qty_cob: s.qtyCob,
-                        remarks: s.remarks, harga_actual_fob: s.hargaActualFob, harga_actual_fob_mv: s.hargaActualFobMv,
-                        hpb: s.hpb, status_hpb: s.statusHpb, shipment_status: s.shipmentStatus,
-                        issue_notes: s.issueNotes, bl_date: s.blDate, pic: s.pic,
-                        status_reason: s.statusReason,
-                        kuota_export: s.kuotaExport, surveyor_lhv: s.surveyorLhv,
-                        completely_loaded: s.completelyLoaded, lhv_terbit: s.lhvTerbit,
-                        loss_gain_cargo: s.lossGainCargo, sp: s.sp, deadfreight: s.deadfreight,
-                        jarak: s.jarak, shipping_term: s.shippingTerm, shipping_rate: s.shippingRate,
-                        price_freight: s.priceFreight, allowance: s.allowance, demm: s.demm,
-                        no_spal: s.noSpal, no_si: s.noSi, coa_date: s.coaDate, result_gar: s.resultGar,
-                        sent_to_supplier: s.sentToSupplier, sent_to_barge_owner: s.sentToBargeOwner, no_invoice_mkls: s.noInvoiceMkls,
-                        // Fix missing fields for dashboard accuracy
-                        quantity_load: s.quantityLoaded || s.qtyPlan || 0,
-                        quantity_loaded: s.quantityLoaded || s.qtyPlan || 0,
-                        sales_price: s.salesPrice || s.sp || 0,
-                        margin_mt: s.marginMt || 0,
-                        buyer: s.buyer || s.counterparty || "-",
-                        supplier: s.supplier || s.source || "-",
-                        vessel_name: s.vesselName || s.mvProjectName || "-",
-                        barge_name: s.bargeName || s.nomination || "-",
-                        loading_port: s.loadingPort || s.jettyLoadingPort || "-",
-                        discharge_port: s.dischargePort || "-",
-                        product: s.product || "-",
-                        analysis_method: s.analysisMethod || "-",
-                        pending_items: Array.isArray(s.pendingItems) ? s.pendingItems : [],
-                        milestones: Array.isArray(s.milestones) ? s.milestones : [],
-                        type: (() => {
-                            const t = (s.type || "export").toLowerCase();
-                            if (t === "lokal" || t === "domestic") return "local";
-                            return t;
-                        })(),
-                        year: s.year, created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
-                    }));
-                    updates._rawShipments = mappedShipments;
-                    updates.shipments = mappedShipments.filter(x => !x.is_deleted);
-                }
+                        // Shipments merge
+                        if (shipRes?.success && shipRes.shipments) {
+                            const mappedShipments: ShipmentDetail[] = shipRes.shipments.map((s: any) => ({
+                                id: s.id, no: s.no, export_dmo: s.exportDmo, status: s.status,
+                                origin: s.origin, mv_project_name: s.mvProjectName, source: s.source,
+                                iup_op: s.iupOp, shipment_flow: s.shipmentFlow, jetty_loading_port: s.jettyLoadingPort,
+                                laycan: s.laycan, nomination: s.nomination, qty_plan: s.qtyPlan, qty_cob: s.qtyCob,
+                                remarks: s.remarks, harga_actual_fob: s.hargaActualFob, harga_actual_fob_mv: s.hargaActualFobMv,
+                                hpb: s.hpb, status_hpb: s.statusHpb, shipment_status: s.shipmentStatus,
+                                issue_notes: s.issueNotes, bl_date: s.blDate, pic: s.pic,
+                                status_reason: s.statusReason,
+                                kuota_export: s.kuotaExport, surveyor_lhv: s.surveyorLhv,
+                                completely_loaded: s.completelyLoaded, lhv_terbit: s.lhvTerbit,
+                                loss_gain_cargo: s.lossGainCargo, sp: s.sp, deadfreight: s.deadfreight,
+                                jarak: s.jarak, shipping_term: s.shippingTerm, shipping_rate: s.shippingRate,
+                                price_freight: s.priceFreight, allowance: s.allowance, demm: s.demm,
+                                no_spal: s.noSpal, no_si: s.noSi, coa_date: s.coaDate, result_gar: s.resultGar,
+                                sent_to_supplier: s.sentToSupplier, sent_to_barge_owner: s.sentToBargeOwner, no_invoice_mkls: s.noInvoiceMkls,
+                                // Fix missing fields for dashboard accuracy
+                                quantity_load: s.quantityLoaded || s.qtyPlan || 0,
+                                quantity_loaded: s.quantityLoaded || s.qtyPlan || 0,
+                                sales_price: s.salesPrice || s.sp || 0,
+                                margin_mt: s.marginMt || 0,
+                                buyer: s.buyer || s.counterparty || "-",
+                                supplier: s.supplier || s.source || "-",
+                                vessel_name: s.vesselName || s.mvProjectName || "-",
+                                barge_name: s.bargeName || s.nomination || "-",
+                                loading_port: s.loadingPort || s.jettyLoadingPort || "-",
+                                discharge_port: s.dischargePort || "-",
+                                product: s.product || "-",
+                                analysis_method: s.analysisMethod || "-",
+                                pending_items: Array.isArray(s.pendingItems) ? s.pendingItems : [],
+                                milestones: Array.isArray(s.milestones) ? s.milestones : [],
+                                type: (() => {
+                                    const t = (s.type || "export").toLowerCase();
+                                    if (t === "lokal" || t === "domestic") return "local";
+                                    return t;
+                                })(),
+                                year: s.year, created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
+                            }));
+                            updates._rawShipments = mappedShipments;
+                            updates.shipments = mappedShipments.filter(x => !x.is_deleted);
+                        }
 
-                // Sources merge
-                if (srcRes?.success && srcRes.sources) {
-                    const mappedSources: SourceSupplier[] = srcRes.sources.map((s: any) => ({
-                        id: s.id, name: s.name, region: s.region, calorie_range: s.calorieRange,
-                        spec: { gar: s.gar, ts: s.ts, ash: s.ash, tm: s.tm, hgi: 0, adb: 0, nar: 0 },
-                        jetty_port: s.jettyPort, anchorage: s.anchorage, min_stock_alert: s.minStockAlert,
-                        kyc_status: s.kycStatus, psi_status: s.psiStatus, 
-                        stock_available: s.stockAvailable || 0,
-                        fob_barge_only: s.fobBargeOnly, requires_transshipment: s.requiresTransshipment,
-                        price_linked_index: s.priceLinkedIndex, fob_barge_price_idr: s.fobBargePriceIdr, fob_barge_price_usd: s.fobBargePriceUsd,
-                        transshipment_costs: s.transshipmentCosts ? JSON.parse(s.transshipmentCosts) : undefined,
-                        psi_date: s.psiDate, psi_result: s.psiResult, contract_type: s.contractType,
-                        pic_id: s.picId, pic_name: s.picName, contact_person: s.contactPerson, phone: s.phone, iup_number: s.iupNumber,
-                        created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
-                    }));
-                    updates._rawSources = mappedSources;
-                    updates.sources = mappedSources.filter(x => !x.is_deleted);
-                }
+                        // Sources merge
+                        if (srcRes?.success && srcRes.sources) {
+                            const mappedSources: SourceSupplier[] = srcRes.sources.map((s: any) => ({
+                                id: s.id, name: s.name, region: s.region, calorie_range: s.calorieRange,
+                                spec: { gar: s.gar, ts: s.ts, ash: s.ash, tm: s.tm, hgi: 0, adb: 0, nar: 0 },
+                                jetty_port: s.jettyPort, anchorage: s.anchorage, min_stock_alert: s.minStockAlert,
+                                kyc_status: s.kycStatus, psi_status: s.psiStatus,
+                                stock_available: s.stockAvailable || 0,
+                                fob_barge_only: s.fobBargeOnly, requires_transshipment: s.requiresTransshipment,
+                                price_linked_index: s.priceLinkedIndex, fob_barge_price_idr: s.fobBargePriceIdr, fob_barge_price_usd: s.fobBargePriceUsd,
+                                transshipment_costs: s.transshipmentCosts ? JSON.parse(s.transshipmentCosts) : undefined,
+                                psi_date: s.psiDate, psi_result: s.psiResult, contract_type: s.contractType,
+                                pic_id: s.picId, pic_name: s.picName, contact_person: s.contactPerson, phone: s.phone, iup_number: s.iupNumber,
+                                created_at: s.createdAt, updated_at: s.updatedAt, is_deleted: s.isDeleted
+                            }));
+                            updates._rawSources = mappedSources;
+                            updates.sources = mappedSources.filter(x => !x.is_deleted);
+                        }
 
-                // Quality merge
-                if (qRes?.success && qRes.quality) {
-                    const mappedQuality: QualityResult[] = qRes.quality.map((q: any) => ({
-                        id: q.id, cargo_id: q.cargoId, cargo_name: q.cargoName, surveyor: q.surveyor,
-                        sampling_date: q.samplingDate, spec_result: { gar: q.gar, ts: q.ts, ash: q.ash, tm: q.tm },
-                        status: q.status, created_at: q.createdAt, is_deleted: q.isDeleted
-                    }));
-                    updates._rawQualityResults = mappedQuality;
-                    updates.qualityResults = mappedQuality.filter(x => !x.is_deleted);
-                }
+                        // Quality merge
+                        if (qRes?.success && qRes.quality) {
+                            const mappedQuality: QualityResult[] = qRes.quality.map((q: any) => ({
+                                id: q.id, cargo_id: q.cargoId, cargo_name: q.cargoName, surveyor: q.surveyor,
+                                sampling_date: q.samplingDate, spec_result: { gar: q.gar, ts: q.ts, ash: q.ash, tm: q.tm },
+                                status: q.status, created_at: q.createdAt, is_deleted: q.isDeleted
+                            }));
+                            updates._rawQualityResults = mappedQuality;
+                            updates.qualityResults = mappedQuality.filter(x => !x.is_deleted);
+                        }
 
-                // Market Price merge
-                if (mpRes?.success && mpRes.prices) {
-                    const mappedPrices: MarketPriceEntry[] = mpRes.prices.map((m: any) => ({
-                        id: m.id,
-                        date: m.date,
-                        ici_1: m.ici1 !== undefined ? m.ici1 : (m.ici_1 || 0),
-                        ici_2: m.ici2 !== undefined ? m.ici2 : (m.ici_2 || 0),
-                        ici_3: m.ici3 !== undefined ? m.ici3 : (m.ici_3 || 0),
-                        ici_4: m.ici4 !== undefined ? m.ici4 : (m.ici_4 || 0),
-                        ici_5: m.ici5 !== undefined ? m.ici5 : (m.ici_5 || 0),
-                        newcastle: m.newcastle || 0,
-                        hba: m.hba || 0,
-                        hba_1: m.hbaI !== undefined ? m.hbaI : (m.hba_1 || 0),
-                        hba_2: m.hbaII !== undefined ? m.hbaII : (m.hba_2 || 0),
-                        hba_3: m.hbaIII !== undefined ? m.hbaIII : (m.hba_3 || 0),
-                        source: m.source || "-",
-                        updated_at: m.updatedAt || new Date().toISOString(),
-                        is_deleted: m.isDeleted
-                    }));
-                    updates._rawMarketPrices = mappedPrices;
-                    updates.marketPrices = mappedPrices.filter(x => !x.is_deleted);
-                }
+                        // Market Price merge
+                        if (mpRes?.success && mpRes.prices) {
+                            const mappedPrices: MarketPriceEntry[] = mpRes.prices.map((m: any) => ({
+                                id: m.id,
+                                date: m.date,
+                                ici_1: m.ici1 !== undefined ? m.ici1 : (m.ici_1 || 0),
+                                ici_2: m.ici2 !== undefined ? m.ici2 : (m.ici_2 || 0),
+                                ici_3: m.ici3 !== undefined ? m.ici3 : (m.ici_3 || 0),
+                                ici_4: m.ici4 !== undefined ? m.ici4 : (m.ici_4 || 0),
+                                ici_5: m.ici5 !== undefined ? m.ici5 : (m.ici_5 || 0),
+                                newcastle: m.newcastle || 0,
+                                hba: m.hba || 0,
+                                hba_1: m.hbaI !== undefined ? m.hbaI : (m.hba_1 || 0),
+                                hba_2: m.hbaII !== undefined ? m.hbaII : (m.hba_2 || 0),
+                                hba_3: m.hbaIII !== undefined ? m.hbaIII : (m.hba_3 || 0),
+                                source: m.source || "-",
+                                updated_at: m.updatedAt || new Date().toISOString(),
+                                is_deleted: m.isDeleted
+                            }));
+                            updates._rawMarketPrices = mappedPrices;
+                            updates.marketPrices = mappedPrices.filter(x => !x.is_deleted);
+                        }
 
-                // Blending merge
-                if (blendRes && blendRes.success && blendRes.blendingHistory) {
-                    const mappedBlending: BlendingResult[] = blendRes.blendingHistory.map((b: any) => ({
-                        id: b.id,
-                        inputs: b.inputs,
-                        total_quantity: b.totalQuantity,
-                        result_spec: { gar: b.resultGar, ts: b.resultTs, ash: b.resultAsh, tm: b.resultTm },
-                        created_by: b.createdBy,
-                        created_at: b.createdAt,
-                        is_deleted: b.isDeleted
-                    }));
-                    updates._rawBlendingHistory = mappedBlending;
-                    updates.blendingHistory = mappedBlending.filter(x => !x.is_deleted);
-                }
+                        // Blending merge
+                        if (blendRes && blendRes.success && blendRes.blendingHistory) {
+                            const mappedBlending: BlendingResult[] = blendRes.blendingHistory.map((b: any) => ({
+                                id: b.id,
+                                inputs: b.inputs,
+                                total_quantity: b.totalQuantity,
+                                result_spec: { gar: b.resultGar, ts: b.resultTs, ash: b.resultAsh, tm: b.resultTm },
+                                created_by: b.createdBy,
+                                created_at: b.createdAt,
+                                is_deleted: b.isDeleted
+                            }));
+                            updates._rawBlendingHistory = mappedBlending;
+                            updates.blendingHistory = mappedBlending.filter(x => !x.is_deleted);
+                        }
 
-                // Meetings merge
-                if (mtgRes?.success && mtgRes.meetings) {
-                    const mappedMeetings: MeetingItem[] = mtgRes.meetings.map((m: any) => ({
-                        id: m.id, title: m.title, date: m.date, time: m.time,
-                        attendees: Array.isArray(m.attendees) ? m.attendees : [],
-                        location: m.location,
-                        status: m.status,
-                        action_items: Array.isArray(m.actionItems) ? m.actionItems : [],
-                        mom_content: m.momContent || undefined,
-                        voice_note_url: m.voiceNoteUrl || undefined,
-                        ai_summary: m.aiSummary || undefined,
-                        created_by: m.createdBy, created_by_name: m.createdByName,
-                        created_at: m.createdAt, updated_at: m.updatedAt, is_deleted: m.isDeleted
-                    }));
-                    updates._rawMeetings = mappedMeetings;
-                    updates.meetings = mappedMeetings.filter(x => !x.is_deleted);
-                }
+                        // Meetings merge
+                        if (mtgRes?.success && mtgRes.meetings) {
+                            const mappedMeetings: MeetingItem[] = mtgRes.meetings.map((m: any) => ({
+                                id: m.id, title: m.title, date: m.date, time: m.time,
+                                attendees: Array.isArray(m.attendees) ? m.attendees : [],
+                                location: m.location,
+                                status: m.status,
+                                action_items: Array.isArray(m.actionItems) ? m.actionItems : [],
+                                mom_content: m.momContent || undefined,
+                                voice_note_url: m.voiceNoteUrl || undefined,
+                                ai_summary: m.aiSummary || undefined,
+                                created_by: m.createdBy, created_by_name: m.createdByName,
+                                created_at: m.createdAt, updated_at: m.updatedAt, is_deleted: m.isDeleted
+                            }));
+                            updates._rawMeetings = mappedMeetings;
+                            updates.meetings = mappedMeetings.filter(x => !x.is_deleted);
+                        }
 
-                // PL merge
-                if (plRes?.success && plRes.forecasts) {
-                    const mappedPL: PLForecastItem[] = plRes.forecasts.map((p: any) => ({
-                        id: p.id,
-                        deal_id: p.dealId || "",
-                        deal_number: p.dealNumber || "",
-                        project_name: p.projectName || p.dealNumber || "",
-                        status: p.status || "forecast",
-                        created_by: p.createdBy || "unknown",
-                        type: p.type || "export",
-                        buyer: p.buyer || "Unknown",
-                        quantity: p.quantity || 0,
-                        selling_price: p.sellingPrice || 0,
-                        buying_price: p.buyingPrice || 0,
-                        freight_cost: p.freightCost || 0,
-                        other_cost: p.otherCost || 0,
-                        gross_profit_mt: p.grossProfitMt || 0,
-                        total_gross_profit: p.totalGrossProfit || 0,
-                        created_at: p.createdAt,
-                        updated_at: p.updatedAt,
-                        is_deleted: p.isDeleted
-                    }));
-                    updates._rawPLForecasts = mappedPL;
-                    updates.plForecasts = mappedPL.filter(x => !x.is_deleted);
-                }
+                        // PL merge
+                        if (plRes?.success && plRes.forecasts) {
+                            const mappedPL: PLForecastItem[] = plRes.forecasts.map((p: any) => ({
+                                id: p.id,
+                                deal_id: p.dealId || "",
+                                deal_number: p.dealNumber || "",
+                                project_name: p.projectName || p.dealNumber || "",
+                                status: p.status || "forecast",
+                                created_by: p.createdBy || "unknown",
+                                type: p.type || "export",
+                                buyer: p.buyer || "Unknown",
+                                quantity: p.quantity || 0,
+                                selling_price: p.sellingPrice || 0,
+                                buying_price: p.buyingPrice || 0,
+                                freight_cost: p.freightCost || 0,
+                                other_cost: p.otherCost || 0,
+                                gross_profit_mt: p.grossProfitMt || 0,
+                                total_gross_profit: p.totalGrossProfit || 0,
+                                created_at: p.createdAt,
+                                updated_at: p.updatedAt,
+                                is_deleted: p.isDeleted
+                            }));
+                            updates._rawPLForecasts = mappedPL;
+                            updates.plForecasts = mappedPL.filter(x => !x.is_deleted);
+                        }
 
-                // Deals merge
-                if (dealRes?.success && dealRes.deals) {
-                    const mappedDeals: SalesDeal[] = dealRes.deals.map((deal: any) => ({
-                        id: deal.id, deal_number: deal.dealNumber, status: deal.status as SalesDealStatus, buyer: deal.buyer, buyer_country: deal.buyerCountry,
-                        type: deal.type, shipping_terms: deal.shippingTerms, quantity: deal.quantity, price_per_mt: deal.pricePerMt, total_value: deal.totalValue,
-                        laycan_start: deal.laycanStart, laycan_end: deal.laycanEnd, vessel_name: deal.vesselName, spec: { gar: deal.gar || 0, ts: deal.ts || 0, ash: deal.ash || 0, tm: deal.tm || 0 },
-                        project_id: deal.projectId, pic_id: deal.picId, pic_name: deal.picName, created_by: deal.createdBy, created_by_name: deal.createdByName,
-                        created_at: deal.createdAt, updated_at: deal.updatedAt, is_deleted: deal.isDeleted
-                    }));
-                    updates._rawDeals = mappedDeals;
-                    updates.deals = mappedDeals.filter(x => !x.is_deleted);
-                }
+                        // Deals merge
+                        if (dealRes?.success && dealRes.deals) {
+                            const mappedDeals: SalesDeal[] = dealRes.deals.map((deal: any) => ({
+                                id: deal.id, deal_number: deal.dealNumber, status: deal.status as SalesDealStatus, buyer: deal.buyer, buyer_country: deal.buyerCountry,
+                                type: deal.type, shipping_terms: deal.shippingTerms, quantity: deal.quantity, price_per_mt: deal.pricePerMt, total_value: deal.totalValue,
+                                laycan_start: deal.laycanStart, laycan_end: deal.laycanEnd, vessel_name: deal.vesselName, spec: { gar: deal.gar || 0, ts: deal.ts || 0, ash: deal.ash || 0, tm: deal.tm || 0 },
+                                project_id: deal.projectId, pic_id: deal.picId, pic_name: deal.picName, created_by: deal.createdBy, created_by_name: deal.createdByName,
+                                created_at: deal.createdAt, updated_at: deal.updatedAt, is_deleted: deal.isDeleted
+                            }));
+                            updates._rawDeals = mappedDeals;
+                            updates.deals = mappedDeals.filter(x => !x.is_deleted);
+                        }
 
-                // Projects merge
-                if (projectRes?.success && projectRes.projects) {
-                    const mappedProjects: ProjectItem[] = projectRes.projects.map((project: any) => ({
-                        id: project.id,
-                        name: project.name,
-                        segment: project.segment,
-                        buyer: project.buyer,
-                        status: project.status,
-                        notes: project.notes,
-                        created_by: project.createdBy,
-                        created_by_name: project.createdByName,
-                        approved_by: project.approvedBy,
-                        approved_by_name: project.approvedByName,
-                        approved_at: project.approvedAt,
-                        created_at: project.createdAt,
-                        updated_at: project.updatedAt,
-                        is_deleted: project.isDeleted,
-                    }));
-                    updates._rawProjects = mappedProjects;
-                    updates.projects = mappedProjects.filter((x) => !x.is_deleted);
-                }
+                        // Projects merge
+                        if (projectRes?.success && projectRes.projects) {
+                            const mappedProjects: ProjectItem[] = projectRes.projects.map((project: any) => ({
+                                id: project.id,
+                                name: project.name,
+                                segment: project.segment,
+                                buyer: project.buyer,
+                                status: project.status,
+                                notes: project.notes,
+                                created_by: project.createdBy,
+                                created_by_name: project.createdByName,
+                                approved_by: project.approvedBy,
+                                approved_by_name: project.approvedByName,
+                                approved_at: project.approvedAt,
+                                created_at: project.createdAt,
+                                updated_at: project.updatedAt,
+                                is_deleted: project.isDeleted,
+                            }));
+                            updates._rawProjects = mappedProjects;
+                            updates.projects = mappedProjects.filter((x) => !x.is_deleted);
+                        }
 
                         updates.lastSyncTime = new Date().toISOString();
                         return Object.keys(updates).length > 0 ? updates : state;

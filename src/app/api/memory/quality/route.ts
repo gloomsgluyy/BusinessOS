@@ -8,19 +8,33 @@ import { v4 as uuidv4 } from 'uuid';
 async function triggerPush() {
     PushService.debouncedPush("qualityResult").catch(err => console.error("Optional Sheet push failed:", err));
 }
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+        const url = new URL(req.url);
+        const pagination = parsePaginationParams(url.searchParams);
+        const where = { isDeleted: false };
+
+        if (pagination) {
+            const [quality, totalItems] = await Promise.all([
+                prisma.qualityResult.findMany({ where, orderBy: { createdAt: pagination.sortOrder }, skip: pagination.skip, take: pagination.take }),
+                prisma.qualityResult.count({ where }),
+            ]);
+            const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+            return NextResponse.json({ success: true, quality, meta });
+        }
+
         // DATABASE-FIRST: Read directly from database
         const quality = await prisma.qualityResult.findMany({
-            where: { isDeleted: false },
+            where,
             orderBy: { createdAt: "desc" }
         });
 

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PushService } from "@/lib/push-to-sheets";
+import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -10,27 +11,39 @@ async function triggerPush() {
     PushService.debouncedPush("purchaseRequest").catch(err => console.error("Optional Sheet push failed:", err));
 }
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        // DATABASE-FIRST: Read directly from database
-        const purchases = await prisma.purchaseRequest.findMany({
-            where: { isDeleted: false },
-            orderBy: { createdAt: "desc" }
-        });
+        const url = new URL(req.url);
+        const pagination = parsePaginationParams(url.searchParams);
+        const where = { isDeleted: false };
 
-        // Parse OCR back to JSON for UI
-        const formatted = purchases.map(p => {
+        const formatPurchase = (p: any) => {
             let ocrData: any = undefined;
             if (p.ocrData) {
                 try { ocrData = JSON.parse(p.ocrData); } catch { ocrData = undefined; }
             }
             return { ...p, ocrData };
+        };
+
+        if (pagination) {
+            const [purchases, totalItems] = await Promise.all([
+                prisma.purchaseRequest.findMany({ where, orderBy: { createdAt: pagination.sortOrder }, skip: pagination.skip, take: pagination.take }),
+                prisma.purchaseRequest.count({ where }),
+            ]);
+            const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
+            return NextResponse.json({ success: true, purchases: purchases.map(formatPurchase), meta });
+        }
+
+        // DATABASE-FIRST: Read directly from database
+        const purchases = await prisma.purchaseRequest.findMany({
+            where,
+            orderBy: { createdAt: "desc" }
         });
 
-        return NextResponse.json({ success: true, purchases: formatted });
+        return NextResponse.json({ success: true, purchases: purchases.map(formatPurchase) });
     } catch (error) {
         console.error("GET /api/memory/purchases error:", error);
         return NextResponse.json({ error: "Failed to fetch purchases" }, { status: 500 });
