@@ -6,6 +6,8 @@ import { useOutstandingPaymentStore } from "@/store/outstanding-payment-store";
 import { FileText, Search, CreditCard, ChevronRight, Calculator, CheckCircle2, AlertCircle, Plus, X, Edit, Trash2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Toast } from "@/components/shared/toast";
+import { usePagination } from "@/hooks/use-pagination";
+import { PaginationControls } from "@/components/shared/pagination-controls";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
@@ -56,7 +58,7 @@ export default function OutstandingPaymentPage() {
                 calculation_date: form.calculation_date ? new Date(form.calculation_date).toISOString() : null as unknown as string,
                 dp_to_shipment: form.dp_to_shipment ? new Date(form.dp_to_shipment).toISOString() : null as unknown as string,
             };
-            
+
             if (editData) {
                 await updatePayment(editData.id, payload as any);
                 setToast({ message: "Payment updated successfully", type: "success" });
@@ -77,7 +79,7 @@ export default function OutstandingPaymentPage() {
         try {
             await useOutstandingPaymentStore.getState().deletePayment(id);
             setToast({ message: "Record deleted", type: "success" });
-        } catch(e) {
+        } catch (e) {
             setToast({ message: "Failed to delete record", type: "error" });
         }
     };
@@ -87,14 +89,19 @@ export default function OutstandingPaymentPage() {
     }, [syncPayments]);
 
     const filtered = outstandingPayments.filter(p => {
-        const matchesSearch = p.perusahaan.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                              (p.kode_batu && p.kode_batu.toLowerCase().includes(searchQuery.toLowerCase()));
+        const matchesSearch = p.perusahaan.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (p.kode_batu && p.kode_batu.toLowerCase().includes(searchQuery.toLowerCase()));
         const matchesTab = activeTab === "all" || p.status.toLowerCase() === activeTab;
         return matchesSearch && matchesTab;
     });
 
     const totalQty = outstandingPayments.reduce((s, p) => s + safeNum(p.qty), 0);
     const totalDp = outstandingPayments.reduce((s, p) => s + safeNum(p.total_dp), 0);
+
+    const { page, pageSize, setPage, setPageSize } = usePagination({ defaultPageSize: 10 });
+    const totalItems = filtered.length;
+    const totalPages = Math.ceil(totalItems / pageSize) || 1;
+    const paginatedData = filtered.slice((page - 1) * pageSize, page * pageSize);
 
     return (
         <AppShell>
@@ -113,7 +120,7 @@ export default function OutstandingPaymentPage() {
                             <button onClick={() => handleOpenForm()} className="btn-primary text-xs h-9"><Plus className="w-4 h-4 mr-1.5" /> New Payment Record</button>
                         </div>
                     </div>
-                    
+
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 relative z-10 mt-6 md:w-2/3">
                         <div className="bg-card shadow-sm p-4 rounded-xl border border-border/30 flex items-center gap-3">
                             <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-emerald-500/20">
@@ -164,11 +171,11 @@ export default function OutstandingPaymentPage() {
 
                     <div className="relative w-full md:w-72">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <input 
-                            value={searchQuery} 
-                            onChange={(e) => setSearchQuery(e.target.value)} 
-                            placeholder="Search company..." 
-                            className="w-full pl-9 pr-4 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-emerald-500/50 transition-colors" 
+                        <input
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search company..."
+                            className="w-full pl-9 pr-4 py-2 rounded-xl bg-accent/30 border border-border text-xs outline-none focus:border-emerald-500/50 transition-colors"
                         />
                     </div>
                 </div>
@@ -202,7 +209,7 @@ export default function OutstandingPaymentPage() {
                                             </div>
                                         </td>
                                     </tr>
-                                ) : filtered.map(item => (
+                                ) : paginatedData.map(item => (
                                     <tr key={item.id} className="hover:bg-accent/40 transition-colors group cursor-pointer">
                                         <td className="px-6 py-4"><span className="text-xs font-semibold py-1 px-2 bg-accent/60 rounded text-foreground">{item.year}</span></td>
                                         <td className="px-6 py-4 font-bold text-foreground">{item.perusahaan}</td>
@@ -240,6 +247,21 @@ export default function OutstandingPaymentPage() {
                         </table>
                     </div>
                 </div>
+
+                {filtered.length > 0 && (
+                    <div className="mt-4 flex justify-end">
+                        <PaginationControls
+                            page={page}
+                            pageSize={pageSize}
+                            totalItems={totalItems}
+                            totalPages={totalPages}
+                            hasNextPage={page < totalPages}
+                            hasPrevPage={page > 1}
+                            onPageChange={setPage}
+                            onPageSizeChange={setPageSize}
+                        />
+                    </div>
+                )}
 
                 {/* Form Modal */}
                 {showForm && (

@@ -17,6 +17,8 @@ import { ReportModal } from "@/components/shared/report-modal";
 import { Toast, ToastType } from "@/components/shared/toast";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { usePagination } from "@/hooks/use-pagination";
+import { PaginationControls } from "@/components/shared/pagination-controls";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
@@ -607,6 +609,11 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
         volume: shipments.reduce((sum, s) => sum + safeNum(s.quantity_loaded || s.qty_plan || s.qty_cob), 0)
     };
 
+    const { page, pageSize, setPage, setPageSize } = usePagination({ defaultPageSize: activeView === "card" ? 9 : 20 });
+    const totalItems = filtered.length;
+    const totalPages = Math.ceil(totalItems / pageSize) || 1;
+    const paginatedData = filtered.slice((page - 1) * pageSize, page * pageSize);
+
 
     return (
         <AppShell>
@@ -1014,54 +1021,70 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                         </div>
 
                         {activeView === "card" ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-slide-up">
-                                {filtered.map((sh) => {
-                                    const stCfg = SHIPMENT_STATUSES.find((s) => s.value === sh.status);
-                                    const cp = getCounterparty(sh);
-                                    return (
-                                        <div key={sh.id} className="card-custom p-4 flex flex-col justify-between hover:border-primary/50 transition-colors group cursor-pointer" onClick={() => setDetailShipment(sh)}>
-                                            <div>
-                                                <div className="flex justify-between items-start mb-3">
-                                                    <div>
-                                                        <h3 className="font-bold text-lg text-primary group-hover:underline decoration-primary/50 underline-offset-4">{sh.mv_project_name || sh.vessel_name || sh.shipment_number || `#${sh.no}`}</h3>
-                                                        <p className="text-xs text-muted-foreground">{cp.role}: {cp.value} | {sh.origin || "-"} | Year {getShipmentYear(sh) || "-"}</p>
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-slide-up">
+                                    {paginatedData.map((sh) => {
+                                        const stCfg = SHIPMENT_STATUSES.find((s) => s.value === sh.status);
+                                        const cp = getCounterparty(sh);
+                                        return (
+                                            <div key={sh.id} className="card-custom p-4 flex flex-col justify-between hover:border-primary/50 transition-colors group cursor-pointer" onClick={() => setDetailShipment(sh)}>
+                                                <div>
+                                                    <div className="flex justify-between items-start mb-3">
+                                                        <div>
+                                                            <h3 className="font-bold text-lg text-primary group-hover:underline decoration-primary/50 underline-offset-4">{sh.mv_project_name || sh.vessel_name || sh.shipment_number || `#${sh.no}`}</h3>
+                                                            <p className="text-xs text-muted-foreground">{cp.role}: {cp.value} | {sh.origin || "-"} | Year {getShipmentYear(sh) || "-"}</p>
+                                                        </div>
+                                                        <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
+                                                            {stCfg?.label}
+                                                        </span>
                                                     </div>
-                                                    <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
-                                                        {stCfg?.label}
-                                                    </span>
+                                                    {sh.status_reason && ["upcoming", "loading", "in_transit"].includes(sh.status) && (
+                                                        <p className="text-[10px] text-amber-500/90 mt-1 line-clamp-2"><AlertTriangle className="w-3 h-3 inline mr-1" />{sh.status_reason}</p>
+                                                    )}
+                                                    <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs mb-4">
+                                                        <div>
+                                                            <p className="text-muted-foreground text-[10px] uppercase">MV/Nomination</p>
+                                                            <p className="font-medium truncate">{sh.nomination || sh.vessel_name || sh.barge_name || "-"}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-muted-foreground text-[10px] uppercase">Qty Plan</p>
+                                                            <p className="font-medium">{(sh.qty_plan || sh.quantity_loaded) ? `${(sh.qty_plan || sh.quantity_loaded)!.toLocaleString()} MT` : "-"}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-muted-foreground text-[10px] uppercase">Jetty/Port</p>
+                                                            <p className="font-medium truncate">{sh.jetty_loading_port || sh.loading_port || "-"}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-muted-foreground text-[10px] uppercase">Harga FOB MV</p>
+                                                            <p className="font-medium text-emerald-500 font-mono">{sh.harga_actual_fob_mv ? `$${safeFmt(sh.harga_actual_fob_mv)}` : (sh.sales_price ? `$${safeFmt(sh.sales_price)}` : "-")}</p>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                {sh.status_reason && ["upcoming", "loading", "in_transit"].includes(sh.status) && (
-                                                    <p className="text-[10px] text-amber-500/90 mt-1 line-clamp-2"><AlertTriangle className="w-3 h-3 inline mr-1" />{sh.status_reason}</p>
-                                                )}
-                                                <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs mb-4">
-                                                    <div>
-                                                        <p className="text-muted-foreground text-[10px] uppercase">MV/Nomination</p>
-                                                        <p className="font-medium truncate">{sh.nomination || sh.vessel_name || sh.barge_name || "-"}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-muted-foreground text-[10px] uppercase">Qty Plan</p>
-                                                        <p className="font-medium">{(sh.qty_plan || sh.quantity_loaded) ? `${(sh.qty_plan || sh.quantity_loaded)!.toLocaleString()} MT` : "-"}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-muted-foreground text-[10px] uppercase">Jetty/Port</p>
-                                                        <p className="font-medium truncate">{sh.jetty_loading_port || sh.loading_port || "-"}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-muted-foreground text-[10px] uppercase">Harga FOB MV</p>
-                                                        <p className="font-medium text-emerald-500 font-mono">{sh.harga_actual_fob_mv ? `$${safeFmt(sh.harga_actual_fob_mv)}` : (sh.sales_price ? `$${safeFmt(sh.sales_price)}` : "-")}</p>
+                                                <div className="pt-3 border-t border-border/50 flex justify-between items-center text-xs text-muted-foreground">
+                                                    <span className="flex items-center gap-1"><Anchor className="w-3.5 h-3.5" /> {formatLaycanWithYear(sh)}</span>
+                                                    <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <button onClick={(e) => { e.stopPropagation(); openEdit(sh); }} className="p-1 hover:text-foreground"><Edit className="w-3.5 h-3.5" /></button>
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div className="pt-3 border-t border-border/50 flex justify-between items-center text-xs text-muted-foreground">
-                                                <span className="flex items-center gap-1"><Anchor className="w-3.5 h-3.5" /> {formatLaycanWithYear(sh)}</span>
-                                                <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button onClick={(e) => { e.stopPropagation(); openEdit(sh); }} className="p-1 hover:text-foreground"><Edit className="w-3.5 h-3.5" /></button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                                {filtered.length === 0 && <div className="col-span-full card-elevated p-12 text-center text-muted-foreground"><Ship className="w-8 h-8 mx-auto mb-3 opacity-20" /> No shipments found in this view</div>}
+                                        );
+                                    })}
+                                    {filtered.length === 0 && <div className="col-span-full card-elevated p-12 text-center text-muted-foreground"><Ship className="w-8 h-8 mx-auto mb-3 opacity-20" /> No shipments found in this view</div>}
+                                </div>
+                                {filtered.length > 0 && (
+                                    <div className="flex justify-center mt-4">
+                                        <PaginationControls
+                                            page={page}
+                                            pageSize={pageSize}
+                                            totalItems={totalItems}
+                                            totalPages={totalPages}
+                                            hasNextPage={page < totalPages}
+                                            hasPrevPage={page > 1}
+                                            onPageChange={setPage}
+                                            onPageSizeChange={setPageSize}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             /* Shipments Table (List View) */
@@ -1087,7 +1110,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {filtered.map((sh) => {
+                                            {paginatedData.map((sh) => {
                                                 const stCfg = SHIPMENT_STATUSES.find((s) => s.value === sh.status);
                                                 const isExpanded = expandedRows.has(sh.id);
                                                 const cp = getCounterparty(sh);
@@ -1244,6 +1267,20 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                     </table>
                                 </div>
                                 {filtered.length === 0 && <div className="card-elevated p-12 text-center text-muted-foreground"><Ship className="w-8 h-8 mx-auto mb-3 opacity-20" /> No shipments found in this view</div>}
+                                {filtered.length > 0 && (
+                                    <div className="p-4 border-t border-border bg-accent/10">
+                                        <PaginationControls
+                                            page={page}
+                                            pageSize={pageSize}
+                                            totalItems={totalItems}
+                                            totalPages={totalPages}
+                                            hasNextPage={page < totalPages}
+                                            hasPrevPage={page > 1}
+                                            onPageChange={setPage}
+                                            onPageSizeChange={setPageSize}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         )}
                     </>

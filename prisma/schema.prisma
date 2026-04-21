@@ -11,6 +11,37 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+enum UserRole {
+  CEO
+  DIRUT
+  ASS_DIRUT
+  COO
+  QQ_MANAGER
+  ADMIN_OPERATION
+  CMO
+  TRADERS_1
+  TRADERS_2_CPPO
+  TRADERS_3_COO
+  TRADERS_4_CMO
+  JUNIOR_TRADER
+  TRAFFIC_HEAD
+  TRAFFIC_TEAM_1
+  TRAFFIC_TEAM_2
+  TRAFFIC_TEAM_3
+  TRAFFIC_TEAM_4
+  ADMIN_MARKETING
+  QC_MANAGER
+  QC_ADMIN_1
+  QC_ADMIN_2
+  CPPO
+  SPV_SOURCING
+  SOURCING_OFFICER_1
+  SOURCING_OFFICER_2
+  SOURCING_OFFICER_3
+  SOURCING_OFFICER_4
+  STAFF
+}
+
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -45,7 +76,7 @@ model User {
   emailVerified DateTime?
   image         String?
   password      String?
-  role          String    @default("staff") // Roles: ceo, director, manager, staff
+  role          UserRole  @default(STAFF)
 
   accounts      Account[]
   sessions      Session[]

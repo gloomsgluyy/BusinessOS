@@ -8,6 +8,8 @@ import { usePurchaseStore } from "@/store/purchase-store";
 import { cn, formatRupiah } from "@/lib/utils";
 import { PURCHASE_STATUSES } from "@/lib/constants";
 import { ImageUpload } from "@/components/ui/image-upload";
+import { PaginationControls } from "@/components/shared/pagination-controls";
+import { usePagination } from "@/hooks/use-pagination";
 
 export default function PurchaseRequestsPage() {
     const [, setIsInitializing] = React.useState(false);
@@ -58,6 +60,12 @@ export default function PurchaseRequestsPage() {
         }
         return true;
     });
+
+    // Pagination Logic
+    const { page, pageSize, setPage, setPageSize } = usePagination({ defaultPageSize: 10 });
+    const totalItems = filtered.length;
+    const totalPages = Math.ceil(totalItems / pageSize) || 1;
+    const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
     const handleAdd = () => {
         const amt = parseFloat(newAmount);
@@ -163,7 +171,7 @@ export default function PurchaseRequestsPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.map((p) => {
+                                {paginated.map((p) => {
                                     const statusCfg = PURCHASE_STATUSES.find((s) => s.value === p.status);
                                     const priorityColor = p.priority === "urgent" ? "text-red-500 bg-red-500/10" : p.priority === "high" ? "text-orange-500 bg-orange-500/10" : p.priority === "medium" ? "text-blue-500 bg-blue-500/10" : "text-slate-500 bg-slate-500/10";
                                     return (
@@ -224,8 +232,21 @@ export default function PurchaseRequestsPage() {
                             </tbody>
                         </table>
                     </div>
-                    {filtered.length === 0 && (
+                    {filtered.length === 0 ? (
                         <p className="text-sm text-center text-muted-foreground py-8">No requests found</p>
+                    ) : (
+                        <div className="border-t border-border/50">
+                            <PaginationControls
+                                page={page}
+                                pageSize={pageSize}
+                                totalItems={totalItems}
+                                totalPages={totalPages}
+                                hasNextPage={page < totalPages}
+                                hasPrevPage={page > 1}
+                                onPageChange={setPage}
+                                onPageSizeChange={setPageSize}
+                            />
+                        </div>
                     )}
                 </div>
 

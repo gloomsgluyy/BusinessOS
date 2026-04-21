@@ -9,6 +9,8 @@ import { cn, formatRupiah, generateId } from "@/lib/utils";
 import { ORDER_STATUSES } from "@/lib/constants";
 import { sendWhatsAppInvoice } from "@/lib/whatsapp-client";
 import { ImageUpload } from "@/components/ui/image-upload";
+import { usePagination } from "@/hooks/use-pagination";
+import { PaginationControls } from "@/components/shared/pagination-controls";
 
 export default function SalesOrdersPage() {
     const [, setIsInitializing] = React.useState(false);
@@ -55,6 +57,11 @@ export default function SalesOrdersPage() {
         }
         return true;
     });
+
+    const { page, pageSize, setPage, setPageSize } = usePagination({ defaultPageSize: 10 });
+    const totalItems = filtered.length;
+    const totalPages = Math.ceil(totalItems / pageSize) || 1;
+    const paginatedData = filtered.slice((page - 1) * pageSize, page * pageSize);
 
     const handleAdd = () => {
         const amt = parseFloat(newAmount);
@@ -126,7 +133,7 @@ export default function SalesOrdersPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.map((o) => {
+                                {paginatedData.map((o) => {
                                     const statusCfg = ORDER_STATUSES.find((s) => s.value === o.status);
                                     const priorityColor = o.priority === "urgent" ? "text-red-500 bg-red-500/10" : o.priority === "high" ? "text-orange-500 bg-orange-500/10" : o.priority === "medium" ? "text-blue-500 bg-blue-500/10" : "text-slate-500 bg-slate-500/10";
                                     return (
@@ -181,6 +188,21 @@ export default function SalesOrdersPage() {
                         </table>
                     </div>
                 </div>
+
+                {filtered.length > 0 && (
+                    <div className="mt-4 flex justify-end">
+                        <PaginationControls
+                            page={page}
+                            pageSize={pageSize}
+                            totalItems={totalItems}
+                            totalPages={totalPages}
+                            hasNextPage={page < totalPages}
+                            hasPrevPage={page > 1}
+                            onPageChange={setPage}
+                            onPageSizeChange={setPageSize}
+                        />
+                    </div>
+                )}
 
                 {/* Add Dialog */}
                 {showAdd && (
