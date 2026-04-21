@@ -9,9 +9,10 @@ import { useSearchParams } from "next/navigation";
 import { Plus, Edit2, X, Trash2, Loader2 } from "lucide-react";
 import { useDirectoryStore, DirectoryEntry } from "@/store/directory-store";
 import { Toast } from "@/components/shared/toast";
+import { DirectorySkeleton } from "./directory-skeleton";
 
 export default function DirectoryPageClient() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
 
     const searchParams = useSearchParams();
     const initialFilter = (searchParams.get("filter") || "all") as "all" | "buyer" | "vendor" | "fleet";
@@ -20,7 +21,15 @@ export default function DirectoryPageClient() {
     const [filter, setFilter] = React.useState<"all" | "buyer" | "vendor" | "fleet">(initialFilter);
 
     React.useEffect(() => {
-        syncFromMemory().finally(() => setIsInitializing(false));
+        let isMounted = true;
+
+        syncFromMemory().finally(() => {
+            if (isMounted) setIsInitializing(false);
+        });
+
+        return () => {
+            isMounted = false;
+        };
     }, [syncFromMemory]);
     const [search, setSearch] = React.useState("");
     const [showModal, setShowModal] = React.useState(false);
@@ -89,6 +98,9 @@ export default function DirectoryPageClient() {
         return <Truck className="w-5 h-5 text-amber-500" />;
     };
 
+    if (isInitializing && entries.length === 0) {
+        return <DirectorySkeleton />;
+    }
 
     return (
         <AppShell>

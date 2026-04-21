@@ -1,9 +1,10 @@
 import React, { Suspense } from "react";
 import DirectoryPageClient from "./client";
+import { DirectorySkeleton } from "./directory-skeleton";
 
 export default function Page() {
     return (
-        <Suspense fallback={<div>Loading...</div>}>
+        <Suspense fallback={<DirectorySkeleton />}>
             <DirectoryPageClient />
         </Suspense>
     );
