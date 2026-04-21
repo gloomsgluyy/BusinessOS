@@ -592,86 +592,101 @@ export default function PLForecastClient() {
                     )}
                 </div>
 
-                {/* Form Section */}
+                {/* Form Modal */}
                 {showForm && (
-                    <div className="card-elevated p-5 space-y-4 animate-scale-in border border-primary/30 bg-primary/5 shadow-xl">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-bold uppercase tracking-tight text-primary">
-                                {editingId ? `Update Costs: ${form.project_name || form.deal_number}` : "Create New P&L Forecast"}
-                            </h3>
-                            <button onClick={() => { setShowForm(false); resetForm(); }} className="p-1 rounded-lg hover:bg-accent"><X className="w-4 h-4" /></button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                {!editingId && (
-                                    <div className="sm:col-span-2">
-                                        <label className="text-[10px] font-bold text-muted-foreground uppercase">Select Project / MV (Required)</label>
-                                        <select onChange={(e) => handleLoadProject(e.target.value)} className="w-full mt-1 px-3 py-2.5 rounded-xl bg-background border border-border text-sm outline-none focus:border-primary" value={form.project_name || ""}>
-                                            <option value="">Select Project...</option>
-                                            {projectOptions.map((p) => (
-                                                <option key={normalizeKey(p.projectName)} value={p.projectName}>
-                                                    {p.projectName} | {p.mvName} | {p.buyer} | {p.qty.toLocaleString()} MT
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                )}
-                                {!editingId && (
-                                    <div className="sm:col-span-2">
-                                        <label className="text-[10px] font-bold text-muted-foreground uppercase">Link Deal (for Project/MV Context)</label>
-                                        <select onChange={(e) => handleLoadDeal(e.target.value)} className="w-full mt-1 px-3 py-2.5 rounded-xl bg-background border border-border text-sm outline-none focus:border-primary">
-                                            <option value="">Select Existing Deal...</option>
-                                            {deals.map(d => {
-                                                const projectLabel = cleanText(d.project_id) || extractProjectName(d.vessel_name) || extractMVName(d.vessel_name) || d.deal_number;
-                                                const mvLabel = extractMVName(d.vessel_name) || "-";
-                                                return (
-                                                    <option key={d.id} value={d.id}>
-                                                        {projectLabel} | {mvLabel} | {d.deal_number}
+                    <div className="modal-overlay z-50 fixed inset-0 flex items-center justify-center p-4">
+                        <div
+                            className="modal-backdrop absolute inset-0 bg-background/80 backdrop-blur-sm"
+                            onClick={() => {
+                                if (isSaving) return;
+                                setShowForm(false);
+                                resetForm();
+                            }}
+                        />
+                        <div
+                            className="modal-content relative card-elevated w-full max-w-6xl max-h-[92vh] overflow-y-auto p-5 md:p-6 space-y-4 border border-primary/30 bg-card shadow-2xl animate-scale-in"
+                            role="dialog"
+                            aria-modal="true"
+                            aria-label={editingId ? "Update forecast costs" : "Create forecast"}
+                        >
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-sm font-bold uppercase tracking-tight text-primary">
+                                    {editingId ? `Update Costs: ${form.project_name || form.deal_number}` : "Create New P&L Forecast"}
+                                </h3>
+                                <button onClick={() => { setShowForm(false); resetForm(); }} className="p-1 rounded-lg hover:bg-accent" disabled={isSaving}><X className="w-4 h-4" /></button>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {!editingId && (
+                                        <div className="sm:col-span-2">
+                                            <label className="text-[10px] font-bold text-muted-foreground uppercase">Select Project / MV (Required)</label>
+                                            <select onChange={(e) => handleLoadProject(e.target.value)} className="w-full mt-1 px-3 py-2.5 rounded-xl bg-background border border-border text-sm outline-none focus:border-primary" value={form.project_name || ""}>
+                                                <option value="">Select Project...</option>
+                                                {projectOptions.map((p) => (
+                                                    <option key={normalizeKey(p.projectName)} value={p.projectName}>
+                                                        {p.projectName} | {p.mvName} | {p.buyer} | {p.qty.toLocaleString()} MT
                                                     </option>
-                                                );
-                                            })}
-                                        </select>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+                                    {!editingId && (
+                                        <div className="sm:col-span-2">
+                                            <label className="text-[10px] font-bold text-muted-foreground uppercase">Link Deal (for Project/MV Context)</label>
+                                            <select onChange={(e) => handleLoadDeal(e.target.value)} className="w-full mt-1 px-3 py-2.5 rounded-xl bg-background border border-border text-sm outline-none focus:border-primary">
+                                                <option value="">Select Existing Deal...</option>
+                                                {deals.map(d => {
+                                                    const projectLabel = cleanText(d.project_id) || extractProjectName(d.vessel_name) || extractMVName(d.vessel_name) || d.deal_number;
+                                                    const mvLabel = extractMVName(d.vessel_name) || "-";
+                                                    return (
+                                                        <option key={d.id} value={d.id}>
+                                                            {projectLabel} | {mvLabel} | {d.deal_number}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </select>
+                                        </div>
+                                    )}
+                                    <div className="p-3 rounded-lg bg-accent/30 space-y-2">
+                                        <p className="text-[10px] font-bold text-muted-foreground uppercase">Project Context</p>
+                                        <p className="text-xs font-semibold">Project: <span className="text-primary">{form.project_name || "-"}</span></p>
+                                        <p className="text-xs font-semibold">MV: <span className="text-primary">{form.mv_name || "-"}</span></p>
+                                        <p className="text-xs font-semibold">Buyer: <span className="text-primary">{form.buyer || "-"}</span></p>
+                                        <p className="text-xs font-semibold">Qty: <span className="font-mono">{form.quantity.toLocaleString()} MT</span></p>
+                                        <p className="text-xs font-semibold">Selling: <span className="font-mono text-emerald-600">${form.selling_price}/MT</span></p>
                                     </div>
-                                )}
-                                <div className="p-3 rounded-lg bg-accent/30 space-y-2">
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Project Context</p>
-                                    <p className="text-xs font-semibold">Project: <span className="text-primary">{form.project_name || "-"}</span></p>
-                                    <p className="text-xs font-semibold">MV: <span className="text-primary">{form.mv_name || "-"}</span></p>
-                                    <p className="text-xs font-semibold">Buyer: <span className="text-primary">{form.buyer || "-"}</span></p>
-                                    <p className="text-xs font-semibold">Qty: <span className="font-mono">{form.quantity.toLocaleString()} MT</span></p>
-                                    <p className="text-xs font-semibold">Selling: <span className="font-mono text-emerald-600">${form.selling_price}/MT</span></p>
+
+                                    <div className="space-y-4 pt-1">
+                                        <div><label className="text-[10px] font-bold text-muted-foreground uppercase">Buying Price (USD/MT)</label><input type="number" step="0.01" value={form.buying_price || ""} onChange={(e) => setForm({ ...form, buying_price: +e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border text-xs outline-none focus:border-primary" /></div>
+                                        <div><label className="text-[10px] font-bold text-muted-foreground uppercase">Freight Cost (USD/MT)</label><input type="number" step="0.01" value={form.freight_cost || ""} onChange={(e) => setForm({ ...form, freight_cost: +e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border text-xs outline-none focus:border-primary" /></div>
+                                        <div><label className="text-[10px] font-bold text-muted-foreground uppercase">Other Costs (USD/MT)</label><input type="number" step="0.01" value={form.other_cost || ""} onChange={(e) => setForm({ ...form, other_cost: +e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border text-xs outline-none focus:border-primary" /></div>
+                                    </div>
                                 </div>
 
-                                <div className="space-y-4 pt-1">
-                                    <div><label className="text-[10px] font-bold text-muted-foreground uppercase">Buying Price (USD/MT)</label><input type="number" step="0.01" value={form.buying_price || ""} onChange={(e) => setForm({ ...form, buying_price: +e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border text-xs outline-none focus:border-primary" /></div>
-                                    <div><label className="text-[10px] font-bold text-muted-foreground uppercase">Freight Cost (USD/MT)</label><input type="number" step="0.01" value={form.freight_cost || ""} onChange={(e) => setForm({ ...form, freight_cost: +e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border text-xs outline-none focus:border-primary" /></div>
-                                    <div><label className="text-[10px] font-bold text-muted-foreground uppercase">Other Costs (USD/MT)</label><input type="number" step="0.01" value={form.other_cost || ""} onChange={(e) => setForm({ ...form, other_cost: +e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border text-xs outline-none focus:border-primary" /></div>
-                                </div>
-                            </div>
-
-                            {/* Live Preview Pane */}
-                            <div className="bg-white/50 backdrop-blur border border-border rounded-2xl p-5 flex flex-col justify-between shadow-inner">
-                                <div>
-                                    <p className="text-[10px] font-bold uppercase text-primary flex items-center gap-1.5 mb-4"><Activity className="w-3.5 h-3.5" /> Margin Simulation</p>
-                                    <div className="space-y-3 text-xs">
-                                        <div className="flex justify-between font-medium"><span className="text-muted-foreground">Volume:</span> <span className="font-mono">{form.quantity.toLocaleString()} MT</span></div>
-                                        <div className="flex justify-between font-medium"><span className="text-muted-foreground">Revenue:</span> <span className="font-mono">{formatCurrency(liveRevenue)}</span></div>
-                                        <div className="flex justify-between font-medium"><span className="text-muted-foreground">Total COGS:</span> <span className="font-mono text-rose-500">{formatCurrency(liveCogs)}</span></div>
-                                        <div className="w-full h-px bg-border my-2" />
-                                        <div className="flex justify-between font-bold text-base"><span className="text-foreground">Total Profit:</span> <span className={cn("font-mono", liveProfit >= 0 ? "text-emerald-600" : "text-red-500")}>{formatCurrency(liveProfit)}</span></div>
+                                {/* Live Preview Pane */}
+                                <div className="bg-white/50 backdrop-blur border border-border rounded-2xl p-5 flex flex-col justify-between shadow-inner">
+                                    <div>
+                                        <p className="text-[10px] font-bold uppercase text-primary flex items-center gap-1.5 mb-4"><Activity className="w-3.5 h-3.5" /> Margin Simulation</p>
+                                        <div className="space-y-3 text-xs">
+                                            <div className="flex justify-between font-medium"><span className="text-muted-foreground">Volume:</span> <span className="font-mono">{form.quantity.toLocaleString()} MT</span></div>
+                                            <div className="flex justify-between font-medium"><span className="text-muted-foreground">Revenue:</span> <span className="font-mono">{formatCurrency(liveRevenue)}</span></div>
+                                            <div className="flex justify-between font-medium"><span className="text-muted-foreground">Total COGS:</span> <span className="font-mono text-rose-500">{formatCurrency(liveCogs)}</span></div>
+                                            <div className="w-full h-px bg-border my-2" />
+                                            <div className="flex justify-between font-bold text-base"><span className="text-foreground">Total Profit:</span> <span className={cn("font-mono", liveProfit >= 0 ? "text-emerald-600" : "text-red-500")}>{formatCurrency(liveProfit)}</span></div>
+                                        </div>
+                                    </div>
+                                    <div className={cn("mt-6 p-4 rounded-xl border text-center transition-all", liveProfit >= 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600" : "bg-red-500/10 border-red-500/20 text-red-600")}>
+                                        <p className="text-[10px] font-bold uppercase tracking-wider mb-1">Projected Margin</p>
+                                        <p className="text-3xl font-bold">{safeFmt(liveMargin)}%</p>
                                     </div>
                                 </div>
-                                <div className={cn("mt-6 p-4 rounded-xl border text-center transition-all", liveProfit >= 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600" : "bg-red-500/10 border-red-500/20 text-red-600")}>
-                                    <p className="text-[10px] font-bold uppercase tracking-wider mb-1">Projected Margin</p>
-                                    <p className="text-3xl font-bold">{safeFmt(liveMargin)}%</p>
-                                </div>
                             </div>
-                        </div>
-                        <div className="flex gap-2 mt-4 pt-4 border-t border-border/50">
-                            <button onClick={handleAddOrUpdate} className="btn-primary px-8" disabled={isSaving || (!editingId && !form.project_name)}>
-                                {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</> : editingId ? "Update Costs" : "Create Forecast"}
-                            </button>
-                            <button onClick={() => { setShowForm(false); resetForm(); }} className="px-6 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent transition-colors" disabled={isSaving}>Cancel</button>
+                            <div className="flex gap-2 mt-4 pt-4 border-t border-border/50">
+                                <button onClick={handleAddOrUpdate} className="btn-primary px-8" disabled={isSaving || (!editingId && !form.project_name)}>
+                                    {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</> : editingId ? "Update Costs" : "Create Forecast"}
+                                </button>
+                                <button onClick={() => { setShowForm(false); resetForm(); }} className="px-6 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent transition-colors" disabled={isSaving}>Cancel</button>
+                            </div>
                         </div>
                     </div>
                 )}
