@@ -11,7 +11,7 @@ import { TASK_STATUSES, TASK_PRIORITIES, SALES_DEAL_STATUSES, SHIPMENT_STATUSES 
 import {
     TrendingUp, TrendingDown, DollarSign, AlertCircle, Ship,
     Anchor, Package, BarChart3, Calendar, Clock, ArrowUpRight,
-    Lock, Filter, ChevronDown, ChevronUp, Layers,
+    Lock, Filter, ChevronDown, ChevronUp, Layers, ScrollText,
 } from "lucide-react";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
@@ -279,6 +279,40 @@ const FILTER_OPTIONS: { value: FilterRange; label: string }[] = [
     { value: "all", label: "All Time" },
     { value: "custom", label: "Custom Range" },
 ];
+
+type UserActivitySummary = {
+    userId: string;
+    userName: string;
+    totalLogs: number;
+    attendanceLogs: number;
+    lastActivityAt: string;
+    lastAttendanceAt: string | null;
+};
+
+type UserActivityLog = {
+    id: string;
+    userId: string;
+    userName: string;
+    action: string;
+    entity: string;
+    entityId: string;
+    details: string | null;
+    createdAt: string;
+    isAttendance: boolean;
+};
+
+function formatActivityTime(value?: string | null): string {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleString("id-ID", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+}
 
 function DashboardFilters({ range, setRange, customFrom, customTo, setCustomFrom, setCustomTo, region, setRegion, marketType, setMarketType, status, setStatus, country, setCountry, search, setSearch, regionOptions = [] }: {
     range: FilterRange; setRange: (r: FilterRange) => void;
@@ -1132,6 +1166,129 @@ function StockInventory({ sources }: { sources: any[] }) {
     );
 }
 
+function UserActivityLogPanel({
+    users,
+    logs,
+    isLoading,
+    error,
+}: {
+    users: UserActivitySummary[];
+    logs: UserActivityLog[];
+    isLoading: boolean;
+    error: string | null;
+}) {
+    const attendanceCount = logs.filter((log) => log.isAttendance).length;
+
+    return (
+        <div className="card-elevated p-5 animate-slide-up delay-4 space-y-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-500/10 flex items-center justify-center">
+                        <ScrollText className="w-5 h-5 text-slate-500" />
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-semibold">User Activity Log</h3>
+                        <p className="text-[10px] text-muted-foreground">Log aktivitas user termasuk absensi (jika tercatat di AuditLog).</p>
+                    </div>
+                </div>
+                <a href="/audit-logs" className="text-xs text-primary hover:underline flex items-center gap-1 group">
+                    Open Audit Logs <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                </a>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="rounded-xl border border-border bg-accent/20 px-3 py-2">
+                    <p className="text-[10px] text-muted-foreground">Active Users</p>
+                    <p className="text-sm font-bold">{users.length}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-accent/20 px-3 py-2">
+                    <p className="text-[10px] text-muted-foreground">Total Logs</p>
+                    <p className="text-sm font-bold">{logs.length}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-accent/20 px-3 py-2">
+                    <p className="text-[10px] text-muted-foreground">Attendance Logs</p>
+                    <p className="text-sm font-bold text-emerald-600">{attendanceCount}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-accent/20 px-3 py-2">
+                    <p className="text-[10px] text-muted-foreground">Non-Attendance</p>
+                    <p className="text-sm font-bold">{Math.max(0, logs.length - attendanceCount)}</p>
+                </div>
+            </div>
+
+            {isLoading ? (
+                <div className="space-y-2">
+                    <Skeleton className="h-9 w-full" />
+                    <Skeleton className="h-9 w-full" />
+                    <Skeleton className="h-9 w-full" />
+                </div>
+            ) : error ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    {error}
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <div className="overflow-x-auto rounded-xl border border-border bg-accent/10">
+                        <table className="w-full min-w-[520px] text-xs">
+                            <thead>
+                                <tr className="border-b border-border/60 text-left text-muted-foreground">
+                                    <th className="px-3 py-2 font-semibold">User</th>
+                                    <th className="px-3 py-2 font-semibold text-right">Activity</th>
+                                    <th className="px-3 py-2 font-semibold text-right">Absensi</th>
+                                    <th className="px-3 py-2 font-semibold">Last Activity</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {users.slice(0, 10).map((user) => (
+                                    <tr key={user.userId} className="border-b border-border/40 hover:bg-accent/30 transition-colors">
+                                        <td className="px-3 py-2 font-medium">{user.userName}</td>
+                                        <td className="px-3 py-2 text-right">{user.totalLogs}</td>
+                                        <td className="px-3 py-2 text-right text-emerald-600 font-semibold">{user.attendanceLogs}</td>
+                                        <td className="px-3 py-2 text-muted-foreground">{formatActivityTime(user.lastActivityAt)}</td>
+                                    </tr>
+                                ))}
+                                {users.length === 0 && (
+                                    <tr>
+                                        <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">
+                                            Belum ada aktivitas user pada periode ini.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="space-y-2">
+                        {logs.slice(0, 10).map((log) => (
+                            <div key={log.id} className="rounded-xl border border-border bg-accent/20 px-3 py-2">
+                                <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs font-semibold truncate">{log.userName}</p>
+                                    <span className={cn(
+                                        "text-[10px] px-2 py-0.5 rounded-full font-semibold",
+                                        log.isAttendance
+                                            ? "bg-emerald-500/15 text-emerald-600"
+                                            : "bg-slate-500/15 text-slate-600"
+                                    )}>
+                                        {log.isAttendance ? "Absensi" : "Aktivitas"}
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mt-1">
+                                    {log.action} · {log.entity} · {log.entityId}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground mt-1">{formatActivityTime(log.createdAt)}</p>
+                            </div>
+                        ))}
+                        {logs.length === 0 && (
+                            <p className="text-xs text-muted-foreground text-center py-4">
+                                Belum ada log aktivitas terbaru.
+                            </p>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 /* ═══════════════════════════════════════════════════════════ */
 /* SKELETON LOADERS                                           */
 /* ═══════════════════════════════════════════════════════════ */
@@ -1189,6 +1346,10 @@ export default function DashboardPage() {
     const sources = useCommercialStore((s) => s.sources);
     const projects = useCommercialStore((s) => s.projects);
     const [isLoading, setIsLoading] = React.useState(true);
+    const [userActivitySummary, setUserActivitySummary] = React.useState<UserActivitySummary[]>([]);
+    const [userActivityLogs, setUserActivityLogs] = React.useState<UserActivityLog[]>([]);
+    const [userActivityLoading, setUserActivityLoading] = React.useState(false);
+    const [userActivityError, setUserActivityError] = React.useState<string | null>(null);
     const regionOptions = React.useMemo(() => {
         const bag = new Set<string>();
         const push = (v: unknown) => {
@@ -1237,6 +1398,53 @@ export default function DashboardPage() {
             cancelled = true;
         };
     }, [sessionStatus, syncTasks, syncCommercial]);
+
+    React.useEffect(() => {
+        if (sessionStatus !== "authenticated" || !isCeo) {
+            setUserActivitySummary([]);
+            setUserActivityLogs([]);
+            setUserActivityError(null);
+            setUserActivityLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+
+        const fetchUserActivity = async () => {
+            setUserActivityLoading(true);
+            setUserActivityError(null);
+
+            try {
+                const response = await fetch("/api/users/activity-logs?limit=120&days=90", {
+                    method: "GET",
+                    cache: "no-store",
+                });
+
+                const payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload?.error || "Failed to fetch user activity logs.");
+                }
+
+                if (cancelled) return;
+
+                setUserActivitySummary(Array.isArray(payload?.usersSummary) ? payload.usersSummary : []);
+                setUserActivityLogs(Array.isArray(payload?.logs) ? payload.logs : []);
+            } catch (error) {
+                if (cancelled) return;
+                setUserActivitySummary([]);
+                setUserActivityLogs([]);
+                setUserActivityError(error instanceof Error ? error.message : "Failed to fetch user activity logs.");
+            } finally {
+                if (!cancelled) setUserActivityLoading(false);
+            }
+        };
+
+        fetchUserActivity();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [sessionStatus, isCeo]);
 
     // Master Filter logic (dataset-aware: deals vs shipments vs sources)
     const now = new Date();
@@ -1565,6 +1773,12 @@ export default function DashboardPage() {
                             </div>
                         )}
 
+                        {isCeo && (
+                            <div className="grid grid-cols-1 gap-4">
+                                <ChartSkeleton short />
+                            </div>
+                        )}
+
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             <ChartSkeleton />
                             <ChartSkeleton />
@@ -1605,6 +1819,17 @@ export default function DashboardPage() {
                         {isCeo && (
                             <div className="grid grid-cols-1 gap-4">
                                 <ProjectApprovalAlerts projects={waitingApprovalProjects} />
+                            </div>
+                        )}
+
+                        {isCeo && (
+                            <div className="grid grid-cols-1 gap-4">
+                                <UserActivityLogPanel
+                                    users={userActivitySummary}
+                                    logs={userActivityLogs}
+                                    isLoading={userActivityLoading}
+                                    error={userActivityError}
+                                />
                             </div>
                         )}
 

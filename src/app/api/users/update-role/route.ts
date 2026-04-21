@@ -45,15 +45,50 @@ export async function PATCH(request: Request) {
             );
         }
 
-        const updatedUser = await prisma.user.update({
+        const targetUser = await prisma.user.findUnique({
             where: { id: targetUserId },
-            data: { role: normalizedRole as UserRole },
             select: {
                 id: true,
                 name: true,
                 email: true,
                 role: true,
             },
+        });
+
+        if (!targetUser) {
+            return NextResponse.json({ error: "Target user not found." }, { status: 404 });
+        }
+
+        const updatedUser = await prisma.$transaction(async (tx) => {
+            const user = await tx.user.update({
+                where: { id: targetUserId },
+                data: { role: normalizedRole as UserRole },
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    role: true,
+                },
+            });
+
+            await tx.auditLog.create({
+                data: {
+                    userId: session.user.id,
+                    userName: session.user.name || session.user.email || "Unknown",
+                    action: "UPDATE_ROLE",
+                    entity: "User",
+                    entityId: user.id,
+                    details: JSON.stringify({
+                        targetUserId: user.id,
+                        targetName: user.name,
+                        targetEmail: user.email,
+                        oldRole: String(targetUser.role),
+                        newRole: String(user.role),
+                    }),
+                },
+            });
+
+            return user;
         });
 
         return NextResponse.json(
