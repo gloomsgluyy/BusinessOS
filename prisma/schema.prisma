@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -55,8 +52,7 @@ model Account {
   scope             String?
   id_token          String?
   session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
@@ -70,19 +66,18 @@ model Session {
 }
 
 model User {
-  id            String    @id @default(cuid())
+  id            String         @id @default(cuid())
   name          String?
-  email         String?   @unique
+  email         String?        @unique
   emailVerified DateTime?
   image         String?
   password      String?
-  role          UserRole  @default(STAFF)
-
+  role          UserRole       @default(STAFF)
   accounts      Account[]
-  sessions      Session[]
+  auditLogs     AuditLog[]
   chatHistories ChatHistory[]
   meetingMedia  MeetingMedia[]
-  auditLogs     AuditLog[]
+  sessions      Session[]
 }
 
 model VerificationToken {
@@ -96,16 +91,15 @@ model VerificationToken {
 model ChatHistory {
   id        String   @id @default(cuid())
   userId    String
-  role      String // "user" or "assistant"
+  role      String
   content   String
   createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model MeetingMedia {
   id              String   @id @default(cuid())
-  meetingId       String // ID from Google Sheets
+  meetingId       String
   uploaderId      String
   fileName        String
   fileUrl         String
@@ -113,8 +107,7 @@ model MeetingMedia {
   generatedMom    String?
   extractedTasks  String?
   createdAt       DateTime @default(now())
-
-  uploader User @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  uploader        User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
 }
 
 model TimelineMilestone {
@@ -127,8 +120,6 @@ model TimelineMilestone {
   updatedAt   DateTime @updatedAt
 }
 
-// --- Memory B Schema Additions ---
-
 model SyncState {
   id           String   @id @default("singleton")
   lastSyncTime DateTime @default(now())
@@ -139,21 +130,20 @@ model AuditLog {
   id        String   @id @default(cuid())
   userId    String
   userName  String
-  action    String // CREATE, UPDATE, DELETE
-  entity    String // Task, Sales, Shipment, etc
+  action    String
+  entity    String
   entityId  String
-  details   String? // JSON stringified changes
+  details   String?
   createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model TaskItem {
   id           String    @id @default(cuid())
   title        String
   description  String?
-  status       String    @default("todo") // todo, in_progress, review, done
-  priority     String    @default("medium") // low, medium, high, urgent
+  status       String    @default("todo")
+  priority     String    @default("medium")
   assigneeId   String?
   assigneeName String?
   dueDate      DateTime?
@@ -170,7 +160,7 @@ model SalesOrder {
   description   String?
   amount        Float    @default(0)
   priority      String   @default("medium")
-  status        String   @default("pending") // draft, pending, approved, rejected
+  status        String   @default("pending")
   imageUrl      String?
   createdByName String?
   createdBy     String
@@ -197,84 +187,75 @@ model PurchaseRequest {
   notes         String?
   isAnomaly     Boolean  @default(false)
   anomalyReason String?
-  ocrData       String? // JSON
+  ocrData       String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   isDeleted     Boolean  @default(false)
 }
 
-// ─── MV Barge & Source (Client Excel: MV_Barge&Source) ───────────
 model ShipmentDetail {
   id               String    @id @default(cuid())
-  // Core identification
-  no               Int? // NO urut
-  exportDmo        String? // EXPORT / DMO
-  status           String    @default("upcoming") // DONE SHIPMENT, UPCOMING, etc.
-  origin           String? // ORIGIN (KALSEL, SUMSEL, KALTIM)
-  mvProjectName    String? // MV./PROJECT NAME
-  source           String? // SOURCE code (BME, GAT01, SERELO, etc.)
-  iupOp            String? // IUP OP (PT Bumi Merapi Energi, etc.)
-  shipmentFlow     String? // SHIPMENT FLOW (BME-MSE, etc.)
-  jettyLoadingPort String? // JETTY / LOADING PORT
-  laycan           String? // LAYCAN (text: "20-24 JAN")
-  nomination       String? // NOMINATION (barge name)
-  qtyPlan          Float? // QTY (MT) PLAN
-  qtyCob           Float? // COB
-  remarks          String? // REMARKS
-  // Pricing
-  hargaActualFob   Float? // HARGA ACTUAL FOB BARGE
-  hargaActualFobMv Float? // HARGA ACTUAL/ASSUM FOB MV
-  hpb              Float? // HPB
-  statusHpb        String? // STATUS HPB
-  // Shipment tracking
-  shipmentStatus   String? // SHIPMENT STATUS
-  issueNotes       String?   @db.Text // ISSUE / NOTES
-  statusReason     String?   @db.Text // Manual reason for pending/waiting status
-  blDate           DateTime? // BL DATE
-  pic              String? // PIC
-  kuotaExport      String? // KUOTA EXPORT
-  surveyorLhv      String? // Surveyor LHV
-  completelyLoaded DateTime? // COMPLETELY LOADED
-  lhvTerbit        DateTime? // LHV Terbit
-  lossGainCargo    Float? // (LOSS)/GAIN CARGO
-  sp               Float? // SP (Sales Price)
-  deadfreight      Float? // DEADFREIGHT
-  jarak            Float? // JARAK (NM)
-  // Shipping
-  shippingTerm     String? // SHIPPING TERM
-  shippingRate     Float? // SHIPPING RATE
-  priceFreight     Float? // PRICE FREIGHT
-  allowance        String? // ALLOWANCE
-  demm             String? // DEMM / DESP
-  // Document tracking
-  noSpal           String? // NO SPAL
-  noSi             String? // NO SI
-  sentToSupplier   String? // SENT TO SUPPLIER
-  sentToBargeOwner String? // SENT TO BARGE OWNER
-  noInvoiceMkls    String? // NO INVOICE MKLS
-  // Quality
-  coaDate          DateTime? // COA DATE
-  resultGar        Float? // RESULT GAR (ARB)
-  // Legacy compat fields
-  buyer            String? // BUYER (kept for backward compat)
-  supplier         String? // SUPPLIER alias for source
-  vesselName       String? // alias for mvProjectName
-  bargeName        String? // alias for nomination
-  loadingPort      String? // alias for jettyLoadingPort
-  dischargePort    String? // discharge port
-  quantityLoaded   Float? // alias for qtyPlan
-  eta              DateTime? // ETA
-  salesPrice       Float? // alias for sp
-  marginMt         Float? // MARGIN/MT calculated
-  picName          String? // alias for pic
-  product          String? // Jenis produk batubara
-  analysisMethod   String? // Metode analisis (SGS, etc.)
+  status           String    @default("upcoming")
+  buyer            String?
+  supplier         String?
+  iupOp            String?
+  vesselName       String?
+  bargeName        String?
+  loadingPort      String?
+  dischargePort    String?
+  quantityLoaded   Float?
+  blDate           DateTime?
+  eta              DateTime?
+  salesPrice       Float?
+  marginMt         Float?
+  picName          String?
   type             String    @default("export")
-  // Metadata
-  year             Int       @default(2026)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   isDeleted        Boolean   @default(false)
+  allowance        String?
+  analysisMethod   String?
+  coaDate          DateTime?
+  completelyLoaded DateTime?
+  deadfreight      Float?
+  demm             String?
+  exportDmo        String?
+  hargaActualFob   Float?
+  hargaActualFobMv Float?
+  hpb              Float?
+  issueNotes       String?
+  jarak            Float?
+  jettyLoadingPort String?
+  kuotaExport      String?
+  laycan           String?
+  lhvTerbit        DateTime?
+  lossGainCargo    Float?
+  mvProjectName    String?
+  no               Int?
+  noInvoiceMkls    String?
+  noSi             String?
+  noSpal           String?
+  nomination       String?
+  origin           String?
+  pic              String?
+  priceFreight     Float?
+  product          String?
+  qtyCob           Float?
+  qtyPlan          Float?
+  remarks          String?
+  resultGar        Float?
+  sentToBargeOwner String?
+  sentToSupplier   String?
+  shipmentFlow     String?
+  shipmentStatus   String?
+  shippingRate     Float?
+  shippingTerm     String?
+  source           String?
+  sp               Float?
+  statusHpb        String?
+  surveyorLhv      String?
+  year             Int       @default(2026)
+  statusReason     String?
 }
 
 model SourceSupplier {
@@ -302,17 +283,16 @@ model SourceSupplier {
   contractType     String?
   picName          String?
   iupNumber        String?
-  // New fields from Source Monitoring Excel
-  origin           String? // ORIGIN (KALSEL, KALTIM, etc.)
-  statusDetail     String? // Detailed status text
-  updatedDate      DateTime? // UPDATED date from monitoring
-  specGar          Float? // SPECIFICATION GAR
-  qtyProduction    Float? // QTY (PRODUCTION)
-  dokumenFlow      String? // DOKUMEN FLOW
-  psaResultGar     Float? // PSA RESULT (GAR)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   isDeleted        Boolean   @default(false)
+  dokumenFlow      String?
+  origin           String?
+  psaResultGar     Float?
+  qtyProduction    Float?
+  specGar          Float?
+  statusDetail     String?
+  updatedDate      DateTime?
 }
 
 model QualityResult {
@@ -331,108 +311,96 @@ model QualityResult {
   isDeleted    Boolean   @default(false)
 }
 
-// ─── Market Price (Client Excel: ICI HBA HPB) ──────────────────
 model MarketPrice {
   id             String   @id @default(cuid())
   date           DateTime
-  // ICI Indices
-  ici1           Float? // ICI 1 (GAR 6500)
-  ici2           Float? // ICI 2 (GAR 5800)
-  ici3           Float? // ICI 3 (GAR 5000)
-  ici4           Float? // ICI 4 (GAR 4200)
-  ici5           Float? // ICI 5 (GAR 3400)
-  newcastle      Float? // Newcastle/GNewc
-  // HBA 4-tier (monthly)
-  hba            Float? // HBA (CV 6322 GAR) - main reference
-  hbaI           Float? // HBA I (CV 5300 GAR)
-  hbaII          Float? // HBA II (CV 4100 GAR)
-  hbaIII         Float? // HBA III (CV 3400 GAR)
-  // Calculated fields
-  changeWeekly   Float? // Change Every Week (ICI 1 delta)
-  avgMonthlyIci1 Float? // Average Monthly ICI 1
-  avg2WeeksIci1  Float? // Average 2 Weeks ICI 1
-  avg4WeeksIci1  Float? // Average 4 Weeks ICI 1
-  // HPB
-  hpbValue       Float? // HPB calculated value
+  ici1           Float?
+  ici2           Float?
+  ici3           Float?
+  ici4           Float?
+  ici5           Float?
+  newcastle      Float?
+  hba            Float?
   source         String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   isDeleted      Boolean  @default(false)
+  avg2WeeksIci1  Float?
+  avg4WeeksIci1  Float?
+  avgMonthlyIci1 Float?
+  changeWeekly   Float?
+  hbaI           Float?
+  hbaII          Float?
+  hbaIII         Float?
+  hpbValue       Float?
 }
 
-// ─── Daily Delivery Report (Client Excel: Daily Delivery DOM/EXP) ──
 model DailyDelivery {
   id                 String    @id @default(cuid())
-  reportType         String    @default("domestic") // "domestic" | "export"
+  reportType         String    @default("domestic")
   year               Int       @default(2026)
-  // Core
-  shipmentStatus     String? // Shipment Status
-  buyer              String? // Buyer
-  pod                String? // POD (Port of Discharge)
-  shippingTerm       String? // Shipping Term
-  latestEtaPod       DateTime? // Latest ETA at POD
-  arriveAtPod        DateTime? // Arrive at POD
-  keterlambatan      String? // Keterlambatan
-  pol                String? // POL (Port of Loading)
-  laycanPol          String? // Laycan at POL
-  area               String? // Area
-  supplier           String? // Supplier
-  mvBargeNomination  String? // MV/Barge Nomination
-  issue              String?   @db.Text // Issue description
-  blMonth            String? // BL Month
-  blQuantity         Float? // BL Quantity
-  blDate             DateTime? // BL DATE
-  analysisMethod     String? // Analysis Method
-  surveyorPol        String? // Surveyor POL
-  surveyorPod        String? // Surveyor POD
-  project            String? // Project name
-  flow               String? // Flow
-  terpal             String? // Terpal
-  insurance          String? // Insurance
-  basePrice          Float? // Base Price
-  basePriceNotes     String? // Base Price Notes
-  poMonth            String? // PO Month
-  product            String? // Product
-  // Timing
-  arriveAtPol        DateTime? // Arrive at POL
-  commenceLoading    DateTime? // Commence Loading
-  completeLoading    DateTime? // Complete Loading
-  startDischarging   DateTime? // Start Discharging
-  completeDischarged DateTime? // Complete Discharged
-  podQuantity        Float? // POD Quantity
-  lossGainCargo      Float? // (Loss)/Gain Cargo
-  // Contract/Payment
-  poNo               String? // PO No
-  contractNo         String? // Contract No
-  contractType       String? // Contract w. Buyer Type (Spot/Term)
-  invoicePrice       Float? // Invoice Price
-  invoiceAmount      Float? // Invoice Amount
-  paymentDueDate     DateTime? // Payment Due Date
-  paymentStatus      String? // Payment Status/Paid
-  // Quality
-  specContract       String? // SPEC CONTRACT
-  actualGcvGar       Float? // ACTUAL GCV (GAR&GAD)
-  actualTs           Float? // ACTUAL TS (ADB)
-  actualAsh          Float? // ACTUAL ASH (ADB)
-  actualTm           Float? // ACTUAL TM (ARB)
-  // Metadata
+  shipmentStatus     String?
+  buyer              String?
+  pod                String?
+  shippingTerm       String?
+  latestEtaPod       DateTime?
+  arriveAtPod        DateTime?
+  keterlambatan      String?
+  pol                String?
+  laycanPol          String?
+  area               String?
+  supplier           String?
+  mvBargeNomination  String?
+  issue              String?
+  blMonth            String?
+  blQuantity         Float?
+  blDate             DateTime?
+  analysisMethod     String?
+  surveyorPol        String?
+  surveyorPod        String?
+  project            String?
+  flow               String?
+  terpal             String?
+  insurance          String?
+  basePrice          Float?
+  basePriceNotes     String?
+  poMonth            String?
+  product            String?
+  arriveAtPol        DateTime?
+  commenceLoading    DateTime?
+  completeLoading    DateTime?
+  startDischarging   DateTime?
+  completeDischarged DateTime?
+  podQuantity        Float?
+  lossGainCargo      Float?
+  poNo               String?
+  contractNo         String?
+  contractType       String?
+  invoicePrice       Float?
+  invoiceAmount      Float?
+  paymentDueDate     DateTime?
+  paymentStatus      String?
+  specContract       String?
+  actualGcvGar       Float?
+  actualTs           Float?
+  actualAsh          Float?
+  actualTm           Float?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   isDeleted          Boolean   @default(false)
 }
 
-// ─── Outstanding Payment (Client Excel: Outstanding Payment) ───
 model OutstandingPayment {
   id              String    @id @default(cuid())
-  perusahaan      String // Nama Perusahaan
-  kodeBatu        String? // Kode Batu
-  priceInclPph    Float? // Price (Incl PPh, Exc. PPN)
-  qty             Float? // Qty (MT)
-  totalDp         Float? // Total DP
-  calculationDate DateTime? // Calculation Date of DP
-  dpToShipment    DateTime? // DP to Shipment date
-  timeframeDays   String? // Timeframe (in days)
-  status          String    @default("pending") // pending, partial, paid
+  perusahaan      String
+  kodeBatu        String?
+  priceInclPph    Float?
+  qty             Float?
+  totalDp         Float?
+  calculationDate DateTime?
+  dpToShipment    DateTime?
+  timeframeDays   String?
+  status          String    @default("pending")
   year            Int       @default(2026)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -446,10 +414,10 @@ model MeetingItem {
   time          String?
   location      String?
   status        String    @default("scheduled")
-  attendees     String? // JSON array
-  momContent    String? // Plain text MOM transcript
-  voiceNoteUrl  String? // URL to uploaded audio/video
-  aiSummary     String? // AI-generated summary (markdown)
+  attendees     String?
+  momContent    String?
+  voiceNoteUrl  String?
+  aiSummary     String?
   createdByName String?
   createdBy     String
   createdAt     DateTime  @default(now())
@@ -515,18 +483,18 @@ model ProjectItem {
   notes          String?
   createdBy      String?
   createdByName  String?
-  approvedBy     String?
-  approvedByName String?
-  approvedAt     DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   isDeleted      Boolean   @default(false)
+  approvedBy     String?
+  approvedByName String?
+  approvedAt     DateTime?
 }
 
 model Partner {
   id            String   @id @default(cuid())
   name          String
-  type          String   @default("buyer") // buyer, vendor, fleet
+  type          String   @default("buyer")
   category      String?
   contactPerson String?
   phone         String?
@@ -535,7 +503,7 @@ model Partner {
   city          String?
   country       String?
   taxId         String?
-  status        String   @default("active") // active, under_review, inactive
+  status        String   @default("active")
   notes         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -544,7 +512,7 @@ model Partner {
 
 model BlendingSimulation {
   id            String   @id @default(cuid())
-  inputs        String   @default("[]") // JSON array of { name, quantity, gar, ts, ash, tm }
+  inputs        String   @default("[]")
   totalQuantity Float    @default(0)
   resultGar     Float    @default(0)
   resultTs      Float    @default(0)
