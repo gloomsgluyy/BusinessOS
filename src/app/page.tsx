@@ -1338,10 +1338,14 @@ export default function DashboardPage() {
     const [status, setStatus] = React.useState("all");
     const [country, setCountry] = React.useState("all");
     const [search, setSearch] = React.useState("");
-    const rawRole = String(currentUser?.role || "").trim().toLowerCase();
+    const rawRole = String(currentUser?.role || "")
+      .trim()
+      .toUpperCase();
     const normalizedRole = rawRole.replace(/[\s-]+/g, "_");
-    const isCeo = normalizedRole === "ceo";
-    const isExecutive = ["ceo", "director", "assistant_ceo", "assistantceo"].includes(normalizedRole);
+    const isCeo = normalizedRole === "CEO";
+    const isExecutive = ["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(
+      normalizedRole,
+    );
     const isRoleResolving = sessionStatus === "loading" || (sessionStatus === "authenticated" && !normalizedRole);
     const sources = useCommercialStore((s) => s.sources);
     const projects = useCommercialStore((s) => s.projects);

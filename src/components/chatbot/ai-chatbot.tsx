@@ -120,26 +120,27 @@ export function AIChatbot() {
     const { data: session } = useSession();
     const currentUser = (session?.user as any) || { id: "", name: "Guest", role: "guest", email: "" };
     const hasPermission = (permission: string) => {
-        const role = currentUser?.role?.toLowerCase();
-        // Allow all roles defined in our system
-        return ["ceo", "director", "marketing", "purchasing", "operation", "manager"].includes(role);
+      const role = currentUser?.role?.toUpperCase();
+      if (!role) return false;
+      // Allow all configured enum roles, except guest
+      return role !== "GUEST";
     };
 
     // Commercial store entities
     const {
-        deals,
-        shipments,
-        sources,
-        marketPrices,
-        meetings,
-        plForecasts,
-        projects,
-        syncFromMemory: syncCommercial,
-        addDeal,
-        addMeeting,
-        addShipment,
-        updateShipment,
-        deleteShipment
+      deals,
+      shipments,
+      sources,
+      marketPrices,
+      meetings,
+      plForecasts,
+      projects,
+      syncFromMemory: syncCommercial,
+      addDeal,
+      addMeeting,
+      addShipment,
+      updateShipment,
+      deleteShipment,
     } = useCommercialStore();
     const tasks = useTaskStore((s) => s.tasks);
     const syncTasks = useTaskStore((s) => s.syncFromMemory);
@@ -153,8 +154,13 @@ export function AIChatbot() {
 
     const [sessions, setSessions] = React.useState<ChatSession[]>([]);
     const [activeSessionId, setActiveSessionId] = React.useState("");
-    const [completedActions, setCompletedActions] = React.useState<Set<string>>(new Set());
-    const [detailModal, setDetailModal] = React.useState<{ item: ActionCardItem; entityType: string } | null>(null);
+    const [completedActions, setCompletedActions] = React.useState<Set<string>>(
+      new Set(),
+    );
+    const [detailModal, setDetailModal] = React.useState<{
+      item: ActionCardItem;
+      entityType: string;
+    } | null>(null);
     const [commentInput, setCommentInput] = React.useState("");
     const [input, setInput] = React.useState("");
     const [isTyping, setIsTyping] = React.useState(false);
@@ -164,72 +170,104 @@ export function AIChatbot() {
     const scrollRef = React.useRef<HTMLDivElement>(null);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-    const welcomeMsg = React.useCallback((): Message => ({
+    const welcomeMsg = React.useCallback(
+      (): Message => ({
         id: "welcome-" + Date.now().toString(),
         role: "assistant",
         text: `Halo ${currentUser.name} !Saya CoalTrade Copilot.Saya bisa membantu Anda membuat Sales Deal baru, melacak pengiriman kapal, mencari data spesifikasi supplier, atau menampilkan ringkasan P & L.Ketikkan apa yang Anda inginkan.`,
-    }), [currentUser.name]);
+      }),
+      [currentUser.name],
+    );
 
     React.useEffect(() => {
-        if (!currentUser?.id) return;
-        fetch("/api/chat/history").then(r => r.json()).then(data => {
-            if (data && data.length > 0) {
-                const formattedMessages = data.map((msg: any) => ({
-                    id: msg.id, role: msg.role, text: msg.content
-                }));
-                const ns: ChatSession = { id: "db-session", title: "History", messages: [welcomeMsg(), ...formattedMessages], createdAt: new Date().toISOString() };
-                setSessions([ns]); setActiveSessionId(ns.id);
-            } else {
-                const ns: ChatSession = { id: Date.now().toString(), title: "Percakapan Baru", messages: [welcomeMsg()], createdAt: new Date().toISOString() };
-                setSessions([ns]); setActiveSessionId(ns.id);
-            }
-        }).catch(console.error);
+      if (!currentUser?.id) return;
+      fetch("/api/chat/history")
+        .then((r) => r.json())
+        .then((data) => {
+          if (data && data.length > 0) {
+            const formattedMessages = data.map((msg: any) => ({
+              id: msg.id,
+              role: msg.role,
+              text: msg.content,
+            }));
+            const ns: ChatSession = {
+              id: "db-session",
+              title: "History",
+              messages: [welcomeMsg(), ...formattedMessages],
+              createdAt: new Date().toISOString(),
+            };
+            setSessions([ns]);
+            setActiveSessionId(ns.id);
+          } else {
+            const ns: ChatSession = {
+              id: Date.now().toString(),
+              title: "Percakapan Baru",
+              messages: [welcomeMsg()],
+              createdAt: new Date().toISOString(),
+            };
+            setSessions([ns]);
+            setActiveSessionId(ns.id);
+          }
+        })
+        .catch(console.error);
     }, [currentUser?.id, welcomeMsg]);
 
-    const activeSession = sessions.find(s => s.id === activeSessionId);
+    const activeSession = sessions.find((s) => s.id === activeSessionId);
     const messages = activeSession?.messages || [welcomeMsg()];
 
     React.useEffect(() => {
-        if (!open) return;
-        syncCommercial({ mode: "full", force: true }).catch(() => { });
-        syncTasks().catch(() => { });
+      if (!open) return;
+      syncCommercial({ mode: "full", force: true }).catch(() => {});
+      syncTasks().catch(() => {});
     }, [open, syncCommercial, syncTasks]);
 
     const updateMessages = (nm: Message[]) => {
-        setSessions((prev) => {
-            const u = prev.map((s) => s.id === activeSessionId ? { ...s, messages: nm } : s);
-            saveSessions(currentUser.id, u); return u;
-        });
+      setSessions((prev) => {
+        const u = prev.map((s) =>
+          s.id === activeSessionId ? { ...s, messages: nm } : s,
+        );
+        saveSessions(currentUser.id, u);
+        return u;
+      });
     };
 
     const buildSystemPrompt = (): string => {
-        const activeShipments = shipments.filter(s => s.status !== "completed" && s.status !== "cancelled");
-        const confirmedDeals = deals.filter(d => d.status === "confirmed");
-        const preSaleDeals = deals.filter(d => d.status === "pre_sale");
-        const totalRevenue = confirmedDeals.reduce((s, d) => s + (d.total_value || d.quantity * (d.price_per_mt || 0)), 0);
+      const activeShipments = shipments.filter(
+        (s) => s.status !== "completed" && s.status !== "cancelled",
+      );
+      const confirmedDeals = deals.filter((d) => d.status === "confirmed");
+      const preSaleDeals = deals.filter((d) => d.status === "pre_sale");
+      const totalRevenue = confirmedDeals.reduce(
+        (s, d) => s + (d.total_value || d.quantity * (d.price_per_mt || 0)),
+        0,
+      );
 
-        const nameStr = currentUser?.name?.toLowerCase() || "";
-        // Relax checking: if attendee string includes name, or if it's the creator
-        const myMeetings = meetings.filter(m =>
-            (m.attendees && m.attendees.some(a => a.toLowerCase().includes(nameStr))) ||
-            m.created_by === currentUser?.id ||
-            true // Let's just pass all active meetings to the AI for better context since it's an executive dashboard
-        );
+      const nameStr = currentUser?.name?.toLowerCase() || "";
+      // Relax checking: if attendee string includes name, or if it's the creator
+      const myMeetings = meetings.filter(
+        (m) =>
+          (m.attendees &&
+            m.attendees.some((a) => a.toLowerCase().includes(nameStr))) ||
+          m.created_by === currentUser?.id ||
+          true, // Let's just pass all active meetings to the AI for better context since it's an executive dashboard
+      );
 
-        const now = new Date();
-        const recentMeetings = myMeetings
-            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-            .slice(-5); // Get all meetings and send top 5 to AI
+      const now = new Date();
+      const recentMeetings = myMeetings
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .slice(-5); // Get all meetings and send top 5 to AI
 
-        const isExecutive = currentUser?.role === "ceo" || currentUser?.role === "director";
-        const hasSalesAccess = hasPermission("sales_monitor");
-        const hasSourceAccess = hasPermission("source_management");
+      const isExecutive = ["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(
+        currentUser?.role?.toUpperCase(),
+      );
+      const hasSalesAccess = hasPermission("sales_monitor");
+      const hasSourceAccess = hasPermission("source_management");
 
-        return `Kamu adalah CoalTrade Copilot, asisten bisnis profesional eksekutif untuk sistem CoalTradeOS.
+      return `Kamu adalah CoalTrade Copilot, asisten bisnis profesional eksekutif untuk sistem CoalTradeOS.
 User: ${currentUser?.name || "User"} (${currentUser?.role || "STAFF"}).
 
 ### Jadwal Meeting Terdekat (${recentMeetings.length}):
-${recentMeetings.length > 0 ? recentMeetings.map((m, i) => `${i + 1}. ${m.title} pada ${new Date(m.date).toLocaleDateString("id-ID")} ${m.time} (${m.location}). Status: ${m.status}`).join('\n') : '- Tidak ada jadwal meeting aktif.'}
+${recentMeetings.length > 0 ? recentMeetings.map((m, i) => `${i + 1}. ${m.title} pada ${new Date(m.date).toLocaleDateString("id-ID")} ${m.time} (${m.location}). Status: ${m.status}`).join("\n") : "- Tidak ada jadwal meeting aktif."}
 
 
 ## ATURAN FORMAT & GAYA BAHASA — WAJIB DIIKUTI:
@@ -314,161 +352,269 @@ Total inventaris yang tersedia saat ini: **${sources.reduce((s, src) => s + src.
 
 | Supplier | Region | Stok |
 |----------|--------|------|
-${sources.slice(0, 5).map(s => `| ${s.name} | ${s.region} | ${s.stock_available.toLocaleString("en-US")} MT |`).join("\n")}
+${sources
+  .slice(0, 5)
+  .map(
+    (s) =>
+      `| ${s.name} | ${s.region} | ${s.stock_available.toLocaleString("en-US")} MT |`,
+  )
+  .join("\n")}
 
 ## DATA KONTEKS LIVE:
 
-${hasSalesAccess ? `### Sales Pipeline
+${
+  hasSalesAccess
+    ? `### Sales Pipeline
 - Total Deals: **${deals.length}** (${confirmedDeals.length} confirmed, ${preSaleDeals.length} pre-sale)
-${isExecutive ? `- Revenue YTD: **$${(totalRevenue / 1000).toFixed(0)}K**` : ''}
-${deals.slice(0, 5).map(d => `- ${d.buyer} — ${d.quantity.toLocaleString("en-US")} MT — ${d.status}`).join("\n")}` : ''}
+${isExecutive ? `- Revenue YTD: **$${(totalRevenue / 1000).toFixed(0)}K**` : ""}
+${deals
+  .slice(0, 5)
+  .map(
+    (d) =>
+      `- ${d.buyer} — ${d.quantity.toLocaleString("en-US")} MT — ${d.status}`,
+  )
+  .join("\n")}`
+    : ""
+}
 
 ### Active Shipments: ${activeShipments.length}
-${activeShipments.slice(0, 3).map(s => `- ${s.buyer} via ${s.vessel_name || s.barge_name || 'TBA'} — ${s.status}${s.pending_items?.length ? ` (${s.pending_items.length} pending)` : ''}`).join("\n")}
+${activeShipments
+  .slice(0, 3)
+  .map(
+    (s) =>
+      `- ${s.buyer} via ${s.vessel_name || s.barge_name || "TBA"} — ${s.status}${s.pending_items?.length ? ` (${s.pending_items.length} pending)` : ""}`,
+  )
+  .join("\n")}
 
-${hasSourceAccess ? `### Suppliers: ${sources.length}
-${sources.slice(0, 5).map(s => `- ${s.name} (GAR ${s.spec?.gar || 'TBA'}) — ${s.region} — KYC: ${s.kyc_status}`).join("\n")}` : ''}
+${
+  hasSourceAccess
+    ? `### Suppliers: ${sources.length}
+${sources
+  .slice(0, 5)
+  .map(
+    (s) =>
+      `- ${s.name} (GAR ${s.spec?.gar || "TBA"}) — ${s.region} — KYC: ${s.kyc_status}`,
+  )
+  .join("\n")}`
+    : ""
+}
 
-${isExecutive ? `### Market Price (Latest)
-${marketPrices[0] ? `- ICI 4 (4200): $${marketPrices[0].ici_4}\n- Newcastle: $${marketPrices[0].newcastle}\n- HBA: $${marketPrices[0].hba}` : '- Belum ada data'}
+${
+  isExecutive
+    ? `### Market Price (Latest)
+${marketPrices[0] ? `- ICI 4 (4200): $${marketPrices[0].ici_4}\n- Newcastle: $${marketPrices[0].newcastle}\n- HBA: $${marketPrices[0].hba}` : "- Belum ada data"}
 
-### P&L Entries: ${plForecasts.length}` : ''}
+### P&L Entries: ${plForecasts.length}`
+    : ""
+}
 
 ### Projects: ${projects.length}
 ### Tasks Open: ${tasks.filter((t) => t.status !== "done").length}`;
     };
 
     const processActionCommands = (text: string) => {
-        let cleanText = text;
-        const dealMatch = text.match(/<<<ACTION_CREATE_DEAL:\s*({.*})>>>/);
-        if (dealMatch) {
-            try {
-                const data = JSON.parse(dealMatch[1]);
-                addDeal({
-                    buyer: data.buyer || "Unknown Buyer",
-                    buyer_country: "TBD",
-                    type: "export",
-                    shipping_terms: "FOB",
-                    quantity: data.quantity || 0,
-                    price_per_mt: data.price || 0,
-                    status: "pre_sale",
-                    pic_id: currentUser.id,
-                    pic_name: currentUser.name,
-                    created_by: currentUser.id,
-                    created_by_name: currentUser.name,
-                    spec: { gar: data.gar || 0, ts: 0, ash: 0, tm: 0 }
-                });
-                cleanText = cleanText.replace(dealMatch[0], "").trim() + "\n\n**Sistem telah membuat Draft Sales Deal secara otomatis.** Klik tab Sales Monitor untuk melihat detailnya.";
-            } catch (e) {
-                console.error("Failed to parse deal action JSON");
-            }
+      let cleanText = text;
+      const dealMatch = text.match(/<<<ACTION_CREATE_DEAL:\s*({.*})>>>/);
+      if (dealMatch) {
+        try {
+          const data = JSON.parse(dealMatch[1]);
+          addDeal({
+            buyer: data.buyer || "Unknown Buyer",
+            buyer_country: "TBD",
+            type: "export",
+            shipping_terms: "FOB",
+            quantity: data.quantity || 0,
+            price_per_mt: data.price || 0,
+            status: "pre_sale",
+            pic_id: currentUser.id,
+            pic_name: currentUser.name,
+            created_by: currentUser.id,
+            created_by_name: currentUser.name,
+            spec: { gar: data.gar || 0, ts: 0, ash: 0, tm: 0 },
+          });
+          cleanText =
+            cleanText.replace(dealMatch[0], "").trim() +
+            "\n\n**Sistem telah membuat Draft Sales Deal secara otomatis.** Klik tab Sales Monitor untuk melihat detailnya.";
+        } catch (e) {
+          console.error("Failed to parse deal action JSON");
         }
+      }
 
-        const meetingMatch = text.match(/<<<ACTION_CREATE_MEETING:\s*({.*})>>>/);
-        if (meetingMatch) {
-            try {
-                const data = JSON.parse(meetingMatch[1]);
-                addMeeting({
-                    title: data.title || "New Meeting",
-                    date: data.date || new Date().toISOString().split("T")[0],
-                    time: "09:00",
-                    location: "Online",
-                    status: "scheduled",
-                    attendees: [currentUser.name],
-                    action_items: [],
-                    created_by: currentUser.id,
-                    created_by_name: currentUser.name
-                });
-                cleanText = cleanText.replace(meetingMatch[0], "").trim() + "\n\n**Sistem telah menjadwalkan Meeting baru.** Silakan cek halaman Meetings.";
-            } catch (e) { }
+      const meetingMatch = text.match(/<<<ACTION_CREATE_MEETING:\s*({.*})>>>/);
+      if (meetingMatch) {
+        try {
+          const data = JSON.parse(meetingMatch[1]);
+          addMeeting({
+            title: data.title || "New Meeting",
+            date: data.date || new Date().toISOString().split("T")[0],
+            time: "09:00",
+            location: "Online",
+            status: "scheduled",
+            attendees: [currentUser.name],
+            action_items: [],
+            created_by: currentUser.id,
+            created_by_name: currentUser.name,
+          });
+          cleanText =
+            cleanText.replace(meetingMatch[0], "").trim() +
+            "\n\n**Sistem telah menjadwalkan Meeting baru.** Silakan cek halaman Meetings.";
+        } catch (e) {}
+      }
+
+      // Shipment Create
+      const shipmentCreateMatch = text.match(
+        /<<<ACTION_CREATE_SHIPMENT:\s*({[\s\S]*?})>>>/,
+      );
+      if (shipmentCreateMatch) {
+        try {
+          const data = JSON.parse(shipmentCreateMatch[1]);
+          addShipment({
+            deal_id: data.deal_id || "",
+            status: "waiting_loading",
+            buyer: data.buyer || "Unknown Buyer",
+            supplier: data.supplier || "Unknown Supplier",
+            vessel_name: data.vessel_name || "",
+            barge_name: data.barge_name || "",
+            loading_port: data.loading_port || "",
+            discharge_port: data.discharge_port || "",
+            quantity_loaded: data.quantity_loaded || 0,
+            bl_date: data.bl_date || "",
+            eta: data.eta || "",
+            sales_price: data.sales_price || 0,
+            margin_mt: data.margin_mt || 0,
+            is_blending: data.is_blending || false,
+            iup_op: data.iup_op || "",
+            pic_id: currentUser.id,
+            pic_name: currentUser.name,
+            buyer_country: data.buyer_country || "",
+            type: data.type || "export",
+            region: data.region || "",
+          } as any);
+          cleanText =
+            cleanText.replace(shipmentCreateMatch[0], "").trim() +
+            "\n\n**Sistem telah membuat Shipment baru dengan status Waiting Loading.** Cek halaman Shipment Monitor.";
+        } catch (e) {
+          console.error("Failed to parse shipment create action");
         }
+      }
 
-        // Shipment Create
-        const shipmentCreateMatch = text.match(/<<<ACTION_CREATE_SHIPMENT:\s*({[\s\S]*?})>>>/);
-        if (shipmentCreateMatch) {
-            try {
-                const data = JSON.parse(shipmentCreateMatch[1]);
-                addShipment({
-                    deal_id: data.deal_id || "",
-                    status: "waiting_loading",
-                    buyer: data.buyer || "Unknown Buyer",
-                    supplier: data.supplier || "Unknown Supplier",
-                    vessel_name: data.vessel_name || "",
-                    barge_name: data.barge_name || "",
-                    loading_port: data.loading_port || "",
-                    discharge_port: data.discharge_port || "",
-                    quantity_loaded: data.quantity_loaded || 0,
-                    bl_date: data.bl_date || "",
-                    eta: data.eta || "",
-                    sales_price: data.sales_price || 0,
-                    margin_mt: data.margin_mt || 0,
-                    is_blending: data.is_blending || false,
-                    iup_op: data.iup_op || "",
-                    pic_id: currentUser.id,
-                    pic_name: currentUser.name,
-                    buyer_country: data.buyer_country || "",
-                    type: data.type || "export",
-                    region: data.region || "",
-                } as any);
-                cleanText = cleanText.replace(shipmentCreateMatch[0], "").trim() + "\n\n**Sistem telah membuat Shipment baru dengan status Waiting Loading.** Cek halaman Shipment Monitor.";
-            } catch (e) { console.error("Failed to parse shipment create action"); }
+      // Shipment Update
+      const shipmentUpdateMatch = text.match(
+        /<<<ACTION_UPDATE_SHIPMENT:\s*({[\s\S]*?})>>>/,
+      );
+      if (shipmentUpdateMatch) {
+        try {
+          const data = JSON.parse(shipmentUpdateMatch[1]);
+          const { id, ...updates } = data;
+          if (id) {
+            updateShipment(id, updates);
+            cleanText =
+              cleanText.replace(shipmentUpdateMatch[0], "").trim() +
+              "\n\n**Sistem telah mengupdate Shipment.** Cek halaman Shipment Monitor untuk melihat perubahan.";
+          }
+        } catch (e) {
+          console.error("Failed to parse shipment update action");
         }
+      }
 
-        // Shipment Update
-        const shipmentUpdateMatch = text.match(/<<<ACTION_UPDATE_SHIPMENT:\s*({[\s\S]*?})>>>/);
-        if (shipmentUpdateMatch) {
-            try {
-                const data = JSON.parse(shipmentUpdateMatch[1]);
-                const { id, ...updates } = data;
-                if (id) {
-                    updateShipment(id, updates);
-                    cleanText = cleanText.replace(shipmentUpdateMatch[0], "").trim() + "\n\n**Sistem telah mengupdate Shipment.** Cek halaman Shipment Monitor untuk melihat perubahan.";
-                }
-            } catch (e) { console.error("Failed to parse shipment update action"); }
+      // Shipment Delete
+      const shipmentDeleteMatch = text.match(
+        /<<<ACTION_DELETE_SHIPMENT:\s*({[\s\S]*?})>>>/,
+      );
+      if (shipmentDeleteMatch) {
+        try {
+          const data = JSON.parse(shipmentDeleteMatch[1]);
+          if (data.id) {
+            deleteShipment(data.id);
+            cleanText =
+              cleanText.replace(shipmentDeleteMatch[0], "").trim() +
+              "\n\n**Sistem telah menghapus Shipment dari daftar.** Cek halaman Shipment Monitor.";
+          }
+        } catch (e) {
+          console.error("Failed to parse shipment delete action");
         }
+      }
 
-        // Shipment Delete
-        const shipmentDeleteMatch = text.match(/<<<ACTION_DELETE_SHIPMENT:\s*({[\s\S]*?})>>>/);
-        if (shipmentDeleteMatch) {
-            try {
-                const data = JSON.parse(shipmentDeleteMatch[1]);
-                if (data.id) {
-                    deleteShipment(data.id);
-                    cleanText = cleanText.replace(shipmentDeleteMatch[0], "").trim() + "\n\n**Sistem telah menghapus Shipment dari daftar.** Cek halaman Shipment Monitor.";
-                }
-            } catch (e) { console.error("Failed to parse shipment delete action"); }
-        }
+      // Strip ALL remaining actions globally so they don't show up in UI
+      cleanText = cleanText
+        .replace(/<<<ACTION_[A-Z_]+:\s*(\{[\s\S]*?\}|[\s\S]*?)>>>/g, "")
+        .trim();
 
-        // Strip ALL remaining actions globally so they don't show up in UI
-        cleanText = cleanText.replace(/<<<ACTION_[A-Z_]+:\s*(\{[\s\S]*?\}|[\s\S]*?)>>>/g, "").trim();
-
-        return cleanText;
+      return cleanText;
     };
 
     const buildListCards = (input: string): ActionCardItem[] => {
-        const c: ActionCardItem[] = [];
-        const l = input.toLowerCase();
+      const c: ActionCardItem[] = [];
+      const l = input.toLowerCase();
 
-        if (/list|tampilkan|daftar/i.test(l)) {
-            if (/deal|sales|penjualan/i.test(l)) {
-                deals.slice(0, 5).forEach(d => c.push({ id: d.id, entityType: "sales", title: d.buyer, subtitle: d.deal_number || "", amount: d.price_per_mt || 0, status: d.status as string, date: fd(d.created_at), createdBy: d.pic_name || "", actions: ["detail"] }));
-            }
-            if (/kapal|shipment|pengiriman/i.test(l)) {
-                shipments.filter(s => s.status !== "completed").slice(0, 5).forEach(s => c.push({ id: s.id, entityType: "shipment", title: s.vessel_name || s.barge_name || "Vessel TBA", subtitle: `${s.buyer}`, status: s.status as string, date: fd(s.created_at), createdBy: s.pic_name || "", actions: ["detail"] }));
-            }
-            if (/supplier|tambang|source/i.test(l)) {
-                sources.slice(0, 5).forEach(s => c.push({ id: s.id, entityType: "source", title: s.name, subtitle: `Stock: ${(s.stock_available / 1000).toFixed(0)}K MT`, status: s.kyc_status, date: fd(s.created_at), createdBy: s.pic_name || "-", actions: ["detail"] }));
-            }
+      if (/list|tampilkan|daftar/i.test(l)) {
+        if (/deal|sales|penjualan/i.test(l)) {
+          deals
+            .slice(0, 5)
+            .forEach((d) =>
+              c.push({
+                id: d.id,
+                entityType: "sales",
+                title: d.buyer,
+                subtitle: d.deal_number || "",
+                amount: d.price_per_mt || 0,
+                status: d.status as string,
+                date: fd(d.created_at),
+                createdBy: d.pic_name || "",
+                actions: ["detail"],
+              }),
+            );
         }
-        return c;
+        if (/kapal|shipment|pengiriman/i.test(l)) {
+          shipments
+            .filter((s) => s.status !== "completed")
+            .slice(0, 5)
+            .forEach((s) =>
+              c.push({
+                id: s.id,
+                entityType: "shipment",
+                title: s.vessel_name || s.barge_name || "Vessel TBA",
+                subtitle: `${s.buyer}`,
+                status: s.status as string,
+                date: fd(s.created_at),
+                createdBy: s.pic_name || "",
+                actions: ["detail"],
+              }),
+            );
+        }
+        if (/supplier|tambang|source/i.test(l)) {
+          sources
+            .slice(0, 5)
+            .forEach((s) =>
+              c.push({
+                id: s.id,
+                entityType: "source",
+                title: s.name,
+                subtitle: `Stock: ${(s.stock_available / 1000).toFixed(0)}K MT`,
+                status: s.kyc_status,
+                date: fd(s.created_at),
+                createdBy: s.pic_name || "-",
+                actions: ["detail"],
+              }),
+            );
+        }
+      }
+      return c;
     };
 
     // -- Check if we should render charts inline --
     const getChartWidgetType = (input: string): string | undefined => {
-        if (/market price|harga pasar|ici|newcastle/i.test(input)) return "market_price";
-        if (/p\&l|profit|margin|forecast/i.test(input) && (currentUser.role === "ceo" || currentUser.role === "director")) return "pl_summary";
-        if (/target|sales plan|kuota/i.test(input)) return "sales_plan";
-        return undefined;
+      if (/market price|harga pasar|ici|newcastle/i.test(input))
+        return "market_price";
+      if (
+        /p\&l|profit|margin|forecast/i.test(input) &&
+        ["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(
+          currentUser?.role?.toUpperCase(),
+        )
+      )
+        return "pl_summary";
+      if (/target|sales plan|kuota/i.test(input)) return "sales_plan";
+      return undefined;
     };
 
     const buildDeterministicReply = (rawInput: string): string | null => {

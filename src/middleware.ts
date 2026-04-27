@@ -6,10 +6,11 @@ export default withAuth(
         const token = req.nextauth.token
         const path = req.nextUrl.pathname
 
-        // Protect Dashboard (CEO and director/ASSISTANT_CEO only)
+        // Protect Dashboard (Execs only based on UserRole schema)
         if (path === "/") {
-            const role = (token?.role as string)?.toLowerCase();
-            if (role !== "ceo" && role !== "director") {
+            const role = (token?.role as string)?.toUpperCase();
+            const allowedRoles = ["CEO", "DIRUT", "ASS_DIRUT", "COO"];
+            if (!allowedRoles.includes(role)) {
                 return NextResponse.redirect(new URL("/projects", req.url))
             }
         }

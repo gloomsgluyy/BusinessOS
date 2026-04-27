@@ -17,30 +17,38 @@ export default function AllTasksPage() {
 
     const { data: session } = useSession();
     const currentUser = session?.user as any;
-    const hasPermission = (permission: string) => currentUser?.role === "CEO" || currentUser?.role === "ASSISTANT_CEO";
+    const hasPermission = (permission: string) =>
+      ["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(currentUser?.role);
     const tasks = useTaskStore((s) => s.tasks);
     const syncFromMemory = useTaskStore((s) => s.syncFromMemory);
     const moveTask = useTaskStore((s) => s.moveTask);
 
     React.useEffect(() => {
-        syncFromMemory().finally(() => setIsInitializing(false));
+      syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
     const [isSaving, setIsSaving] = React.useState(false);
-    const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
+    const [toast, setToast] = React.useState<{
+      message: string;
+      type: "success" | "error";
+    } | null>(null);
 
     if (!hasPermission("all_tasks")) {
-        return (
-            <AppShell>
-                <div className="flex items-center justify-center h-full animate-fade-in">
-                    <div className="text-center space-y-2">
-                        <Shield className="w-10 h-10 text-muted-foreground/30 mx-auto" />
-                        <p className="text-sm font-medium text-muted-foreground">Access Restricted</p>
-                        <p className="text-xs text-muted-foreground">Only CEO and Assistant CEO can view all tasks.</p>
-                    </div>
-                </div>
-            </AppShell>
-        );
+      return (
+        <AppShell>
+          <div className="flex items-center justify-center h-full animate-fade-in">
+            <div className="text-center space-y-2">
+              <Shield className="w-10 h-10 text-muted-foreground/30 mx-auto" />
+              <p className="text-sm font-medium text-muted-foreground">
+                Access Restricted
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Only Executives (CEO, Dirut, dll) can view all tasks.
+              </p>
+            </div>
+          </div>
+        </AppShell>
+      );
     }
 
     const handleDragEnd = async (result: DropResult) => {

@@ -133,8 +133,8 @@ export default function ProjectsPage() {
   const [editingProject, setEditingProject] = React.useState<ProjectItem | null>(null);
   const [form, setForm] = React.useState<ProjectForm>(defaultForm);
   const [saving, setSaving] = React.useState(false);
-  const role = String(currentUser?.role || "").toLowerCase();
-  const canApprove = role === "ceo" || role === "director";
+  const role = String(currentUser?.role || "").toUpperCase();
+  const canApprove = ["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(role);
 
   React.useEffect(() => {
     syncFromMemory().finally(() => setIsInitializing(false));

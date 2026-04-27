@@ -17,7 +17,17 @@ export default function MyTasksPage() {
 
     const { data: session } = useSession();
     const currentUser = session?.user as any;
-    const hasPermission = (permission: string) => currentUser?.role === "CEO" || currentUser?.role === "MANAGER" || currentUser?.role === "ASSISTANT_CEO";
+    const hasPermission = (permission: string) => {
+      const role = currentUser?.role as string;
+      if (!role) return false;
+      return (
+        role !== "STAFF" &&
+        !role.startsWith("TRAFFIC_TEAM_") &&
+        !role.startsWith("SOURCING_OFFICER_") &&
+        !role.startsWith("TRADERS_") &&
+        role !== "JUNIOR_TRADER"
+      );
+    };
     // Mock users list since users was previously pulled from authStore:
     const users = DEMO_USERS || [];
     const tasks = useTaskStore((s) => s.tasks);
