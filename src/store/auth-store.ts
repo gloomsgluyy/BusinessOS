@@ -28,9 +28,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     hasPermission: (permission) => {
         const user = get().currentUser;
-        if (!user) return false;
-        const role = user.role.toLowerCase() as Role;
-        return ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
+        if (!user || !user.role) return false;
+        
+        let roleKey = user.role.toLowerCase() as string;
+        
+        // Map new Prisma roles to legacy role keys for UI backward compatibility
+        const role = user.role.toUpperCase();
+        if (["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(role)) roleKey = "ceo";
+        else if (role.startsWith("TRADERS_") || role === "CMO" || role === "ADMIN_MARKETING" || role === "JUNIOR_TRADER") roleKey = "marketing";
+        else if (role.startsWith("SOURCING_") || role === "SPV_SOURCING") roleKey = "purchasing";
+        else if (role.startsWith("TRAFFIC_") || role.startsWith("QC_") || role === "CPPO" || role === "ADMIN_OPERATION") roleKey = "operation";
+
+        return ROLE_PERMISSIONS[roleKey as Role]?.includes(permission) ?? false;
     },
 
     hasRole: (roles) => {
