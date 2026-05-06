@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { AIAgent } from '@/lib/ai-agent';
+import { fetchShipmentNews } from "@/services/apiExtraction/newsExtractor";
+import { fetchPortWeather } from "@/services/apiExtraction/weatherExtractor";
+import { fetchMarineData } from "@/services/apiExtraction/marineExtractor";
+import { fetchBMKGEarthquakeAndAlerts } from "@/services/apiExtraction/bmkgExtractor";
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
     try {
@@ -15,46 +18,93 @@ export async function POST(req: Request, { params }: { params: { id: string } })
             return NextResponse.json({ error: "Shipment not found" }, { status: 404 });
         }
 
-        // Mock Weather and News data
-        const weatherData = "Scattered thunderstorms expected at loading port over next 3 days. Wave heights up to 2.5m.";
-        const newsData = "Port congestion reported at destination port, delaying berthing times by 48-72 hours.";
+        const loadingPort = shipment.loadingPort || "Unknown Port";
+        const dischargePort = shipment.dischargePort || "Unknown Port";
+        const product = shipment.product || "Coal";
+
+        // 2. Kumpulkan Semua Data Eksternal (Parallel fetching)
+        const [
+            news, 
+            weatherLoad, 
+            weatherDischarge, 
+            marineData, 
+            bmkgAlerts
+        ] = await Promise.all([
+            fetchShipmentNews(`${loadingPort} OR ${dischargePort} maritime`),
+            fetchPortWeather(null, null, loadingPort),
+            fetchPortWeather(null, null, dischargePort),
+            fetchMarineData(null, null, loadingPort),
+            fetchBMKGEarthquakeAndAlerts()
+        ]);
 
         const prompt = `
-           Analyze the operational risk for the following shipment:
-           - Origin: ${shipment.loadingPort || "Unknown"}, Destination: ${shipment.dischargePort || "Unknown"}, Cargo: ${shipment.product || "Coal"}
-           - Weather Data: ${weatherData}
-           - News/Incidents: ${newsData}
-           
-           Return ONLY a valid JSON object with this exact schema:
-           {
-             "score": <number 0-100>,
-             "level": "<LOW|MEDIUM|HIGH|CRITICAL>",
-             "summary": "<short string summarizing the risk>",
-             "factors": ["<risk factor 1>", "<risk factor 2>"],
-             "recommendations": "<string advising the admin on what to do>"
-           }
-        `;
+Anda adalah "AI Agent Risk Analyst" maritim. 
+Tugas Anda adalah menilai Risiko Pengiriman kargo: ${product} 
+Rute: ${loadingPort} -> ${dischargePort}
 
-        const ai = new AIAgent({ apiKey: process.env.OPENROUTER_API_KEY || "" });
-        const aiResponse = await ai.chat([{ role: "user", content: prompt }]);
+DATA EKSTERNAL SAAT INI:
+- Berita Terkait (NewsAPI & MediaStack): ${JSON.stringify(news)}
+- Cuaca Area Muat (OpenWeatherMap/WeatherAPI): ${JSON.stringify(weatherLoad)}
+- Cuaca Area Bongkar (OpenWeatherMap/WeatherAPI): ${JSON.stringify(weatherDischarge)}
+- Kondisi Laut (Stormglass): ${JSON.stringify(marineData)}
+- Peringatan Dini Indonesia (BMKG): ${JSON.stringify(bmkgAlerts)}
+
+INSTRUKSI:
+Lakukan agregasi dari semua data di atas. Deteksi jika ada cuaca ekstrem, ombak tinggi, berita penutupan pelabuhan, atau peringatan tsunami.
+Kembalikan HANYA JSON dengan schema berikut:
+{
+   "score": <number 0-100, 100=Paling Berisiko>,
+   "level": "<LOW|MEDIUM|HIGH|CRITICAL>",
+   "summary": "<Analisis ringkas dari berbagai sumber data ini>",
+   "factors": ["Faktor yang memicu skor tinggi/rendah"],
+   "recommendations": "<Tindakan yang harus diambil Admin/Operator Kapal>"
+}
+`;
+
+        const apiKey = process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.AI_API_KEY;
+        if (!apiKey) {
+             throw new Error("No AI API Key configured.");
+        }
+
+        // We use Groq directly since the server might fail doing relative fetch("/api/chat")
+        const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${apiKey}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model: "llama3-70b-8192", // excellent for JSON structuring
+                messages: [{ role: "system", content: "You strictly return JSON." }, { role: "user", content: prompt }],
+                temperature: 0.2
+            })
+        });
+
+        if (!aiRes.ok) {
+            const err = await aiRes.text();
+            throw new Error(`AI API Error: ${aiRes.status} ${err}`);
+        }
+
+        const aiData = await aiRes.json();
+        let aiResponse = aiData.choices?.[0]?.message?.content || "";
         
         let reportData;
         try {
-            // Find JSON in response text
+            // Clean markdown if any
+            aiResponse = aiResponse.replace(/```json/gi, "").replace(/```/g, "").trim();
             const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 reportData = JSON.parse(jsonMatch[0]);
             } else {
-                throw new Error("No JSON found");
+                reportData = JSON.parse(aiResponse);
             }
         } catch (e) {
             console.error("Failed to parse AI response:", aiResponse);
-            // Fallback object in case of parsing failure
             reportData = {
                 score: 50,
                 level: "MEDIUM",
-                summary: "Analysis failed to parse, showing fallback data.",
-                factors: ["Weather delays possible", "Port congestion"],
+                summary: "Analysis failed to parse properly. Raw response: " + aiResponse.substring(0, 100),
+                factors: ["Parsing error"],
                 recommendations: "Review manually."
             };
         }

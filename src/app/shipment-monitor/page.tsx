@@ -1110,6 +1110,7 @@ export default function ShipmentMonitorPage() {
                                                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">HPB</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Status</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Pending Reason</th>
+                                                {mainTab === "Risk Assessment" && <th className="text-center px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Risk</th>}
                                                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase w-16">Actions</th>
                                             </tr>
                                         </thead>
@@ -1149,6 +1150,17 @@ export default function ShipmentMonitorPage() {
                                                                     <span className="text-muted-foreground/50">-</span>
                                                                 )}
                                                             </td>
+                                                            {mainTab === "Risk Assessment" && (
+                                                                <td className="px-4 py-3 text-center">
+                                                                    {sh.riskScore ? (
+                                                                        <span className={cn("px-2 py-1 rounded text-[10px] font-bold border", sh.riskScore >= 70 ? "bg-red-500/10 text-red-500 border-red-500/20" : sh.riskScore >= 40 ? "bg-amber-500/10 text-amber-500 border-amber-500/20" : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20")}>
+                                                                            {sh.riskScore} • {sh.riskLevel}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-muted-foreground text-[10px]">-</span>
+                                                                    )}
+                                                                </td>
+                                                            )}
                                                             <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                                                                 <div className="flex items-center justify-end gap-1">
                                                                     <button onClick={() => setDetailShipment(sh)} className="p-1.5 rounded-lg hover:bg-accent transition-colors" title="View Full Detail">
