@@ -120,6 +120,9 @@ export function Header() {
         // 3. Active shipments status
         const activeShipments = shipments.filter(s => s.status !== "completed" && s.status !== "cancelled");
         activeShipments.forEach(s => {
+            if (s.riskLevel === "CRITICAL") {
+                notifs.push({ id: nid++, category: "Shipment", type: "warning", message: `[Urgent] Critical Risk! ${s.shipment_number || s.mv_project_name || "Shipment"} — Score: ${s.riskScore}.`, time: "Action needed", targetRoles: ["ceo", "director", "operation"] });
+            }
             if (s.status === "loading") {
                 notifs.push({ id: nid++, category: "Shipment", type: "info", message: `[Loading] ${s.shipment_number} — ${s.buyer} via ${s.vessel_name || "TBA"}. Qty: ${(s.quantity_loaded || 0).toLocaleString()} MT.`, time: s.loading_port || "", targetRoles: ["ceo", "director", "operation"] });
             } else if (s.status === "in_transit") {

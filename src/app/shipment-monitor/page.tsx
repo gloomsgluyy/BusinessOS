@@ -260,7 +260,7 @@ export default function ShipmentMonitorPage() {
     const [yearFilter, setYearFilter] = React.useState<string>("all");
     const [dateFrom, setDateFrom] = React.useState("");
     const [dateTo, setDateTo] = React.useState("");
-    const [sortBy, setSortBy] = React.useState<"latest" | "oldest" | "qty_desc" | "qty_asc">("latest");
+    const [sortBy, setSortBy] = React.useState<"latest" | "oldest" | "qty_desc" | "qty_asc" | "risk_desc" | "risk_asc">("latest");
     const [showReportModal, setShowReportModal] = React.useState(false);
 
     React.useEffect(() => {
@@ -374,7 +374,7 @@ export default function ShipmentMonitorPage() {
 
     const [editBlendingMode, setEditBlendingMode] = React.useState(false);
     const [blendingForm, setBlendingForm] = React.useState({ gar: 0, ts: 0, ash: 0, tm: 0 });
-    const [aiRiskInsight, setAiRiskInsight] = React.useState<string>("");
+    const [aiRiskInsight, setAiRiskInsight] = React.useState<string>(""); // Deprecated
     const [isGeneratingRisk, setIsGeneratingRisk] = React.useState(false);
     const [showMilestoneForm, setShowMilestoneForm] = React.useState(false);
     const [milestoneForm, setMilestoneForm] = React.useState({ title: "", subtitle: "", status: "pending" as "completed" | "current" | "pending" });
@@ -401,17 +401,17 @@ export default function ShipmentMonitorPage() {
         if (!detailShipment) return;
         setIsGeneratingRisk(true);
         try {
-            const ai = new AIAgent({ apiKey: "" });
-            const prompt = `Analyze operational risk for this coal shipment:
-Buyer: ${detailShipment.buyer}
-Volume: ${detailShipment.quantity_loaded} MT
-Status: ${detailShipment.status}
-
-Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and quality risks.`;
-            const result = await ai.chat([{ role: "user", content: prompt }]);
-            setAiRiskInsight(result);
-        } catch (e) {
-            setAiRiskInsight("Recommendation: Deploy supplementary tugs to accelerate barge positioning during loading windows to offset impending weather delays. Quality parameters are green, monitor TS continuously.");
+            const res = await fetch(`/api/shipments/${detailShipment.id}/risk-analysis`, { method: "POST" });
+            const data = await res.json();
+            if (data.success && data.data) {
+                updateShipment(detailShipment.id, data.data);
+                setDetailShipment(data.data);
+                setToast({ message: "Risk analysis completed successfully", type: "success" });
+            } else {
+                throw new Error(data.error || "Failed to analyze risk");
+            }
+        } catch (e: any) {
+            setToast({ message: e.message || "Risk analysis failed", type: "error" });
         } finally {
             setIsGeneratingRisk(false);
         }
@@ -556,6 +556,8 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
 
             if (sortBy === "qty_desc") return bQty - aQty;
             if (sortBy === "qty_asc") return aQty - bQty;
+            if (sortBy === "risk_desc") return (b.riskScore || 0) - (a.riskScore || 0);
+            if (sortBy === "risk_asc") return (a.riskScore || 0) - (b.riskScore || 0);
             if (sortBy === "oldest") {
                 if (aYear !== bYear) return aYear - bYear;
                 if (aDate !== bDate) return aDate - bDate;
@@ -712,7 +714,7 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                         <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-accent/20 text-xs text-muted-foreground xl:col-span-2">
                             <Filter className="w-3.5 h-3.5" />
                             <span>
-                                Sorted by: {sortBy === "latest" ? "Year latest first, then date/no desc" : sortBy === "oldest" ? "Year oldest first, then date/no asc" : sortBy === "qty_desc" ? "Volume largest first" : "Volume smallest first"}
+                                Sorted by: {sortBy === "latest" ? "Year latest first, then date/no desc" : sortBy === "oldest" ? "Year oldest first, then date/no asc" : sortBy === "qty_desc" ? "Volume largest first" : sortBy === "qty_asc" ? "Volume smallest first" : sortBy === "risk_desc" ? "Highest Risk First" : "Lowest Risk First"}
                             </span>
                         </div>
                         <select
@@ -724,6 +726,8 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                             <option value="oldest">Sort: Oldest</option>
                             <option value="qty_desc">Sort: Volume Desc</option>
                             <option value="qty_asc">Sort: Volume Asc</option>
+                            <option value="risk_desc">Sort: High Risk First</option>
+                            <option value="risk_asc">Sort: Low Risk First</option>
                         </select>
                         <select
                             value={yearFilter}
@@ -1877,41 +1881,65 @@ Give a 3-sentence mitigation recommendation focusing on weather, demurrage, and 
                                 {detailModalTab === "risk" && (
                                     <div className="space-y-4 animate-fade-in">
                                         <div className="border border-border/60 rounded-xl p-5 bg-background/50">
-                                            <h4 className="text-sm font-bold flex items-center gap-2 mb-4 text-foreground">
-                                                <AlertTriangle className="w-4 h-4 text-red-500" /> Operational Risk Analysis
-                                            </h4>
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-                                                    <p className="text-[10px] font-bold text-red-500 uppercase flex items-center gap-1"><CloudLightning className="w-3 h-3" /> Weather Risk</p>
-                                                    <p className="text-xl font-black text-foreground mt-1">High</p>
-                                                    <p className="text-[9px] text-muted-foreground mt-1">Swell alert at loading anchorage.</p>
-                                                </div>
-                                                <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
-                                                    <p className="text-[10px] font-bold text-amber-500 uppercase flex items-center gap-1"><Clock className="w-3 h-3" /> Demurrage Risk</p>
-                                                    <p className="text-xl font-black text-foreground mt-1">Med</p>
-                                                    <p className="text-[9px] text-muted-foreground mt-1">Loading pace slightly behind schedule.</p>
-                                                </div>
-                                                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
-                                                    <p className="text-[10px] font-bold text-emerald-500 uppercase flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Quality Risk</p>
-                                                    <p className="text-xl font-black text-foreground mt-1">Low</p>
-                                                    <p className="text-[9px] text-muted-foreground mt-1">Lab parameters strictly within specs.</p>
-                                                </div>
+                                            <div className="flex justify-between items-center mb-4">
+                                                <h4 className="text-sm font-bold flex items-center gap-2 text-foreground">
+                                                    <AlertTriangle className="w-4 h-4 text-red-500" /> AI Operational Risk Analysis
+                                                </h4>
+                                                <button onClick={handleGenerateRiskAnalysis} disabled={isGeneratingRisk} className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold disabled:opacity-50 flex items-center gap-1.5 transition-colors shadow-sm">
+                                                    {isGeneratingRisk ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing...</> : <><Wand2 className="w-3.5 h-3.5" /> Run Risk Analysis</>}
+                                                </button>
                                             </div>
-                                            <div className="mt-4 p-4 bg-accent/30 border border-border/50 rounded-lg text-xs relative">
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <p className="font-bold flex items-center gap-1.5"><Wand2 className="w-4 h-4 text-blue-500" /> AI Mitigation Recommendation</p>
-                                                    <button onClick={handleGenerateRiskAnalysis} disabled={isGeneratingRisk} className="text-[10px] bg-blue-500/10 text-blue-500 px-2 py-1 rounded font-bold hover:bg-blue-500/20 disabled:opacity-50 flex items-center gap-1">
-                                                        {isGeneratingRisk ? <><Loader2 className="w-3 h-3 animate-spin" /> Processing</> : "Refresh AI"}
-                                                    </button>
+
+                                            {detailShipment.riskReport ? (() => {
+                                                let report;
+                                                try {
+                                                    report = JSON.parse(detailShipment.riskReport);
+                                                } catch (e) {
+                                                    report = null;
+                                                }
+                                                if (!report) return <p className="text-sm text-muted-foreground">Error parsing risk report data.</p>;
+
+                                                const isHigh = report.score >= 70;
+                                                const isMedium = report.score >= 40 && report.score < 70;
+                                                const colorClass = isHigh ? "text-red-500 bg-red-500/10 border-red-500/20" : isMedium ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
+                                                const textClass = isHigh ? "text-red-500" : isMedium ? "text-amber-500" : "text-emerald-500";
+
+                                                return (
+                                                    <div className="space-y-4">
+                                                        <div className={cn("border rounded-lg p-4 flex items-center gap-4", colorClass)}>
+                                                            <div className="w-16 h-16 rounded-full border-4 flex items-center justify-center shrink-0 border-current">
+                                                                <span className="text-xl font-black">{report.score}</span>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-xs font-bold uppercase tracking-wider opacity-80">Risk Level: {report.level}</p>
+                                                                <p className="text-sm font-medium mt-1 text-foreground">{report.summary}</p>
+                                                                {detailShipment.lastAnalyzedAt && <p className="text-[10px] opacity-60 mt-1">Last analyzed: {new Date(detailShipment.lastAnalyzedAt).toLocaleString()}</p>}
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                            <div className="bg-accent/30 border border-border/50 rounded-lg p-4">
+                                                                <p className="text-xs font-bold flex items-center gap-1.5 mb-2"><ShieldCheck className="w-4 h-4 text-primary" /> Key Risk Factors</p>
+                                                                <ul className="list-disc pl-4 space-y-1">
+                                                                    {report.factors?.map((f: string, i: number) => (
+                                                                        <li key={i} className="text-xs text-muted-foreground">{f}</li>
+                                                                    ))}
+                                                                </ul>
+                                                            </div>
+                                                            <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4">
+                                                                <p className="text-xs font-bold flex items-center gap-1.5 mb-2"><Wand2 className="w-4 h-4 text-blue-500" /> Recommendations</p>
+                                                                <p className="text-xs text-muted-foreground leading-relaxed">{report.recommendations}</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })() : (
+                                                <div className="py-8 text-center border border-dashed border-border rounded-lg bg-accent/20">
+                                                    <Wand2 className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
+                                                    <p className="text-sm font-semibold text-foreground">No Risk Analysis Found</p>
+                                                    <p className="text-xs text-muted-foreground mt-1">Click the button above to generate an AI operational risk report.</p>
                                                 </div>
-                                                {isGeneratingRisk ? (
-                                                    <div className="h-12 flex items-center justify-center"><Loader2 className="w-5 h-5 text-blue-500 animate-spin" /></div>
-                                                ) : (
-                                                    <p className="text-muted-foreground leading-relaxed">
-                                                        {aiRiskInsight || "Deploy supplementary tugs to accelerate barge positioning during loading windows to offset impending weather delays. Quality parameters are green, monitor TS continuously."}
-                                                    </p>
-                                                )}
-                                            </div>
+                                            )}
                                         </div>
                                     </div>
                                 )}

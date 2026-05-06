@@ -256,6 +256,10 @@ model ShipmentDetail {
   surveyorLhv      String?
   year             Int       @default(2026)
   statusReason     String?
+  riskScore        Int?
+  riskLevel        String?
+  riskReport       String?
+  lastAnalyzedAt   DateTime?
 }
 
 model SourceSupplier {

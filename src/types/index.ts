@@ -283,6 +283,10 @@ export interface ShipmentDetail {
     milestones?: { title: string; subtitle: string; status: string }[];
     created_at?: string;
     updated_at?: string;
+    riskScore?: number;
+    riskLevel?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | string;
+    riskReport?: string;
+    lastAnalyzedAt?: string;
 }
 
 // ── Daily Delivery ────────────────────────────────────────────────
