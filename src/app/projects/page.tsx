@@ -528,19 +528,21 @@ export default function ProjectsPage() {
     const key = `${project.id}:${index}`;
     setUploadingDoc(key);
     try {
+      const items = parseTemplateChecklist(project.template_checklist);
+      if (!items[index]) return;
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      formData.append("requirementCode", items[index]?.code || "");
+      formData.append("requirementLabel", items[index]?.label || "Project document");
+      const res = await fetch(`/api/projects/${project.id}/documents`, { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "Upload failed");
 
-      const items = parseTemplateChecklist(project.template_checklist);
-      if (!items[index]) return;
       items[index] = {
         ...items[index],
         done: true,
         fileName: file.name,
-        fileUrl: data.url,
+        fileUrl: data.url || `/api/projects/${project.id}/documents/${data.document?.id}`,
         uploadedAt: new Date().toISOString(),
         uploadedByName: currentUser?.name || currentUser?.email || "User",
       };

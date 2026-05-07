@@ -506,6 +506,23 @@ model ProjectItem {
   lastUrgencyAnalyzedAt DateTime?
 }
 
+model ProjectDocument {
+  id               String   @id @default(cuid())
+  projectId        String
+  requirementCode  String?
+  requirementLabel String
+  fileName         String
+  mimeType         String?
+  sizeBytes        Int      @default(0)
+  data             Bytes
+  uploadedBy       String?
+  uploadedByName   String?
+  createdAt        DateTime @default(now())
+  isDeleted        Boolean  @default(false)
+
+  @@index([projectId])
+}
+
 model Partner {
   id            String   @id @default(cuid())
   name          String
