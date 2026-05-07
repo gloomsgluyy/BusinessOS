@@ -3,6 +3,9 @@ export interface AIConfig {
     apiKey: string;
 }
 
+const DEFAULT_TEXT_MODEL = "llama-3.3-70b-versatile";
+const DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
+
 export interface ExpenseData {
     amount: number;
     date: string;
@@ -19,7 +22,7 @@ export class AIAgent {
         this.apiKey = config?.apiKey || "";
     }
 
-    private async callMsg(messages: any[], model: string = "meta-llama/llama-4-scout-17b-16e-instruct") {
+    private async callMsg(messages: any[], model: string = DEFAULT_TEXT_MODEL) {
         // Use local API Proxy to avoid CORS/Browser issues and match server-side environment
         const res = await fetch("/api/chat", {
             method: "POST",
@@ -46,7 +49,7 @@ export class AIAgent {
         try {
             // Text chat uses plain string content (standard OpenAI format)
             // Only parseReceipt uses array format for multimodal (image) inputs
-            const data = await this.callMsg(messages, model || "openai/gpt-oss-120b");
+            const data = await this.callMsg(messages, model || DEFAULT_TEXT_MODEL);
             const content = data.choices[0]?.message?.content;
             return content || "Sorry, I couldn't generate a response.";
         } catch (error: any) {
@@ -65,7 +68,7 @@ export class AIAgent {
                         { type: "image_url", image_url: { url: base64Image } }
                     ]
                 }
-            ], "meta-llama/llama-4-scout-17b-16e-instruct");
+            ], DEFAULT_VISION_MODEL);
 
             return data.choices[0]?.message?.content || "No description generated.";
         } catch (error: any) {
@@ -74,7 +77,7 @@ export class AIAgent {
         }
     }
 
-    async parseReceipt(base64Image: string, model: string = "meta-llama/llama-4-scout-17b-16e-instruct"): Promise<ExpenseData | null> {
+    async parseReceipt(base64Image: string, model: string = DEFAULT_VISION_MODEL): Promise<ExpenseData | null> {
         try {
             const data = await this.callMsg([
                 {

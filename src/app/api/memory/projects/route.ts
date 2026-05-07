@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
+import { canApproveProjectStatus } from "@/lib/role-access";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,12 @@ async function ensureProjectTable() {
     await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvedBy" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvedByName" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvedAt" TIMESTAMP(3);`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "templateType" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "templateChecklist" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "urgencyScore" INTEGER;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "urgencyLevel" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "urgencyReport" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "lastUrgencyAnalyzedAt" TIMESTAMP(3);`);
   } catch (error) {
     console.error("[projects] ensureProjectTable failed:", error);
   }
@@ -111,6 +118,8 @@ export async function POST(req: Request) {
         buyer: cleanText(data.buyer),
         status: "waiting_approval",
         notes: cleanText(data.notes),
+        templateType: cleanText(data.templateType),
+        templateChecklist: cleanText(data.templateChecklist),
         createdBy: session.user.id,
         createdByName: session.user.name || null,
       },
@@ -125,6 +134,8 @@ export async function POST(req: Request) {
         segment: project.segment,
         buyer: project.buyer,
         status: project.status,
+        templateType: project.templateType,
+        templateChecklist: project.templateChecklist,
         approvedBy: project.approvedBy,
         approvedByName: project.approvedByName,
         approvedAt: project.approvedAt,
@@ -160,10 +171,9 @@ export async function PUT(req: Request) {
 
     const nextStatus =
       data.status !== undefined ? (cleanText(data.status) || undefined) : undefined;
-    const userRole = String(session.user.role || "").toLowerCase();
     const approvalTarget = (nextStatus || "").toLowerCase();
-    if (approvalTarget && ["approved", "rejected"].includes(approvalTarget) && !["ceo", "director"].includes(userRole)) {
-      return NextResponse.json({ error: "Forbidden: only CEO/Director can approve project" }, { status: 403 });
+    if (approvalTarget && ["approved", "rejected"].includes(approvalTarget) && !canApproveProjectStatus(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden: only CEO/DIRUT/ASS_DIRUT can approve project" }, { status: 403 });
     }
     const toApprovalStatus = (nextStatus || "").toLowerCase();
     const shouldSetApproval = toApprovalStatus === "approved";
@@ -176,6 +186,14 @@ export async function PUT(req: Request) {
         buyer: data.buyer !== undefined ? cleanText(data.buyer) : undefined,
         status: nextStatus,
         notes: data.notes !== undefined ? cleanText(data.notes) : undefined,
+        templateType: data.templateType !== undefined ? cleanText(data.templateType) : undefined,
+        templateChecklist: data.templateChecklist !== undefined ? cleanText(data.templateChecklist) : undefined,
+        urgencyScore: data.urgencyScore !== undefined ? Number(data.urgencyScore) : undefined,
+        urgencyLevel: data.urgencyLevel !== undefined ? cleanText(data.urgencyLevel) : undefined,
+        urgencyReport: data.urgencyReport !== undefined ? cleanText(data.urgencyReport) : undefined,
+        lastUrgencyAnalyzedAt: data.lastUrgencyAnalyzedAt !== undefined
+          ? (data.lastUrgencyAnalyzedAt ? new Date(data.lastUrgencyAnalyzedAt) : null)
+          : undefined,
         approvedBy: shouldSetApproval
           ? session.user.id
           : shouldResetApproval

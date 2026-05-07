@@ -15,6 +15,10 @@ export interface DirectoryEntry {
     fleet_size?: number;
     tax_id?: string;
     notes?: string;
+    legal_document_name?: string;
+    legal_expiry_date?: string;
+    legal_reminder_days?: number;
+    legal_status?: string;
     updated_at?: string;
     created_at?: string;
     is_deleted?: boolean;
@@ -38,7 +42,11 @@ export const useDirectoryStore = create<DirectoryState>((set, get) => ({
         const body = {
             id, type: entry.type, name: entry.name, category: entry.category,
             pic: entry.pic, email: entry.email, phone: entry.phone,
-            region: entry.region, status: entry.status, taxId: entry.tax_id, notes: entry.notes
+            region: entry.region, status: entry.status, taxId: entry.tax_id, notes: entry.notes,
+            legalDocumentName: entry.legal_document_name,
+            legalExpiryDate: entry.legal_expiry_date,
+            legalReminderDays: entry.legal_reminder_days,
+            legalStatus: entry.legal_status,
         };
         await fetch("/api/memory/partners", {
             method: "POST",
@@ -54,6 +62,10 @@ export const useDirectoryStore = create<DirectoryState>((set, get) => ({
     updateEntry: async (id, u) => {
         const body: any = { id, ...u };
         if (u.tax_id !== undefined) body.taxId = u.tax_id;
+        if (u.legal_document_name !== undefined) body.legalDocumentName = u.legal_document_name;
+        if (u.legal_expiry_date !== undefined) body.legalExpiryDate = u.legal_expiry_date;
+        if (u.legal_reminder_days !== undefined) body.legalReminderDays = u.legal_reminder_days;
+        if (u.legal_status !== undefined) body.legalStatus = u.legal_status;
 
         await fetch("/api/memory/partners", {
             method: "PUT",
@@ -83,6 +95,10 @@ export const useDirectoryStore = create<DirectoryState>((set, get) => ({
                         pic: p.contactPerson || p.pic, email: p.email, phone: p.phone,
                         region: p.city ? `${p.city}, ${p.country}` : p.country || "Unknown",
                         status: p.status, tax_id: p.taxId, notes: p.notes || undefined,
+                        legal_document_name: p.legalDocumentName || undefined,
+                        legal_expiry_date: p.legalExpiryDate || undefined,
+                        legal_reminder_days: p.legalReminderDays || 30,
+                        legal_status: p.legalStatus || undefined,
                         created_at: p.createdAt, updated_at: p.updatedAt, is_deleted: p.isDeleted
                     }));
                     set({

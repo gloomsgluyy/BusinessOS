@@ -194,6 +194,7 @@ export const NAV_SECTIONS: NavSection[] = [
         items: [
             { href: "/sales-monitor", label: "Sales Monitor", icon: "TrendingUp", permission: "sales_monitor" },
             { href: "/market-price", label: "Market Price", icon: "LineChart", permission: "market_price" },
+            { href: "/ai-agent", label: "AI Excel Agent", icon: "Activity", permission: "chatbot" },
             { href: "/meetings", label: "Meeting", icon: "Calendar", permission: "meetings" },
             { href: "/my-tasks", label: "Tasks", icon: "ClipboardList", permission: "my_tasks" },
             { href: "/pl-forecast", label: "P&L", icon: "DollarSign", permission: "profit_loss" },

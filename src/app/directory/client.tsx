@@ -3,13 +3,32 @@
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { cn } from "@/lib/utils";
-import { Users, Building2, Truck, Search, MapPin, Mail, Phone, ExternalLink } from "lucide-react";
+import { Users, Building2, Truck, Search, MapPin, Mail, Phone, CalendarClock, ShieldCheck, AlertTriangle } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 
 import { Plus, Edit2, X, Trash2, Loader2 } from "lucide-react";
 import { useDirectoryStore, DirectoryEntry } from "@/store/directory-store";
 import { Toast } from "@/components/shared/toast";
 import { DirectorySkeleton } from "./directory-skeleton";
+
+const daysUntil = (value?: string) => {
+    if (!value) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(value);
+    if (Number.isNaN(due.getTime())) return null;
+    due.setHours(0, 0, 0, 0);
+    return Math.ceil((due.getTime() - today.getTime()) / 86400000);
+};
+
+const legalStatusFor = (entry: DirectoryEntry) => {
+    const days = daysUntil(entry.legal_expiry_date);
+    const reminder = entry.legal_reminder_days || 30;
+    if (days === null) return { label: "No legal due date", tone: "muted", days };
+    if (days < 0) return { label: "Legal expired", tone: "danger", days };
+    if (days <= reminder) return { label: `Due in ${days} days`, tone: "warning", days };
+    return { label: `Valid ${days} days`, tone: "success", days };
+};
 
 export default function DirectoryPageClient() {
     const [isInitializing, setIsInitializing] = React.useState(true);
@@ -44,7 +63,7 @@ export default function DirectoryPageClient() {
             setForm({ ...item });
         } else {
             setEditItem(null);
-            setForm({ type: "buyer", status: "active", name: "", region: "", pic: "", email: "", phone: "", fleet_size: undefined });
+            setForm({ type: "buyer", status: "active", name: "", region: "", pic: "", email: "", phone: "", fleet_size: undefined, legal_reminder_days: 30 });
         }
         setShowModal(true);
     };
@@ -163,6 +182,29 @@ export default function DirectoryPageClient() {
                                         <Truck className="w-3.5 h-3.5" /> <span>Fleet Size: {d.fleet_size} units</span>
                                     </div>
                                 )}
+                                <div className="mt-3 rounded-xl border border-border/50 bg-accent/20 p-3">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <p className="text-[10px] font-bold uppercase text-muted-foreground flex items-center gap-1.5">
+                                                <ShieldCheck className="w-3.5 h-3.5" /> Legalitas
+                                            </p>
+                                            <p className="text-xs font-semibold truncate mt-1">{d.legal_document_name || "No document tracked"}</p>
+                                            <p className="text-[10px] text-muted-foreground">
+                                                {d.legal_expiry_date ? new Date(d.legal_expiry_date).toLocaleDateString("id-ID") : "No expiry date"}
+                                            </p>
+                                        </div>
+                                        <span className={cn(
+                                            "shrink-0 rounded-md px-2 py-1 text-[10px] font-bold border",
+                                            legalStatusFor(d).tone === "danger" && "bg-red-500/10 text-red-600 border-red-500/30",
+                                            legalStatusFor(d).tone === "warning" && "bg-amber-500/10 text-amber-600 border-amber-500/30",
+                                            legalStatusFor(d).tone === "success" && "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+                                            legalStatusFor(d).tone === "muted" && "bg-muted text-muted-foreground border-border",
+                                        )}>
+                                            {legalStatusFor(d).tone === "danger" && <AlertTriangle className="w-3 h-3 inline mr-1" />}
+                                            {legalStatusFor(d).label}
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="flex gap-2 w-full mt-5">
@@ -249,6 +291,27 @@ export default function DirectoryPageClient() {
                                         <input type="number" value={form.fleet_size || ""} onChange={e => setForm({ ...form, fleet_size: +e.target.value })} className="w-full mt-1 px-3 py-2 bg-accent/50 border border-border rounded-lg text-xs outline-none focus:border-primary/50" />
                                     </div>
                                 )}
+
+                                <div className="border-t border-border/40 pt-4 space-y-3">
+                                    <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                                        <CalendarClock className="w-4 h-4 text-amber-500" />
+                                        Legal Document Deadline
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-semibold text-muted-foreground uppercase">Document Name</label>
+                                        <input type="text" value={form.legal_document_name || ""} onChange={e => setForm({ ...form, legal_document_name: e.target.value })} placeholder="e.g. IUP, KYC, contract, NIB" className="w-full mt-1 px-3 py-2 bg-accent/50 border border-border rounded-lg text-xs outline-none focus:border-primary/50" />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-[10px] font-semibold text-muted-foreground uppercase">Expiry Date</label>
+                                            <input type="date" value={form.legal_expiry_date ? new Date(form.legal_expiry_date).toISOString().split("T")[0] : ""} onChange={e => setForm({ ...form, legal_expiry_date: e.target.value })} className="w-full mt-1 px-3 py-2 bg-accent/50 border border-border rounded-lg text-xs outline-none focus:border-primary/50" />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-semibold text-muted-foreground uppercase">Reminder Days</label>
+                                            <input type="number" min={1} value={form.legal_reminder_days || 30} onChange={e => setForm({ ...form, legal_reminder_days: +e.target.value })} className="w-full mt-1 px-3 py-2 bg-accent/50 border border-border rounded-lg text-xs outline-none focus:border-primary/50" />
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="mt-6 flex justify-end gap-2 border-t border-border/30 pt-4">

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PushService } from "@/lib/push-to-sheets";
 import { v4 as uuidv4 } from 'uuid';
+import { canWriteModuleForRole } from "@/lib/role-access";
 
 async function triggerPush() {
     PushService.debouncedPush("marketPrice").catch(err => console.error("Optional Sheet push failed:", err));
@@ -112,8 +113,7 @@ export async function PUT(req: Request) {
         const data = await req.json();
         if (!data.id) return NextResponse.json({ error: "ID missing" }, { status: 400 });
 
-        const userRole = session.user.role?.toLowerCase() || "";
-        if (!["ceo", "director", "manager"].includes(userRole)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        if (!canWriteModuleForRole(session.user.role, "MARKET_PRICE")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
         const inputDate = data.date ? new Date(data.date) : new Date();
         const dateStr = inputDate.toISOString().split("T")[0];
@@ -165,8 +165,7 @@ export async function DELETE(req: Request) {
         const id = url.searchParams.get("id");
         if (!id) return NextResponse.json({ error: "ID missing" }, { status: 400 });
 
-        const userRole = session.user.role?.toLowerCase() || "";
-        if (!["ceo", "director", "manager"].includes(userRole)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        if (!canWriteModuleForRole(session.user.role, "MARKET_PRICE")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
         // DATABASE-FIRST: Delete from database
         await prisma.marketPrice.update({ where: { id }, data: { isDeleted: true } });

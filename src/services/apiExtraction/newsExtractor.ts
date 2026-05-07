@@ -3,19 +3,37 @@ export async function fetchShipmentNews(query: string) {
     const results = [];
 
     // Fallback/Mock if no API key
-    if (!process.env.NEWS_API_KEY || process.env.NEWS_API_KEY === 'your_newsapi_key') {
+    if (
+      (!process.env.NEWS_API_KEY || process.env.NEWS_API_KEY === 'your_newsapi_key') &&
+      (!process.env.GNEWS_API_KEY || process.env.GNEWS_API_KEY === 'your_gnews_key')
+    ) {
       return [{ source: 'Mock News', title: `Simulated news about ${query}`, description: 'No real API key provided.' }];
     }
 
-    // Try NewsAPI
-    try {
-      const res = await fetch(`https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&apiKey=${process.env.NEWS_API_KEY}`);
-      if (res.ok) {
-        const data = await res.json();
-        results.push(...(data.articles || []).slice(0, 3).map((a: any) => ({ source: 'NewsAPI', title: a.title, description: a.description })));
+    // Try GNews free/dev key first when available
+    if (process.env.GNEWS_API_KEY && process.env.GNEWS_API_KEY !== 'your_gnews_key') {
+      try {
+        const res = await fetch(`https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&lang=en&max=5&apikey=${process.env.GNEWS_API_KEY}`);
+        if (res.ok) {
+          const data = await res.json();
+          results.push(...(data.articles || []).slice(0, 3).map((a: any) => ({ source: 'GNews', title: a.title, description: a.description, url: a.url })));
+        }
+      } catch (e) {
+        console.error('GNews fetch error:', e);
       }
-    } catch (e) {
-      console.error('NewsAPI fetch error:', e);
+    }
+
+    // Try NewsAPI
+    if (process.env.NEWS_API_KEY && process.env.NEWS_API_KEY !== 'your_newsapi_key') {
+      try {
+        const res = await fetch(`https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&apiKey=${process.env.NEWS_API_KEY}`);
+        if (res.ok) {
+          const data = await res.json();
+          results.push(...(data.articles || []).slice(0, 3).map((a: any) => ({ source: 'NewsAPI', title: a.title, description: a.description, url: a.url })));
+        }
+      } catch (e) {
+        console.error('NewsAPI fetch error:', e);
+      }
     }
 
     // Try MediaStack

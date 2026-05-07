@@ -11,7 +11,7 @@ import { TASK_STATUSES, TASK_PRIORITIES, SALES_DEAL_STATUSES, SHIPMENT_STATUSES 
 import {
     TrendingUp, TrendingDown, DollarSign, AlertCircle, Ship,
     Anchor, Package, BarChart3, Calendar, Clock, ArrowUpRight,
-    Lock, Filter, ChevronDown, ChevronUp, Layers, ScrollText,
+    Lock, Filter, ChevronDown, ChevronUp, Layers, ScrollText, Wand2, Loader2,
 } from "lucide-react";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
@@ -933,6 +933,78 @@ function ProjectApprovalAlerts({ projects }: { projects: any[] }) {
 }
 
 /* ─── Quantity per Month Chart ────────────────────────────── */
+function ProjectUrgencyPanel({
+    projects,
+    onAnalyze,
+    isAnalyzing,
+}: {
+    projects: any[];
+    onAnalyze: () => Promise<void>;
+    isAnalyzing: boolean;
+}) {
+    const urgentProjects = React.useMemo(() => {
+        return [...projects]
+            .filter((p) => p.urgency_score || p.urgencyScore)
+            .sort((a, b) => safeNum(b.urgency_score || b.urgencyScore) - safeNum(a.urgency_score || a.urgencyScore))
+            .slice(0, 6);
+    }, [projects]);
+
+    const levelClass = (level?: string) => cn(
+        "text-[10px] rounded-md px-2 py-1 font-bold border",
+        level === "CRITICAL" && "bg-red-500/10 text-red-600 border-red-500/30",
+        level === "HIGH" && "bg-orange-500/10 text-orange-600 border-orange-500/30",
+        level === "MEDIUM" && "bg-amber-500/10 text-amber-600 border-amber-500/30",
+        (!level || level === "LOW") && "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+    );
+
+    return (
+        <div className="card-elevated p-5 animate-slide-up">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-500" />
+                        AI Project Urgency
+                    </h3>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Visible only for CEO, DIRUT, and ASS_DIRUT.</p>
+                </div>
+                <button onClick={onAnalyze} disabled={isAnalyzing} className="btn-outline text-xs h-8">
+                    {isAnalyzing ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5 mr-1.5" />}
+                    Analyze
+                </button>
+            </div>
+            {urgentProjects.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No urgency analysis yet. Run analysis to compare projects with shipment blockers and news signals.</p>
+            ) : (
+                <div className="space-y-2">
+                    {urgentProjects.map((p) => {
+                        let report: any = null;
+                        try {
+                            report = JSON.parse(p.urgency_report || p.urgencyReport || "{}");
+                        } catch {
+                            report = null;
+                        }
+                        const score = safeNum(p.urgency_score || p.urgencyScore);
+                        const level = p.urgency_level || p.urgencyLevel || "LOW";
+                        return (
+                            <div key={p.id} className="rounded-xl border border-border/60 bg-background/60 px-3 py-2">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <p className="text-xs font-semibold truncate">{cleanText(p.name) || "Unnamed Project"}</p>
+                                        <p className="text-[10px] text-muted-foreground line-clamp-2">
+                                            {report?.summary || "Urgency score generated from internal project and shipment data."}
+                                        </p>
+                                    </div>
+                                    <span className={levelClass(level)}>{level} {score}</span>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function QuantityPerMonth({ shipments }: { shipments: any[] }) {
     const [mounted, setMounted] = React.useState(false);
     const [viewMode, setViewMode] = React.useState<"year" | "2years" | "all">("year");
@@ -1354,6 +1426,7 @@ export default function DashboardPage() {
     const [userActivityLogs, setUserActivityLogs] = React.useState<UserActivityLog[]>([]);
     const [userActivityLoading, setUserActivityLoading] = React.useState(false);
     const [userActivityError, setUserActivityError] = React.useState<string | null>(null);
+    const [projectUrgencyAnalyzing, setProjectUrgencyAnalyzing] = React.useState(false);
     const regionOptions = React.useMemo(() => {
         const bag = new Set<string>();
         const push = (v: unknown) => {
@@ -1449,6 +1522,24 @@ export default function DashboardPage() {
             cancelled = true;
         };
     }, [sessionStatus, isCeo]);
+
+    const canViewProjectUrgency = ["CEO", "DIRUT", "ASS_DIRUT"].includes(normalizedRole);
+    const analyzeProjectUrgency = React.useCallback(async () => {
+        if (!canViewProjectUrgency) return;
+        setProjectUrgencyAnalyzing(true);
+        try {
+            const response = await fetch("/api/projects/urgent-analysis", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}),
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload?.success) throw new Error(payload?.error || "Failed to analyze projects");
+            await syncCommercial({ mode: "full", force: true });
+        } finally {
+            setProjectUrgencyAnalyzing(false);
+        }
+    }, [canViewProjectUrgency, syncCommercial]);
 
     // Master Filter logic (dataset-aware: deals vs shipments vs sources)
     const now = new Date();
@@ -1823,6 +1914,16 @@ export default function DashboardPage() {
                         {isCeo && (
                             <div className="grid grid-cols-1 gap-4">
                                 <ProjectApprovalAlerts projects={waitingApprovalProjects} />
+                            </div>
+                        )}
+
+                        {canViewProjectUrgency && (
+                            <div className="grid grid-cols-1 gap-4">
+                                <ProjectUrgencyPanel
+                                    projects={projects}
+                                    onAnalyze={analyzeProjectUrgency}
+                                    isAnalyzing={projectUrgencyAnalyzing}
+                                />
                             </div>
                         )}
 

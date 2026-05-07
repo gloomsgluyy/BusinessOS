@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 const ATTENDANCE_PATTERN = /(attendance|absensi|presensi|check[\s_-]?in|check[\s_-]?out|clock[\s_-]?(in|out)|punch[\s_-]?(in|out))/i;
 
 function parseBoundedInt(value: string | null, fallback: number, min: number, max: number): number {

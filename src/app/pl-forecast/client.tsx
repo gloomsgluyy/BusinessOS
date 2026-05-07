@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { DollarSign, TrendingUp, TrendingDown, Activity, Percent, Plus, X, Loader2, Edit3, Trash2, RefreshCw } from "lucide-react";
 import { Toast } from "@/components/shared/toast";
 import { cn } from "@/lib/utils";
+import { canReadModuleForRole, isExecutiveRole } from "@/lib/role-access";
 import { PLForecastItem, ShipmentDetail } from "@/types";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
@@ -76,10 +77,9 @@ export default function PLForecastClient() {
     const router = useRouter();
     const { plForecasts, addPLForecast, updatePLForecast, deletePLForecast, deals, shipments, syncFromMemory } = useCommercialStore();
 
-    const userRole = session?.user?.role?.toLowerCase() || "";
-    const allowedRoles = ["ceo", "director", "operation", "marketing", "purchasing"];
-    const hasAccess = allowedRoles.includes(userRole);
-    const isHighLevel = ["ceo", "director"].includes(userRole);
+    const userRole = session?.user?.role || "";
+    const hasAccess = canReadModuleForRole(userRole, "PL_SALES");
+    const isHighLevel = isExecutiveRole(userRole);
 
     React.useEffect(() => {
         Promise.all([

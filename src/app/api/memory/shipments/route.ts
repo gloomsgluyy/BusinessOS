@@ -40,6 +40,16 @@ function parseDate(v: any): Date | null {
     return isNaN(d.getTime()) ? null : d;
 }
 
+function parseDemurrageRate(v: unknown): number | null {
+    const text = cleanText(v);
+    if (!text) return null;
+    const match = text.match(/(?:demurrage|demm|dmg|rate)?[^0-9$]*(?:usd|\$)?\s*([0-9]+(?:[.,][0-9]+)?)(\s*k)?\s*(?:\/|per)?\s*(?:day|hari|d)/i);
+    if (!match) return null;
+    const raw = Number(match[1].replace(",", "."));
+    if (!Number.isFinite(raw)) return null;
+    return match[2] ? raw * 1000 : raw;
+}
+
 function cleanText(v: unknown): string | null {
     if (v === null || v === undefined) return null;
     const text = String(v).replace(/\s+/g, " ").trim();
@@ -245,6 +255,15 @@ export async function GET(req: Request) {
                         loadingPort: true,
                         dischargePort: true,
                         type: true,
+                        riskScore: true,
+                        riskLevel: true,
+                        riskReport: true,
+                        lastAnalyzedAt: true,
+                        operationalInfo: true,
+                        demurrageRate: true,
+                        demurrageCurrency: true,
+                        demurrageSource: true,
+                        demurrageUpdatedAt: true,
                         createdAt: true,
                         updatedAt: true,
                         isDeleted: true,
@@ -425,6 +444,15 @@ export async function POST(req: Request) {
                 product: data.product,
                 analysisMethod: data.analysis_method ?? data.analysisMethod,
                 type: data.type || "export",
+                operationalInfo: data.operationalInfo ?? data.operational_info,
+                demurrageRate: data.demurrageRate !== undefined
+                    ? parseNum(data.demurrageRate)
+                    : parseDemurrageRate(data.operationalInfo ?? data.operational_info ?? data.demm),
+                demurrageCurrency: data.demurrageCurrency ?? data.demurrage_currency ?? "USD",
+                demurrageSource: data.demurrageSource ?? data.demurrage_source ?? ((data.operationalInfo ?? data.operational_info) ? "Operational Info" : undefined),
+                demurrageUpdatedAt: (data.demurrageRate !== undefined || data.demurrage_rate !== undefined || data.operationalInfo || data.operational_info)
+                    ? new Date()
+                    : undefined,
             }
         });
         await tryAuditLog(
@@ -508,6 +536,29 @@ export async function PUT(req: Request) {
                 product: data.product,
                 analysisMethod: data.analysis_method !== undefined ? data.analysis_method : (data.analysisMethod !== undefined ? data.analysisMethod : undefined),
                 type: data.type !== undefined ? data.type : undefined,
+                operationalInfo: data.operationalInfo !== undefined
+                    ? data.operationalInfo
+                    : (data.operational_info !== undefined ? data.operational_info : undefined),
+                demurrageRate: data.demurrageRate !== undefined
+                    ? parseNum(data.demurrageRate)
+                    : (data.demurrage_rate !== undefined
+                        ? parseNum(data.demurrage_rate)
+                        : ((data.operationalInfo !== undefined || data.operational_info !== undefined)
+                            ? parseDemurrageRate(data.operationalInfo ?? data.operational_info)
+                            : undefined)),
+                demurrageCurrency: data.demurrageCurrency !== undefined
+                    ? data.demurrageCurrency
+                    : (data.demurrage_currency !== undefined ? data.demurrage_currency : undefined),
+                demurrageSource: data.demurrageSource !== undefined
+                    ? data.demurrageSource
+                    : (data.demurrage_source !== undefined ? data.demurrage_source : undefined),
+                demurrageUpdatedAt: data.demurrageUpdatedAt !== undefined
+                    ? parseDate(data.demurrageUpdatedAt)
+                    : (data.demurrage_updated_at !== undefined
+                        ? parseDate(data.demurrage_updated_at)
+                        : (data.demurrageRate !== undefined || data.demurrage_rate !== undefined || data.operationalInfo !== undefined || data.operational_info !== undefined)
+                            ? new Date()
+                            : undefined),
             }
         });
         await tryAuditLog(

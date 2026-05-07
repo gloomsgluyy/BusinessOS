@@ -3,7 +3,7 @@
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { cn } from "@/lib/utils";
-import { FolderKanban, Search, Plus, X, Edit, Trash2, CheckCircle2, XCircle, Clock3 } from "lucide-react";
+import { FolderKanban, Search, Plus, X, Edit, Trash2, CheckCircle2, XCircle, Clock3, ClipboardCheck, Wand2, AlertTriangle, Loader2 } from "lucide-react";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
 import { ProjectItem, ShipmentDetail } from "@/types";
@@ -37,6 +37,14 @@ type ProjectForm = {
   buyer: string;
   status: string;
   notes: string;
+  template_type: string;
+  template_checklist: string;
+};
+
+type TemplateItem = {
+  label: string;
+  owner: string;
+  done: boolean;
 };
 
 const safeNum = (v: unknown): number => {
@@ -118,7 +126,65 @@ const statusBadgeClass = (status: ProjectStatus) =>
 const fmtInt = (n: number): string => safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
 const fmtUsd = (n: number): string => `$${safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
-const defaultForm: ProjectForm = { name: "", segment: "", buyer: "", status: "waiting_approval", notes: "" };
+const PROJECT_TEMPLATES: Record<string, TemplateItem[]> = {
+  export_shipment: [
+    { label: "Buyer confirmation and commercial terms locked", owner: "Trader", done: false },
+    { label: "Supplier/source allocation confirmed", owner: "Sourcing", done: false },
+    { label: "Laycan, vessel, and barge nomination confirmed", owner: "Traffic", done: false },
+    { label: "Operational Info filled including demurrage exposure", owner: "Operation", done: false },
+    { label: "Quality/surveyor plan prepared", owner: "QC", done: false },
+    { label: "P&L forecast reviewed", owner: "Trader/CMO", done: false },
+  ],
+  domestic_delivery: [
+    { label: "Buyer PO and delivery schedule confirmed", owner: "Trader", done: false },
+    { label: "Supplier stock and loading window confirmed", owner: "Sourcing", done: false },
+    { label: "Transport/fleet readiness confirmed", owner: "Traffic", done: false },
+    { label: "Operational Info updated", owner: "Operation", done: false },
+    { label: "Payment terms and due date reviewed", owner: "Finance/Admin", done: false },
+  ],
+  spot_purchase: [
+    { label: "Supplier KYC/legal documents checked", owner: "Sourcing", done: false },
+    { label: "Coal specs and price index benchmarked", owner: "QC/Trader", done: false },
+    { label: "Purchase request submitted", owner: "Sourcing", done: false },
+    { label: "Logistics and demurrage assumptions captured", owner: "Traffic", done: false },
+    { label: "Approval decision recorded", owner: "Executive", done: false },
+  ],
+};
+
+const defaultForm: ProjectForm = {
+  name: "",
+  segment: "",
+  buyer: "",
+  status: "waiting_approval",
+  notes: "",
+  template_type: "export_shipment",
+  template_checklist: JSON.stringify(PROJECT_TEMPLATES.export_shipment),
+};
+
+const parseTemplateChecklist = (value?: string | null): TemplateItem[] => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.map((item) => ({
+        label: cleanText(item?.label) || "Checklist item",
+        owner: cleanText(item?.owner) || "Team",
+        done: Boolean(item?.done),
+      }))
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const urgencyBadgeClass = (level?: string | null) =>
+  cn(
+    "text-[10px] font-bold px-2 py-1 rounded-md uppercase border",
+    level === "CRITICAL" && "bg-red-500/10 text-red-600 border-red-500/30",
+    level === "HIGH" && "bg-orange-500/10 text-orange-600 border-orange-500/30",
+    level === "MEDIUM" && "bg-amber-500/10 text-amber-600 border-amber-500/30",
+    (!level || level === "LOW") && "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  );
 
 export default function ProjectsPage() {
   const searchParams = useSearchParams();
@@ -133,8 +199,10 @@ export default function ProjectsPage() {
   const [editingProject, setEditingProject] = React.useState<ProjectItem | null>(null);
   const [form, setForm] = React.useState<ProjectForm>(defaultForm);
   const [saving, setSaving] = React.useState(false);
+  const [urgencyLoading, setUrgencyLoading] = React.useState<string | null>(null);
   const role = String(currentUser?.role || "").toUpperCase();
   const canApprove = ["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(role);
+  const canAnalyzeUrgency = ["CEO", "DIRUT", "ASS_DIRUT"].includes(role);
 
   React.useEffect(() => {
     syncFromMemory().finally(() => setIsInitializing(false));
@@ -245,14 +313,55 @@ export default function ProjectsPage() {
 
   const openCreate = () => {
     setEditingProject(null);
-    setForm(defaultForm);
+    setForm({ ...defaultForm });
     setShowForm(true);
   };
 
   const openEdit = (p: ProjectItem) => {
     setEditingProject(p);
-    setForm({ name: p.name || "", segment: p.segment || "", buyer: p.buyer || "", status: p.status || "waiting_approval", notes: p.notes || "" });
+    setForm({
+      name: p.name || "",
+      segment: p.segment || "",
+      buyer: p.buyer || "",
+      status: p.status || "waiting_approval",
+      notes: p.notes || "",
+      template_type: p.template_type || "export_shipment",
+      template_checklist: p.template_checklist || JSON.stringify(PROJECT_TEMPLATES[p.template_type || "export_shipment"] || PROJECT_TEMPLATES.export_shipment),
+    });
     setShowForm(true);
+  };
+
+  const handleTemplateChange = (value: string) => {
+    setForm((current) => ({
+      ...current,
+      template_type: value,
+      template_checklist: JSON.stringify(PROJECT_TEMPLATES[value] || []),
+    }));
+  };
+
+  const runUrgencyAnalysis = async (projectId?: string) => {
+    setUrgencyLoading(projectId || "batch");
+    try {
+      const res = await fetch("/api/projects/urgent-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectId ? { projectId } : {}),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Failed to analyze urgency");
+      await syncFromMemory({ force: true });
+      setSelectedProject(null);
+    } finally {
+      setUrgencyLoading(null);
+    }
+  };
+
+  const toggleTemplateItem = async (project: ProjectItem, index: number) => {
+    const items = parseTemplateChecklist(project.template_checklist);
+    if (!items[index]) return;
+    items[index] = { ...items[index], done: !items[index].done };
+    await updateProject(project.id, { template_checklist: JSON.stringify(items) });
+    await syncFromMemory({ force: true });
   };
 
   const saveProject = async () => {
@@ -279,6 +388,16 @@ export default function ProjectsPage() {
             <p className="text-sm text-muted-foreground mt-1 ml-4">Project sudah bisa add/edit dan jadi acuan shipment.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {canAnalyzeUrgency && (
+              <button
+                onClick={() => runUrgencyAnalysis()}
+                disabled={urgencyLoading !== null}
+                className="btn-outline text-xs h-9"
+              >
+                {urgencyLoading === "batch" ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5 mr-1.5" />}
+                Analyze Urgency
+              </button>
+            )}
             <button onClick={openCreate} className="btn-primary text-xs h-9"><Plus className="w-3.5 h-3.5 mr-1.5" />Add Project</button>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -315,6 +434,11 @@ export default function ProjectsPage() {
                 </div>
                 <div className="flex items-center gap-1">
                   <span className={statusBadgeClass(p.status)}>{statusLabel[p.status] || p.status}</span>
+                  {p.projectRecord?.urgency_level && (
+                    <span className={urgencyBadgeClass(p.projectRecord.urgency_level)}>
+                      {p.projectRecord.urgency_score || 0}
+                    </span>
+                  )}
                   {p.projectRecord && (
                     <button onClick={(e) => { e.stopPropagation(); openEdit(p.projectRecord!); }} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground" title="Edit">
                       <Edit className="w-3.5 h-3.5" />
@@ -328,6 +452,17 @@ export default function ProjectsPage() {
                 <div><p className="text-muted-foreground">Rows</p><p className="font-bold">{fmtInt(p.shipmentCount)}</p></div>
                 <div><p className="text-muted-foreground">Year</p><p className="font-bold">{p.year || "-"}</p></div>
               </div>
+              {p.projectRecord?.template_checklist && (
+                <div className="pt-3 border-t border-border/50">
+                  <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                    <span className="flex items-center gap-1"><ClipboardCheck className="w-3 h-3" />Template</span>
+                    <span>
+                      {parseTemplateChecklist(p.projectRecord.template_checklist).filter((item) => item.done).length}/
+                      {parseTemplateChecklist(p.projectRecord.template_checklist).length} done
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -361,7 +496,35 @@ export default function ProjectsPage() {
                   <option value="completed">Completed</option>
                   <option value="cancelled">Cancelled</option>
                 </select>
+                <select value={form.template_type} onChange={(e) => handleTemplateChange(e.target.value)} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm">
+                  <option value="export_shipment">Export Shipment Template</option>
+                  <option value="domestic_delivery">Domestic Delivery Template</option>
+                  <option value="spot_purchase">Spot Purchase Template</option>
+                </select>
                 <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={3} placeholder="Notes" className="md:col-span-2 px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm resize-none" />
+              </div>
+              <div className="rounded-xl border border-border/60 bg-accent/20 p-3 space-y-2">
+                <p className="text-xs font-bold flex items-center gap-1.5"><ClipboardCheck className="w-3.5 h-3.5" /> Template Checklist</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {parseTemplateChecklist(form.template_checklist).map((item, index) => (
+                    <label key={`${item.label}-${index}`} className="flex gap-2 rounded-lg bg-background/60 border border-border/50 p-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={item.done}
+                        onChange={() => {
+                          const items = parseTemplateChecklist(form.template_checklist);
+                          items[index] = { ...items[index], done: !items[index].done };
+                          setForm((current) => ({ ...current, template_checklist: JSON.stringify(items) }));
+                        }}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-semibold block">{item.label}</span>
+                        <span className="text-[10px] text-muted-foreground">{item.owner}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
               </div>
               <div className="flex justify-between items-center pt-2 border-t border-border">
                 {editingProject ? (
@@ -418,6 +581,16 @@ export default function ProjectsPage() {
                       </div>
                       {canApprove && (
                         <div className="flex flex-wrap items-center gap-2">
+                          {canAnalyzeUrgency && (
+                            <button
+                              onClick={() => selectedProject.projectRecord && runUrgencyAnalysis(selectedProject.projectRecord.id)}
+                              disabled={urgencyLoading !== null}
+                              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-500/10 text-blue-600 border border-blue-500/30 hover:bg-blue-500/20"
+                            >
+                              {urgencyLoading === selectedProject.projectRecord.id ? <Loader2 className="w-3.5 h-3.5 inline mr-1 animate-spin" /> : <Wand2 className="w-3.5 h-3.5 inline mr-1" />}
+                              Analyze Urgency
+                            </button>
+                          )}
                           <button
                             onClick={async () => {
                               if (!selectedProject.projectRecord) return;
@@ -456,6 +629,65 @@ export default function ProjectsPage() {
                           </button>
                         </div>
                       )}
+                    </div>
+                  </div>
+                )}
+                {selectedProject.projectRecord?.urgency_report && (() => {
+                  let report: any = null;
+                  try {
+                    report = JSON.parse(selectedProject.projectRecord.urgency_report || "{}");
+                  } catch {
+                    report = null;
+                  }
+                  if (!report) return null;
+                  return (
+                    <div className="card-elevated p-4 border-blue-500/20 bg-blue-500/5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-bold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 text-blue-500" /> AI Project Urgency</p>
+                          <p className="text-sm mt-1 text-muted-foreground">{report.summary}</p>
+                        </div>
+                        <span className={urgencyBadgeClass(report.level)}>{report.level} {report.score}</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                        <div className="rounded-lg border border-border/50 bg-background/50 p-3">
+                          <p className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Factors</p>
+                          <ul className="list-disc pl-4 space-y-1">
+                            {(report.factors || []).slice(0, 5).map((factor: string, index: number) => (
+                              <li key={index} className="text-xs text-muted-foreground">{factor}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div className="rounded-lg border border-border/50 bg-background/50 p-3">
+                          <p className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Recommended Action</p>
+                          <p className="text-xs text-muted-foreground leading-relaxed">{report.recommendedAction}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {selectedProject.projectRecord?.template_checklist && (
+                  <div className="card-elevated p-4">
+                    <h4 className="text-sm font-bold mb-3 flex items-center gap-1.5"><ClipboardCheck className="w-4 h-4 text-primary" /> Project Template Checklist</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {parseTemplateChecklist(selectedProject.projectRecord.template_checklist).map((item, index) => (
+                        <button
+                          key={`${item.label}-${index}`}
+                          onClick={() => selectedProject.projectRecord && toggleTemplateItem(selectedProject.projectRecord, index)}
+                          className={cn(
+                            "text-left rounded-lg border p-3 text-xs transition-colors",
+                            item.done ? "border-emerald-500/30 bg-emerald-500/10" : "border-border/50 bg-background/50 hover:bg-accent/50",
+                          )}
+                        >
+                          <span className="flex items-start gap-2">
+                            <CheckCircle2 className={cn("w-4 h-4 mt-0.5", item.done ? "text-emerald-500" : "text-muted-foreground/40")} />
+                            <span>
+                              <span className="font-semibold block">{item.label}</span>
+                              <span className="text-[10px] text-muted-foreground">{item.owner}</span>
+                            </span>
+                          </span>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}

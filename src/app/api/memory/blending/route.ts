@@ -6,6 +6,7 @@ import { syncAllBlendingToSheet } from "@/app/actions/sheet-actions";
 
 import { PushService } from "@/lib/push-to-sheets";
 import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
+import { canModifyOwnedRecord } from "@/lib/role-access";
 
 async function triggerPush() {
     try {
@@ -105,8 +106,12 @@ export async function DELETE(req: Request) {
 
         const existingRecord = await prisma.blendingSimulation.findUnique({ where: { id } });
         if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
-        const userRole = session.user.role?.toLowerCase() || "";
-        if (existingRecord.createdBy !== session.user.id && !["ceo", "director", "manager"].includes(userRole)) {
+        if (!canModifyOwnedRecord({
+            role: session.user.role,
+            userId: session.user.id,
+            createdBy: existingRecord.createdBy,
+            moduleName: "QUALITY_BLENDING",
+        })) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 

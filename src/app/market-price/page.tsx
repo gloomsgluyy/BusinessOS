@@ -30,7 +30,7 @@ const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(
 export default function MarketPricePage() {
     const [, setIsInitializing] = React.useState(false);
 
-    const { marketPrices, syncFromMemory, addMarketPrice } = useCommercialStore();
+    const { marketPrices, deals, shipments, sources, plForecasts, syncFromMemory, addMarketPrice } = useCommercialStore();
 
     React.useEffect(() => {
         syncFromMemory().finally(() => setIsInitializing(false));
@@ -49,6 +49,7 @@ export default function MarketPricePage() {
     const [scrapeLogs, setScrapeLogs] = React.useState<string[]>([]);
     const [scrapeInterval, setScrapeInterval] = React.useState("21600000");
     const [chartRange, setChartRange] = React.useState<"2W" | "4W" | "All">("4W");
+    const [comparisonIndex, setComparisonIndex] = React.useState<"ici_1" | "ici_2" | "ici_3" | "ici_4" | "ici_5" | "newcastle" | "hba">("ici_4");
 
     const addLog = (msg: string) => setScrapeLogs(prev => [...prev.slice(-20), `[${new Date().toLocaleTimeString()}] ${msg}`]);
 
@@ -132,6 +133,80 @@ export default function MarketPricePage() {
     const chartData = chartRange === "2W" ? data.slice(-14) : chartRange === "4W" ? data.slice(-28) : data;
     const latest = marketPrices.length > 0 ? marketPrices[marketPrices.length - 1] : null;
     const prev = marketPrices.length > 1 ? marketPrices[marketPrices.length - 2] : null;
+    const selectedMarketPrice = safeNum((latest as any)?.[comparisonIndex]);
+    const comparisonRows = React.useMemo(() => {
+        const rows: Array<{ type: string; name: string; price: number; qty: number; spread: number; note: string }> = [];
+        deals.slice(0, 80).forEach((d) => {
+            if (!d.price_per_mt) return;
+            rows.push({
+                type: "Sales",
+                name: d.buyer || d.deal_number,
+                price: safeNum(d.price_per_mt),
+                qty: safeNum(d.quantity),
+                spread: safeNum(d.price_per_mt) - selectedMarketPrice,
+                note: d.type || "deal",
+            });
+        });
+        shipments.slice(0, 120).forEach((s) => {
+            const purchasePrice = safeNum(s.harga_actual_fob || s.sales_price);
+            if (!purchasePrice) return;
+            rows.push({
+                type: s.harga_actual_fob ? "Purchase" : "Shipment Sale",
+                name: s.mv_project_name || s.vessel_name || s.buyer || "Shipment",
+                price: purchasePrice,
+                qty: safeNum(s.qty_plan || s.quantity_loaded),
+                spread: purchasePrice - selectedMarketPrice,
+                note: s.source || s.loading_port || "-",
+            });
+        });
+        sources.slice(0, 80).forEach((s) => {
+            const sourcePrice = safeNum(s.fob_barge_price_usd);
+            if (!sourcePrice) return;
+            rows.push({
+                type: "Supplier FOB",
+                name: s.name,
+                price: sourcePrice,
+                qty: safeNum(s.stock_available),
+                spread: sourcePrice - selectedMarketPrice,
+                note: s.price_linked_index || s.region,
+            });
+        });
+        plForecasts.slice(0, 80).forEach((p) => {
+            if (p.selling_price) {
+                rows.push({
+                    type: "P&L Sell",
+                    name: p.project_name || p.buyer || p.deal_number,
+                    price: safeNum(p.selling_price),
+                    qty: safeNum(p.quantity),
+                    spread: safeNum(p.selling_price) - selectedMarketPrice,
+                    note: p.status || "forecast",
+                });
+            }
+            if (p.buying_price) {
+                rows.push({
+                    type: "P&L Buy",
+                    name: p.project_name || p.buyer || p.deal_number,
+                    price: safeNum(p.buying_price),
+                    qty: safeNum(p.quantity),
+                    spread: safeNum(p.buying_price) - selectedMarketPrice,
+                    note: p.status || "forecast",
+                });
+            }
+        });
+        return rows.sort((a, b) => Math.abs(b.spread) - Math.abs(a.spread)).slice(0, 20);
+    }, [deals, shipments, sources, plForecasts, selectedMarketPrice]);
+
+    const comparisonSummary = React.useMemo(() => {
+        const sellRows = comparisonRows.filter((row) => row.type.includes("Sales") || row.type.includes("Sell"));
+        const buyRows = comparisonRows.filter((row) => row.type.includes("Purchase") || row.type.includes("Buy") || row.type.includes("Supplier"));
+        const avg = (rows: typeof comparisonRows) => rows.length ? rows.reduce((sum, row) => sum + row.price, 0) / rows.length : 0;
+        return {
+            avgSell: avg(sellRows),
+            avgBuy: avg(buyRows),
+            sellSpread: avg(sellRows) - selectedMarketPrice,
+            buySpread: avg(buyRows) - selectedMarketPrice,
+        };
+    }, [comparisonRows, selectedMarketPrice]);
 
     const calculateHpbEstimate = () => {
         if (!latest) return 0;
@@ -408,6 +483,72 @@ export default function MarketPricePage() {
                                 <p className="text-3xl font-bold mt-1 text-foreground">${safeFmt(calculateHpbEstimate())}</p>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                {/* Market Comparison */}
+                <div className="card-elevated p-5 md:p-6 border border-border/50">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+                        <div>
+                            <h3 className="text-base font-bold flex items-center gap-2 text-emerald-500"><TrendingUp className="w-5 h-5" /> Market vs Sales & Purchase</h3>
+                            <p className="text-xs text-muted-foreground mt-1">Compare selected market index against deal selling price, shipment purchase price, supplier FOB, and P&L assumptions.</p>
+                        </div>
+                        <select value={comparisonIndex} onChange={(e) => setComparisonIndex(e.target.value as any)} className="px-3 py-2 rounded-xl bg-background border border-border text-sm outline-none focus:border-emerald-500/50">
+                            <option value="ici_1">ICI 1 (6500)</option>
+                            <option value="ici_2">ICI 2 (5800)</option>
+                            <option value="ici_3">ICI 3 (5000)</option>
+                            <option value="ici_4">ICI 4 (4200)</option>
+                            <option value="ici_5">ICI 5 (3400)</option>
+                            <option value="newcastle">Newcastle</option>
+                            <option value="hba">HBA</option>
+                        </select>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <div className="rounded-xl bg-accent/30 border border-border/50 p-3">
+                            <p className="text-[10px] text-muted-foreground uppercase font-bold">Selected Market</p>
+                            <p className="text-lg font-black">${safeFmt(selectedMarketPrice)}</p>
+                        </div>
+                        <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 p-3">
+                            <p className="text-[10px] text-muted-foreground uppercase font-bold">Avg Sell Spread</p>
+                            <p className={cn("text-lg font-black", comparisonSummary.sellSpread >= 0 ? "text-emerald-500" : "text-red-500")}>{comparisonSummary.sellSpread >= 0 ? "+" : ""}${safeFmt(comparisonSummary.sellSpread)}</p>
+                        </div>
+                        <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3">
+                            <p className="text-[10px] text-muted-foreground uppercase font-bold">Avg Buy Spread</p>
+                            <p className={cn("text-lg font-black", comparisonSummary.buySpread <= 0 ? "text-emerald-500" : "text-red-500")}>{comparisonSummary.buySpread >= 0 ? "+" : ""}${safeFmt(comparisonSummary.buySpread)}</p>
+                        </div>
+                        <div className="rounded-xl bg-violet-500/10 border border-violet-500/20 p-3">
+                            <p className="text-[10px] text-muted-foreground uppercase font-bold">Compared Rows</p>
+                            <p className="text-lg font-black">{comparisonRows.length}</p>
+                        </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="border-b border-border/60 text-muted-foreground uppercase text-[10px]">
+                                    <th className="text-left py-2 pr-3">Type</th>
+                                    <th className="text-left py-2 pr-3">Name</th>
+                                    <th className="text-right py-2 pr-3">Qty</th>
+                                    <th className="text-right py-2 pr-3">Price</th>
+                                    <th className="text-right py-2 pr-3">Spread</th>
+                                    <th className="text-left py-2 pr-3">Note</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {comparisonRows.map((row, index) => (
+                                    <tr key={`${row.type}-${row.name}-${index}`} className="border-b border-border/30">
+                                        <td className="py-2 pr-3 font-semibold">{row.type}</td>
+                                        <td className="py-2 pr-3 max-w-[220px] truncate">{row.name}</td>
+                                        <td className="py-2 pr-3 text-right">{row.qty.toLocaleString("en-US", { maximumFractionDigits: 0 })}</td>
+                                        <td className="py-2 pr-3 text-right font-mono">${safeFmt(row.price)}</td>
+                                        <td className={cn("py-2 pr-3 text-right font-bold", row.spread >= 0 ? "text-emerald-500" : "text-red-500")}>{row.spread >= 0 ? "+" : ""}${safeFmt(row.spread)}</td>
+                                        <td className="py-2 pr-3 text-muted-foreground">{row.note}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        {comparisonRows.length === 0 && (
+                            <div className="text-center py-8 text-sm text-muted-foreground">No sales or purchase price data available for comparison.</div>
+                        )}
                     </div>
                 </div>
 

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useAuthStore } from "@/store/auth-store";
 import { useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 
 /**
  * SessionSync component
@@ -14,6 +15,7 @@ export function SessionSync() {
     const { data: session, status } = useSession();
     const { setCurrentUser, users } = useAuthStore();
     const router = useRouter();
+    const pathname = usePathname();
 
     useEffect(() => {
         if (status === "loading") return;
@@ -21,7 +23,7 @@ export function SessionSync() {
         if (status === "unauthenticated") {
             // No session - redirect to login
             setCurrentUser(null);
-            router.push("/login");
+            if (pathname !== "/login") router.push("/login");
             return;
         }
 
@@ -47,7 +49,7 @@ export function SessionSync() {
                 });
             }
         }
-    }, [session, status, setCurrentUser, users, router]);
+    }, [session, status, setCurrentUser, users, router, pathname]);
 
     return null;
 }

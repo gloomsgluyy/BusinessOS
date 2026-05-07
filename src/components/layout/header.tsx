@@ -3,7 +3,7 @@
 import React from "react";
 import { Search, ChevronDown, X, Check, Menu, Bell, AlertTriangle, Info, BellRing } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { cn, getInitials } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
 import { useTaskStore } from "@/store/task-store";
@@ -13,8 +13,40 @@ import { useUIStore } from "@/store/ui-store";
 import { useCommercialStore } from "@/store/commercial-store";
 import { ROLES } from "@/lib/constants";
 
+const ROLE_LABELS: Record<string, string> = {
+    CEO: "CEO",
+    DIRUT: "DIRUT",
+    ASS_DIRUT: "ASS DIRUT",
+    COO: "COO",
+    QQ_MANAGER: "Quality & Quantity Manager",
+    ADMIN_OPERATION: "Admin Operation",
+    CMO: "CMO",
+    TRADERS_1: "Trader 1",
+    TRADERS_2_CPPO: "Trader 2 / CPPO",
+    TRADERS_3_COO: "Trader 3 / COO",
+    TRADERS_4_CMO: "Trader 4 / CMO",
+    JUNIOR_TRADER: "Junior Trader",
+    TRAFFIC_HEAD: "Traffic Head",
+    TRAFFIC_TEAM_1: "Traffic Team 1",
+    TRAFFIC_TEAM_2: "Traffic Team 2",
+    TRAFFIC_TEAM_3: "Traffic Team 3",
+    TRAFFIC_TEAM_4: "Traffic Team 4",
+    ADMIN_MARKETING: "Admin Marketing",
+    QC_MANAGER: "QC Manager",
+    QC_ADMIN_1: "QC Admin 1",
+    QC_ADMIN_2: "QC Admin 2",
+    CPPO: "CPPO",
+    SPV_SOURCING: "SPV Sourcing",
+    SOURCING_OFFICER_1: "Sourcing Officer 1",
+    SOURCING_OFFICER_2: "Sourcing Officer 2",
+    SOURCING_OFFICER_3: "Sourcing Officer 3",
+    SOURCING_OFFICER_4: "Sourcing Officer 4",
+    STAFF: "Staff",
+};
+
 export function Header() {
     const { currentUser, switchRole } = useAuthStore();
+    const { data: session, status: sessionStatus } = useSession();
     const { toggleSidebar } = useUIStore();
     const [roleOpen, setRoleOpen] = React.useState(false);
     const [searchOpen, setSearchOpen] = React.useState(false);
@@ -73,18 +105,45 @@ export function Header() {
             "/projects": "Sales Projects",
             "/compliance": "Compliance & Legal",
             "/ai-optimization": "AI Optimization",
+            "/ai-agent": "AI Excel Agent",
             "/pl-forecast": "P&L Forecast",
         };
         return map[pathname] || "Dashboard";
     }, [pathname]);
 
-    const roleConfig = ROLES.find((r) => r.value === currentUser?.role);
+    const sessionUser = session?.user as any;
+    const displayUser = currentUser || (sessionUser ? {
+        id: sessionUser.id || "session-user",
+        name: sessionUser.name || "User",
+        email: sessionUser.email || "",
+        role: sessionUser.role || "STAFF",
+    } : null);
+    const isProfileLoading = !displayUser && sessionStatus === "loading";
 
-    const isHighLevel = currentUser ? ["ceo", "director", "operation"].includes(currentUser.role) : false;
+    const normalizedRole = String(displayUser?.role || "").toUpperCase();
+    const legacyRole = ["CEO", "DIRUT", "ASS_DIRUT"].includes(normalizedRole)
+        ? "ceo"
+        : normalizedRole === "COO" || normalizedRole === "QQ_MANAGER" || normalizedRole.startsWith("QC_") || normalizedRole.includes("TRAFFIC") || normalizedRole.includes("OPERATION")
+            ? "operation"
+            : normalizedRole.includes("TRADER") || normalizedRole === "CMO" || normalizedRole.includes("MARKETING")
+                ? "marketing"
+                : normalizedRole.includes("SOURCING") || normalizedRole === "CPPO"
+                    ? "purchasing"
+                    : String(displayUser?.role || "").toLowerCase();
+    const roleConfig = ROLES.find((r) => r.value === displayUser?.role || r.value === legacyRole);
+    const roleLabel = ROLE_LABELS[normalizedRole] || roleConfig?.label || normalizedRole.replace(/_/g, " ");
+    const roleAliases = React.useMemo(() => new Set([
+        String(displayUser?.role || ""),
+        String(displayUser?.role || "").toLowerCase(),
+        normalizedRole,
+        legacyRole,
+    ]), [displayUser?.role, legacyRole, normalizedRole]);
+    const isHighLevel = displayUser ? ["ceo", "director", "operation", "CEO", "DIRUT", "ASS_DIRUT", "COO"].some((role) => roleAliases.has(role)) : false;
     const shipments = useCommercialStore((s) => s.shipments);
     const meetings = useCommercialStore((s) => s.meetings);
     const marketPrices = useCommercialStore((s) => s.marketPrices);
     const deals = useCommercialStore((s) => s.deals);
+    const projects = useCommercialStore((s) => s.projects);
 
     // Generate real data-driven notifications
     const ALL_NOTIFICATIONS = React.useMemo(() => {
@@ -150,16 +209,29 @@ export function Header() {
             notifs.push({ id: nid++, category: "Finance", type: "action", message: `[Deals] ${pendingDeals.length} deal(s) awaiting confirmation: ${pendingDeals.slice(0, 2).map(d => d.buyer).join(", ")}${pendingDeals.length > 2 ? " +more" : ""}.`, time: "Action needed", targetRoles: ["ceo", "director", "marketing"] });
         }
 
-        // 6. Pending purchase approvals
+        // 6. CEO/Dirut-only AI project urgency
+        const urgentProjects = projects.filter((p: any) => Number(p.urgency_score || 0) >= 70);
+        urgentProjects.slice(0, 3).forEach((p: any) => {
+            notifs.push({
+                id: nid++,
+                category: "System",
+                type: Number(p.urgency_score) >= 85 ? "warning" : "action",
+                message: `[Project Urgency] ${p.name} is ${p.urgency_level || "HIGH"} (${p.urgency_score}). Review on CEO dashboard.`,
+                time: "AI analysis",
+                targetRoles: ["CEO", "DIRUT", "ASS_DIRUT", "ceo"],
+            });
+        });
+
+        // 7. Pending purchase approvals
         const pendingPurchases = purchases.filter(p => p.status === "pending");
         if (pendingPurchases.length > 0) {
             notifs.push({ id: nid++, category: "Finance", type: "action", message: `[Approval] ${pendingPurchases.length} purchase request(s) pending approval. Total: Rp${(pendingPurchases.reduce((s, p) => s + p.amount, 0) / 1000000).toFixed(0)}M.`, time: "Action needed", targetRoles: ["ceo", "director", "purchasing"] });
         }
 
         return notifs;
-    }, [tasks, meetings, shipments, marketPrices, deals, purchases]);
+    }, [tasks, meetings, shipments, marketPrices, deals, projects, purchases]);
 
-    const visibleNotifications = ALL_NOTIFICATIONS.filter(n => currentUser && n.targetRoles.includes(currentUser.role) && (notifTab === "All" || n.category === notifTab));
+    const visibleNotifications = ALL_NOTIFICATIONS.filter(n => displayUser && n.targetRoles.some((role) => roleAliases.has(role) || roleAliases.has(role.toUpperCase()) || roleAliases.has(role.toLowerCase())) && (notifTab === "All" || n.category === notifTab));
 
     return (
         <header className="sticky top-0 z-40 h-14 bg-background border-b border-border flex items-center justify-between px-4 md:px-6">
@@ -253,13 +325,25 @@ export function Header() {
                         onClick={() => setRoleOpen(!roleOpen)}
                         className="flex items-center gap-2 py-1.5 px-2.5 rounded-xl hover:bg-accent transition-all duration-200 active:scale-[0.97]"
                     >
-                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold text-primary-foreground shadow-sm bg-primary transition-transform duration-200">
-                            {getInitials(currentUser?.name || "User")}
-                        </div>
-                        <div className="hidden sm:block text-left">
-                            <p className="text-xs font-semibold leading-tight">{currentUser?.name || "Guest"}</p>
-                            <p className="text-[10px] text-muted-foreground leading-tight">{roleConfig?.label || "Unknown Role"}</p>
-                        </div>
+                        {isProfileLoading ? (
+                            <>
+                                <div className="w-8 h-8 rounded-lg bg-accent animate-pulse" />
+                                <div className="hidden sm:block text-left space-y-1">
+                                    <div className="h-3 w-16 rounded bg-accent animate-pulse" />
+                                    <div className="h-2.5 w-10 rounded bg-accent/80 animate-pulse" />
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold text-primary-foreground shadow-sm bg-primary transition-transform duration-200">
+                                    {getInitials(displayUser?.name || "User")}
+                                </div>
+                                <div className="hidden sm:block text-left">
+                                    <p className="text-xs font-semibold leading-tight">{displayUser?.name || "User"}</p>
+                                    <p className="text-[10px] text-muted-foreground leading-tight">{roleLabel}</p>
+                                </div>
+                            </>
+                        )}
                         <ChevronDown className={cn("w-3 h-3 text-muted-foreground hidden sm:block transition-transform duration-200", roleOpen && "rotate-180")} />
                     </button>
 

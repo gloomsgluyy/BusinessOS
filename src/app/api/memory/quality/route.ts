@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PushService } from "@/lib/push-to-sheets";
 import { v4 as uuidv4 } from 'uuid';
+import { canWriteModuleForRole } from "@/lib/role-access";
 
 async function triggerPush() {
     PushService.debouncedPush("qualityResult").catch(err => console.error("Optional Sheet push failed:", err));
@@ -108,8 +109,7 @@ export async function PUT(req: Request) {
         const existingRecord = await prisma.qualityResult.findUnique({ where: { id: data.id } });
         if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-        const userRole = session.user.role?.toLowerCase() || "";
-        if (!["ceo", "director", "manager"].includes(userRole)) {
+        if (!canWriteModuleForRole(session.user.role, "QUALITY_BLENDING")) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
@@ -169,8 +169,7 @@ export async function DELETE(req: Request) {
         const existingRecord = await prisma.qualityResult.findUnique({ where: { id } });
         if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-        const userRole = session.user.role?.toLowerCase() || "";
-        if (!["ceo", "director", "manager"].includes(userRole)) {
+        if (!canWriteModuleForRole(session.user.role, "QUALITY_BLENDING")) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 

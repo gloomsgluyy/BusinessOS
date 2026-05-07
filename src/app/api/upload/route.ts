@@ -4,10 +4,12 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
+import { canUseAiAssistant } from "@/lib/role-access";
 
 export async function POST(req: Request) {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!canUseAiAssistant(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     try {
         const formData = await req.formData();
@@ -27,17 +29,22 @@ export async function POST(req: Request) {
         const originalName = (file as any).name || "uploaded_file";
         const safeName = path.basename(originalName).replace(/[^a-zA-Z0-9._-]/g, "_");
         const ext = path.extname(safeName) || "";
-        const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".pdf", ".mp3", ".mp4", ".wav", ".m4a"];
+        const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".pdf", ".mp3", ".mp4", ".wav", ".m4a", ".webm"];
+        const ALLOWED_MIME_PREFIXES = ["image/", "application/pdf", "audio/", "video/"];
 
         if (!ALLOWED_EXTENSIONS.includes(ext.toLowerCase())) {
             return NextResponse.json({ error: "File type not allowed" }, { status: 400 });
         }
 
+        if (file.type && !ALLOWED_MIME_PREFIXES.some((prefix) => file.type.startsWith(prefix))) {
+            return NextResponse.json({ error: "File MIME type not allowed" }, { status: 400 });
+        }
+
         const filename = `${Date.now()}_${randomUUID()}${ext}`;
-        const uploadDir = path.join(process.cwd(), "public", "uploads");
+        const uploadDir = path.resolve(process.cwd(), "public", "uploads");
         const finalPath = path.join(uploadDir, filename);
 
-        if (!finalPath.startsWith(uploadDir)) {
+        if (!path.resolve(finalPath).startsWith(`${uploadDir}${path.sep}`)) {
             return NextResponse.json({ error: "Invalid file path" }, { status: 400 });
         }
 

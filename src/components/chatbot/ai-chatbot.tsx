@@ -149,8 +149,7 @@ export function AIChatbot() {
     const [maximized, setMaximized] = React.useState(false);
     const [showHistory, setShowHistory] = React.useState(false);
 
-    const apiKey = process.env.NEXT_PUBLIC_GROQ_API_KEY || "";
-    const model = "meta-llama/llama-4-scout-17b-16e-instruct";
+    const model = "llama-3.3-70b-versatile";
 
     const [sessions, setSessions] = React.useState<ChatSession[]>([]);
     const [activeSessionId, setActiveSessionId] = React.useState("");
@@ -690,7 +689,7 @@ ${marketPrices[0] ? `- ICI 4 (4200): $${marketPrices[0].ici_4}\n- Newcastle: $${
     const handleSend = async () => {
         if (!input.trim() && !selectedFile) return;
 
-        const agent = new AIAgent({ apiKey });
+        const agent = new AIAgent();
         const userMsg: Message = {
             id: Date.now().toString(),
             role: "user",

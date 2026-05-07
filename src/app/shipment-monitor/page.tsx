@@ -17,8 +17,10 @@ import { ReportModal } from "@/components/shared/report-modal";
 import { Toast, ToastType } from "@/components/shared/toast";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { usePagination } from "@/hooks/use-pagination";
 import { PaginationControls } from "@/components/shared/pagination-controls";
+import { canWriteModuleForRole, normalizeRole } from "@/lib/role-access";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
@@ -233,6 +235,7 @@ function ExpandableText({
 
 export default function ShipmentMonitorPage() {
     const [, setIsInitializing] = React.useState(false);
+    const { data: session } = useSession();
     const searchParams = useSearchParams();
     const router = useRouter();
     const pathname = usePathname();
@@ -380,8 +383,29 @@ export default function ShipmentMonitorPage() {
     const [milestoneForm, setMilestoneForm] = React.useState({ title: "", subtitle: "", status: "pending" as "completed" | "current" | "pending" });
     const [isSaving, setIsSaving] = React.useState(false);
     const [toast, setToast] = React.useState<{ message: string; type: ToastType } | null>(null);
+    const normalizedRole = normalizeRole((session?.user as any)?.role);
+    const canManageShipments = canWriteModuleForRole((session?.user as any)?.role, "OPERATIONS_TRAFFIC");
+    const canRunRiskAnalysis = Boolean(normalizedRole && [
+        "CEO",
+        "DIRUT",
+        "ASS_DIRUT",
+        "COO",
+        "ADMIN_OPERATION",
+        "TRAFFIC_HEAD",
+        "TRAFFIC_TEAM_1",
+        "TRAFFIC_TEAM_2",
+        "TRAFFIC_TEAM_3",
+        "TRAFFIC_TEAM_4",
+        "QC_MANAGER",
+        "QC_ADMIN_1",
+        "QC_ADMIN_2",
+    ].includes(normalizedRole));
 
     const handleAddMilestone = () => {
+        if (!canManageShipments) {
+            setToast({ message: "You do not have permission to edit shipment milestones.", type: "error" });
+            return;
+        }
         if (!detailShipment || !milestoneForm.title) return;
         const currentMilestones = detailShipment.milestones || [
             { title: "Contract Confirmed", subtitle: "Documents signed and LC established.", status: "completed" },
@@ -399,6 +423,10 @@ export default function ShipmentMonitorPage() {
 
     const handleGenerateRiskAnalysis = async () => {
         if (!detailShipment) return;
+        if (!canRunRiskAnalysis) {
+            setToast({ message: "You do not have permission to run shipment risk analysis.", type: "error" });
+            return;
+        }
         setIsGeneratingRisk(true);
         try {
             const res = await fetch(`/api/shipments/${detailShipment.id}/risk-analysis`, { method: "POST" });
@@ -418,6 +446,10 @@ export default function ShipmentMonitorPage() {
     };
 
     const handleSaveBlending = async () => {
+        if (!canManageShipments) {
+            setToast({ message: "You do not have permission to edit shipment blending data.", type: "error" });
+            return;
+        }
         if (detailShipment) {
             const updated = { ...detailShipment, spec_actual: { ...detailShipment.spec_actual, ...blendingForm } };
             await updateShipment(detailShipment.id, updated);
@@ -429,6 +461,15 @@ export default function ShipmentMonitorPage() {
 
     const handleSaveEdit = async () => {
         if (!editShipment) return;
+        if (!canManageShipments) {
+            setToast({ message: "You do not have permission to save shipment changes.", type: "error" });
+            return;
+        }
+        const requiresStatusReason = ["upcoming", "loading", "in_transit"].includes(editForm.status || "");
+        if (requiresStatusReason && !(editForm.status_reason || "").trim()) {
+            setToast({ message: "Status reason is required for on-going shipments.", type: "error" });
+            return;
+        }
         setIsSaving(true);
         try {
             if (editShipment.id) {
@@ -447,11 +488,13 @@ export default function ShipmentMonitorPage() {
     };
 
     const openEdit = (sh: ShipmentDetail) => {
+        if (!canManageShipments) return;
         setEditShipment(sh);
         setEditForm({ ...sh });
     };
 
     const openCreateShipment = () => {
+        if (!canManageShipments) return;
         setEditShipment({} as any);
         setEditForm({
             status: "upcoming",
@@ -633,7 +676,7 @@ export default function ShipmentMonitorPage() {
                         </div>
                         <div className="flex gap-2 relative z-10">
                             <button onClick={() => setShowReportModal(true)} className="btn-outline text-xs h-9 hidden sm:flex"><Download className="w-3.5 h-3.5 mr-1.5" /> Download Report</button>
-                            <button onClick={openCreateShipment} className="btn-primary text-xs h-9 hidden sm:flex">+ Create Shipment</button>
+                            {canManageShipments && <button onClick={openCreateShipment} className="btn-primary text-xs h-9 hidden sm:flex">+ Create Shipment</button>}
                         </div>
                     </div>
 
@@ -664,7 +707,7 @@ export default function ShipmentMonitorPage() {
 
                 {/* Sub-Navigation Tabs */}
                 <div className="flex items-center gap-6 border-b border-border text-sm font-medium overflow-x-auto hide-scrollbar">
-                    {(["MV Barge", "Daily Delivery", "Route Optimizer", "Analytics", "Risk Assessment"] as const).map((tab) => (
+                    {(["MV Barge", "Analytics", "Risk Assessment"] as const).map((tab) => (
                         <button key={tab} onClick={() => setMainTab(tab)} className={cn("pb-3 border-b-2 whitespace-nowrap transition-colors", mainTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>
                             {tab}
                         </button>
@@ -1166,9 +1209,11 @@ export default function ShipmentMonitorPage() {
                                                                     <button onClick={() => setDetailShipment(sh)} className="p-1.5 rounded-lg hover:bg-accent transition-colors" title="View Full Detail">
                                                                         <Eye className="w-3.5 h-3.5 text-muted-foreground" />
                                                                     </button>
-                                                                    <button onClick={(e) => { e.stopPropagation(); openEdit(sh); }} className="p-1.5 rounded-lg hover:bg-accent transition-colors text-muted-foreground" title="Edit Shipment">
-                                                                        <Edit className="w-3.5 h-3.5" />
-                                                                    </button>
+                                                                    {canManageShipments && (
+                                                                        <button onClick={(e) => { e.stopPropagation(); openEdit(sh); }} className="p-1.5 rounded-lg hover:bg-accent transition-colors text-muted-foreground" title="Edit Shipment">
+                                                                            <Edit className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                    )}
                                                                 </div>
                                                             </td>
                                                         </tr>
@@ -1556,22 +1601,26 @@ export default function ShipmentMonitorPage() {
                                         <span className="px-3 py-1.5 rounded-md text-xs font-bold text-white bg-emerald-500">
                                             {SHIPMENT_STATUSES.find(s => s.value === detailShipment.status)?.label || "Completed"}
                                         </span>
-                                        <button onClick={() => { setEditShipment(detailShipment); setEditForm({ ...detailShipment }); closeDetailModal(); }} className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded-md hover:bg-accent text-xs font-semibold text-foreground transition-colors">
-                                            <Edit className="w-3.5 h-3.5" /> Edit
-                                        </button>
-                                        <button onClick={async () => {
-                                            if (window.confirm(`Delete shipment ${detailShipment.shipment_number}? This cannot be undone.`)) {
-                                                try {
-                                                    await deleteShipment(detailShipment.id);
-                                                    setToast({ message: "Shipment deleted successfully!", type: "success" });
-                                                    closeDetailModal();
-                                                } catch (error) {
-                                                    setToast({ message: "Failed to delete shipment.", type: "error" });
-                                                }
-                                            }
-                                        }} className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border border-red-500/20 rounded-md hover:bg-red-500/20 text-xs font-semibold text-red-500 transition-colors">
-                                            <Trash2 className="w-3.5 h-3.5" /> Delete
-                                        </button>
+                                        {canManageShipments && (
+                                            <>
+                                                <button onClick={() => { setEditShipment(detailShipment); setEditForm({ ...detailShipment }); closeDetailModal(); }} className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded-md hover:bg-accent text-xs font-semibold text-foreground transition-colors">
+                                                    <Edit className="w-3.5 h-3.5" /> Edit
+                                                </button>
+                                                <button onClick={async () => {
+                                                    if (window.confirm(`Delete shipment ${detailShipment.shipment_number}? This cannot be undone.`)) {
+                                                        try {
+                                                            await deleteShipment(detailShipment.id);
+                                                            setToast({ message: "Shipment deleted successfully!", type: "success" });
+                                                            closeDetailModal();
+                                                        } catch (error) {
+                                                            setToast({ message: "Failed to delete shipment.", type: "error" });
+                                                        }
+                                                    }
+                                                }} className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border border-red-500/20 rounded-md hover:bg-red-500/20 text-xs font-semibold text-red-500 transition-colors">
+                                                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -1756,6 +1805,26 @@ export default function ShipmentMonitorPage() {
                                                             {detailShipment.status_reason || detailShipment.issue_notes || "No issue reason captured."}
                                                         </p>
                                                     </div>
+                                                    <div className="mt-2 border-t border-border/30 pt-2">
+                                                        <p className="text-[10px] uppercase text-muted-foreground font-semibold mb-1">Operational Info</p>
+                                                        <p className="text-foreground">
+                                                            {detailShipment.operational_info || "Operational info has not been filled."}
+                                                        </p>
+                                                        {(detailShipment.demurrage_rate || detailShipment.demurrage_source) && (
+                                                            <div className="mt-2 rounded-lg bg-background/60 border border-border/50 p-2">
+                                                                <div className="flex justify-between gap-3">
+                                                                    <span className="text-muted-foreground">Demurrage:</span>
+                                                                    <span className="font-bold text-amber-500">
+                                                                        {detailShipment.demurrage_currency || "USD"} {safeNum(detailShipment.demurrage_rate).toLocaleString("en-US")}/day
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex justify-between gap-3">
+                                                                    <span className="text-muted-foreground">Source:</span>
+                                                                    <span className="font-medium">{detailShipment.demurrage_source || "Operational Info"}</span>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                     {detailShipment.pending_items && detailShipment.pending_items.length > 0 && (
                                                         <div className="mt-2">
                                                             <p className="text-[10px] uppercase text-muted-foreground font-semibold mb-1">Pending Items</p>
@@ -1847,12 +1916,14 @@ export default function ShipmentMonitorPage() {
                                                 <h4 className="text-sm font-bold flex items-center gap-2 text-foreground">
                                                     <Clock className="w-4 h-4 text-emerald-500" /> Voyage Milestones
                                                 </h4>
-                                                <button onClick={() => setShowMilestoneForm(!showMilestoneForm)} className="text-xs bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg font-bold transition-colors flex items-center gap-1.5">
-                                                    {showMilestoneForm ? <><X className="w-3.5 h-3.5" /> Cancel</> : <><Plus className="w-3.5 h-3.5" /> Add Milestone</>}
-                                                </button>
+                                                {canManageShipments && (
+                                                    <button onClick={() => setShowMilestoneForm(!showMilestoneForm)} className="text-xs bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg font-bold transition-colors flex items-center gap-1.5">
+                                                        {showMilestoneForm ? <><X className="w-3.5 h-3.5" /> Cancel</> : <><Plus className="w-3.5 h-3.5" /> Add Milestone</>}
+                                                    </button>
+                                                )}
                                             </div>
 
-                                            {showMilestoneForm && (
+                                            {canManageShipments && showMilestoneForm && (
                                                 <div className="bg-accent/30 border border-border/50 rounded-lg p-4 mb-6 animate-fade-in">
                                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
                                                         <div><label className="text-[10px] text-muted-foreground">Title</label><input type="text" value={milestoneForm.title} onChange={e => setMilestoneForm({ ...milestoneForm, title: e.target.value })} className="w-full mt-1 bg-background border border-border px-3 py-1.5 rounded-lg text-xs" placeholder="e.g. Cleared Customs" /></div>
@@ -1897,9 +1968,11 @@ export default function ShipmentMonitorPage() {
                                                 <h4 className="text-sm font-bold flex items-center gap-2 text-foreground">
                                                     <AlertTriangle className="w-4 h-4 text-red-500" /> AI Operational Risk Analysis
                                                 </h4>
-                                                <button onClick={handleGenerateRiskAnalysis} disabled={isGeneratingRisk} className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold disabled:opacity-50 flex items-center gap-1.5 transition-colors shadow-sm">
-                                                    {isGeneratingRisk ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing...</> : <><Wand2 className="w-3.5 h-3.5" /> Run Risk Analysis</>}
-                                                </button>
+                                                {canRunRiskAnalysis && (
+                                                    <button onClick={handleGenerateRiskAnalysis} disabled={isGeneratingRisk} className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold disabled:opacity-50 flex items-center gap-1.5 transition-colors shadow-sm">
+                                                        {isGeneratingRisk ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing...</> : <><Wand2 className="w-3.5 h-3.5" /> Run Risk Analysis</>}
+                                                    </button>
+                                                )}
                                             </div>
 
                                             {detailShipment.riskReport ? (() => {
@@ -1943,6 +2016,40 @@ export default function ShipmentMonitorPage() {
                                                                 <p className="text-xs text-muted-foreground leading-relaxed">{report.recommendations}</p>
                                                             </div>
                                                         </div>
+                                                        {Array.isArray(report.mitigationPlan) && report.mitigationPlan.length > 0 && (
+                                                            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-4">
+                                                                <p className="text-xs font-bold flex items-center gap-1.5 mb-3"><CheckCircle2 className="w-4 h-4 text-emerald-500" /> AI Mitigation Plan</p>
+                                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                                                    {report.mitigationPlan.map((item: any, i: number) => (
+                                                                        <div key={i} className="rounded-lg bg-background/70 border border-border/50 p-3">
+                                                                            <p className="text-xs font-bold">{item.action}</p>
+                                                                            <p className="text-[10px] text-muted-foreground mt-1">Owner: {item.owner || "-"}</p>
+                                                                            <p className="text-[10px] text-muted-foreground">Due: {item.due || "-"}</p>
+                                                                            <span className="inline-block mt-2 rounded-md bg-emerald-500/10 text-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase">{item.status || "standby"}</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {report.sourceSnapshot && (
+                                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                                <div className="rounded-lg border border-border/50 bg-background/60 p-3">
+                                                                    <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Load Weather</p>
+                                                                    <p className="text-xs font-semibold">{report.sourceSnapshot.weatherLoad?.description || "-"}</p>
+                                                                    <p className="text-[10px] text-muted-foreground">Wind {safeFmt(report.sourceSnapshot.weatherLoad?.windKnots, 1)} kn</p>
+                                                                </div>
+                                                                <div className="rounded-lg border border-border/50 bg-background/60 p-3">
+                                                                    <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Discharge Weather</p>
+                                                                    <p className="text-xs font-semibold">{report.sourceSnapshot.weatherDischarge?.description || "-"}</p>
+                                                                    <p className="text-[10px] text-muted-foreground">Wind {safeFmt(report.sourceSnapshot.weatherDischarge?.windKnots, 1)} kn</p>
+                                                                </div>
+                                                                <div className="rounded-lg border border-border/50 bg-background/60 p-3">
+                                                                    <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Marine</p>
+                                                                    <p className="text-xs font-semibold">Wave {safeFmt(report.sourceSnapshot.marineData?.waveHeight, 1)} m</p>
+                                                                    <p className="text-[10px] text-muted-foreground">{report.sourceSnapshot.marineData?.source || "-"}</p>
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 );
                                             })() : (
@@ -2092,8 +2199,33 @@ export default function ShipmentMonitorPage() {
                                     />
                                     <p className="text-[9px] text-muted-foreground">{(editForm.status_reason || "").length}/500 characters</p>
                                     {["upcoming", "loading", "in_transit"].includes(editForm.status || "") && !editForm.status_reason && (
-                                        <p className="text-[10px] text-amber-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Recommended: provide a reason for on-going shipments</p>
+                                        <p className="text-[10px] text-amber-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Required for on-going shipments</p>
                                     )}
+                                </div>
+
+                                <div className="col-span-2 border-b border-border/30 pb-2 mb-1 mt-3">
+                                    <h3 className="text-[10px] font-bold text-emerald-500 uppercase flex items-center gap-1.5"><Activity className="w-3 h-3" /> Operational Info & Demurrage</h3>
+                                </div>
+                                <div className="space-y-1.5 col-span-2">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Operational Info</label>
+                                    <textarea
+                                        value={editForm.operational_info || ""}
+                                        onChange={(e) => setEditForm({ ...editForm, operational_info: e.target.value, demurrage_source: e.target.value ? "Operational Info" : editForm.demurrage_source })}
+                                        rows={3}
+                                        placeholder="Example: Vessel waiting at anchorage, demurrage USD 12k/day after laytime."
+                                        className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs resize-none"
+                                    />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Demurrage Rate / Day</label>
+                                    <input type="number" value={editForm.demurrage_rate || 0} onChange={(e) => setEditForm({ ...editForm, demurrage_rate: Number(e.target.value), demurrage_source: "Operational Info", demurrage_updated_at: new Date().toISOString() })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Currency / Source</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <input type="text" value={editForm.demurrage_currency || "USD"} onChange={(e) => setEditForm({ ...editForm, demurrage_currency: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                        <input type="text" value={editForm.demurrage_source || ""} onChange={(e) => setEditForm({ ...editForm, demurrage_source: e.target.value })} placeholder="Source" className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                    </div>
                                 </div>
 
                                 {/* Operational & Legal (Historical Data) */}

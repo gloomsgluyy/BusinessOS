@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { SheetsFirstService } from "@/lib/sheets-first-service";
 import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
+import { canModifyOwnedRecord } from "@/lib/role-access";
 
 export async function GET(req: Request) {
     try {
@@ -147,8 +148,12 @@ export async function PUT(req: Request) {
 
         console.log('[API PUT] Existing record:', JSON.stringify(existingRecord, null, 2));
 
-        const userRole = session.user.role?.toLowerCase() || "";
-        if (existingRecord.createdBy !== session.user.id && !["ceo", "director", "manager"].includes(userRole)) {
+        if (!canModifyOwnedRecord({
+            role: session.user.role,
+            userId: session.user.id,
+            createdBy: existingRecord.createdBy,
+            moduleName: "PL_SALES",
+        })) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
@@ -221,8 +226,12 @@ export async function DELETE(req: Request) {
         const existingRecord = await prisma.pLForecast.findUnique({ where: { id } });
         if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-        const userRole = session.user.role?.toLowerCase() || "";
-        if (existingRecord.createdBy !== session.user.id && !["ceo", "director", "manager"].includes(userRole)) {
+        if (!canModifyOwnedRecord({
+            role: session.user.role,
+            userId: session.user.id,
+            createdBy: existingRecord.createdBy,
+            moduleName: "PL_SALES",
+        })) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 

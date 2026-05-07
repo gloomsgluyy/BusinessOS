@@ -202,6 +202,12 @@ export interface ProjectItem {
     approved_by?: string;
     approved_by_name?: string;
     approved_at?: string;
+    template_type?: string;
+    template_checklist?: string;
+    urgency_score?: number;
+    urgency_level?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | string;
+    urgency_report?: string;
+    last_urgency_analyzed_at?: string;
     created_at: string;
     updated_at: string;
 }
@@ -287,6 +293,11 @@ export interface ShipmentDetail {
     riskLevel?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | string;
     riskReport?: string;
     lastAnalyzedAt?: string;
+    operational_info?: string;
+    demurrage_rate?: number;
+    demurrage_currency?: string;
+    demurrage_source?: string;
+    demurrage_updated_at?: string;
 }
 
 // ── Daily Delivery ────────────────────────────────────────────────
@@ -466,6 +477,7 @@ export interface MarketPriceEntry {
     source?: string;
     notes?: string;
     created_by?: string;
+    updated_at?: string;
 }
 
 // ── Meeting / MOM ─────────────────────────────────────────────

@@ -6,6 +6,7 @@ import { syncPartnersToSheet } from "@/app/actions/sheet-actions";
 
 import { PushService } from "@/lib/push-to-sheets";
 import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
+import { canWriteModuleForRole } from "@/lib/role-access";
 
 async function triggerPush() {
     PushService.debouncedPush("partner").catch(err => console.error("Push failed:", err));
@@ -19,6 +20,24 @@ function cleanText(v: unknown): string | null {
 
 function normalizeKey(v: unknown): string {
     return (cleanText(v) || "").toUpperCase();
+}
+
+function parseDate(v: unknown): Date | null {
+    if (!v) return null;
+    const date = new Date(String(v));
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function deriveLegalStatus(expiry: Date | null, reminderDays: number): string | null {
+    if (!expiry) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(expiry);
+    due.setHours(0, 0, 0, 0);
+    const daysLeft = Math.ceil((due.getTime() - today.getTime()) / 86400000);
+    if (daysLeft < 0) return "expired";
+    if (daysLeft <= reminderDays) return "due_soon";
+    return "valid";
 }
 
 function isMeaningfulName(v: unknown): boolean {
@@ -203,6 +222,10 @@ export async function POST(req: Request) {
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const data = await req.json();
+        const legalExpiryDate = parseDate(data.legalExpiryDate);
+        const legalReminderDays = Number.isFinite(Number(data.legalReminderDays))
+            ? Math.max(1, Math.floor(Number(data.legalReminderDays)))
+            : 30;
 
         const partner = await prisma.$transaction(async (tx) => {
             const newPartner = await tx.partner.create({
@@ -217,7 +240,11 @@ export async function POST(req: Request) {
                     country: data.region?.split(',')[1]?.trim() || data.country,
                     taxId: data.taxId,
                     status: data.status || "active",
-                    notes: data.notes
+                    notes: data.notes,
+                    legalDocumentName: data.legalDocumentName,
+                    legalExpiryDate,
+                    legalReminderDays,
+                    legalStatus: data.legalStatus || deriveLegalStatus(legalExpiryDate, legalReminderDays),
                 }
             });
 
@@ -254,10 +281,22 @@ export async function PUT(req: Request) {
 
         const existingRecord = await prisma.partner.findUnique({ where: { id: data.id } });
         if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
-        const userRole = session.user.role?.toLowerCase() || "";
-        if (!["ceo", "director", "manager"].includes(userRole)) {
+        if (!canWriteModuleForRole(session.user.role, "DIRECTORY")) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
+
+        const legalExpiryDate = data.legalExpiryDate !== undefined ? parseDate(data.legalExpiryDate) : undefined;
+        const legalReminderDays = data.legalReminderDays !== undefined && Number.isFinite(Number(data.legalReminderDays))
+            ? Math.max(1, Math.floor(Number(data.legalReminderDays)))
+            : undefined;
+        const nextLegalStatus = data.legalStatus !== undefined
+            ? data.legalStatus
+            : (data.legalExpiryDate !== undefined || data.legalReminderDays !== undefined)
+                ? deriveLegalStatus(
+                    legalExpiryDate === undefined ? existingRecord.legalExpiryDate : legalExpiryDate,
+                    legalReminderDays === undefined ? existingRecord.legalReminderDays : legalReminderDays,
+                )
+                : undefined;
 
         const partner = await prisma.$transaction(async (tx) => {
             const updatedPartner = await tx.partner.update({
@@ -273,7 +312,11 @@ export async function PUT(req: Request) {
                     country: data.region?.split(',')[1]?.trim() || data.country,
                     taxId: data.taxId,
                     status: data.status,
-                    notes: data.notes
+                    notes: data.notes,
+                    legalDocumentName: data.legalDocumentName,
+                    legalExpiryDate,
+                    legalReminderDays,
+                    legalStatus: nextLegalStatus,
                 }
             });
 
@@ -311,8 +354,7 @@ export async function DELETE(req: Request) {
 
         const existingRecord = await prisma.partner.findUnique({ where: { id } });
         if (!existingRecord || existingRecord.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
-        const userRole = session.user.role?.toLowerCase() || "";
-        if (!["ceo", "director", "manager"].includes(userRole)) {
+        if (!canWriteModuleForRole(session.user.role, "DIRECTORY")) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 

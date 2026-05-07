@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { checkAiRateLimit } from "@/lib/ai-security";
+import { canWriteModuleForRole } from "@/lib/role-access";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +15,27 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
  */
 export async function POST() {
     try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        if (!canWriteModuleForRole(session.user.role, "MARKET_PRICE")) {
+            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+
+        const limit = checkAiRateLimit(`market-scrape:${session.user.id}`, 6, 60 * 60 * 1000);
+        if (!limit.allowed) {
+            return NextResponse.json(
+                { error: "Too many market AI refreshes. Please retry later." },
+                { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
+            );
+        }
+
+        if (!GROQ_API_KEY) {
+            return NextResponse.json({ error: "AI market service is not configured" }, { status: 503 });
+        }
+
         const today = new Date().toISOString().split("T")[0];
 
         // Step 1: Ask the AI for the latest coal market prices
@@ -53,9 +78,9 @@ export async function POST() {
         });
 
         if (!res.ok) {
-            const errData = await res.json();
+            const errData = await res.json().catch(() => ({ message: res.statusText }));
             console.error("Groq API error:", errData);
-            return NextResponse.json({ error: "AI service unavailable", details: errData }, { status: 502 });
+            return NextResponse.json({ error: "AI service unavailable" }, { status: 502 });
         }
 
         const data = await res.json();
@@ -93,7 +118,7 @@ export async function POST() {
                 ici_5: Math.round(prices.ici_5 * 100) / 100,
                 newcastle: Math.round(prices.newcastle * 100) / 100,
                 hba: Math.round(prices.hba * 100) / 100,
-                source: `${prices.source || "AI Market Intelligence"} (${prices.proof_url || "Search Result"})`,
+                source: `${String(prices.source || "AI Market Intelligence").slice(0, 80)} (${String(prices.proof_url || "Search Result").slice(0, 180)})`,
             },
             scraped_at: new Date().toISOString(),
         });

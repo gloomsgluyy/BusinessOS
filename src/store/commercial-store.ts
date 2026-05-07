@@ -298,6 +298,8 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             buyer: p.buyer,
             status: p.status || "waiting_approval",
             notes: p.notes,
+            templateType: p.template_type,
+            templateChecklist: p.template_checklist,
         };
         const res = await fetch("/api/memory/projects", {
             method: "POST",
@@ -319,6 +321,12 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 approved_by: project.approvedBy,
                 approved_by_name: project.approvedByName,
                 approved_at: project.approvedAt,
+                template_type: project.templateType,
+                template_checklist: project.templateChecklist,
+                urgency_score: project.urgencyScore,
+                urgency_level: project.urgencyLevel,
+                urgency_report: project.urgencyReport,
+                last_urgency_analyzed_at: project.lastUrgencyAnalyzedAt,
                 created_at: project.createdAt,
                 updated_at: project.updatedAt,
                 is_deleted: project.isDeleted,
@@ -336,6 +344,12 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.buyer !== undefined) body.buyer = u.buyer;
         if (u.status !== undefined) body.status = u.status;
         if (u.notes !== undefined) body.notes = u.notes;
+        if (u.template_type !== undefined) body.templateType = u.template_type;
+        if (u.template_checklist !== undefined) body.templateChecklist = u.template_checklist;
+        if (u.urgency_score !== undefined) body.urgencyScore = u.urgency_score;
+        if (u.urgency_level !== undefined) body.urgencyLevel = u.urgency_level;
+        if (u.urgency_report !== undefined) body.urgencyReport = u.urgency_report;
+        if (u.last_urgency_analyzed_at !== undefined) body.lastUrgencyAnalyzedAt = u.last_urgency_analyzed_at;
         if (u.approved_by !== undefined) body.approvedBy = u.approved_by;
         if (u.approved_by_name !== undefined) body.approvedByName = u.approved_by_name;
         if (u.approved_at !== undefined) body.approvedAt = u.approved_at;
@@ -381,6 +395,11 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             noSpal: s.no_spal, noSi: s.no_si, coaDate: s.coa_date, resultGar: s.result_gar,
             sentToSupplier: s.sent_to_supplier, sentToBargeOwner: s.sent_to_barge_owner, noInvoiceMkls: s.no_invoice_mkls,
             year: s.year || new Date().getFullYear(),
+            operationalInfo: s.operational_info,
+            demurrageRate: s.demurrage_rate,
+            demurrageCurrency: s.demurrage_currency,
+            demurrageSource: s.demurrage_source,
+            demurrageUpdatedAt: s.demurrage_updated_at,
             buyer: s.buyer,
             supplier: s.supplier,
             vessel_name: s.vessel_name,
@@ -419,6 +438,15 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 sent_to_supplier: ship.sentToSupplier, sent_to_barge_owner: ship.sentToBargeOwner, no_invoice_mkls: ship.noInvoiceMkls,
                 pending_items: Array.isArray(ship.pendingItems) ? ship.pendingItems : [],
                 milestones: Array.isArray(ship.milestones) ? ship.milestones : [],
+                operational_info: ship.operationalInfo,
+                demurrage_rate: ship.demurrageRate,
+                demurrage_currency: ship.demurrageCurrency,
+                demurrage_source: ship.demurrageSource,
+                demurrage_updated_at: ship.demurrageUpdatedAt,
+                riskScore: ship.riskScore,
+                riskLevel: ship.riskLevel,
+                riskReport: ship.riskReport,
+                lastAnalyzedAt: ship.lastAnalyzedAt,
                 buyer: ship.buyer,
                 supplier: ship.supplier,
                 vessel_name: ship.vesselName,
@@ -480,6 +508,11 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.no_invoice_mkls !== undefined) body.noInvoiceMkls = u.no_invoice_mkls;
         if (u.year !== undefined) body.year = u.year;
         if (u.status_reason !== undefined) body.statusReason = u.status_reason;
+        if (u.operational_info !== undefined) body.operationalInfo = u.operational_info;
+        if (u.demurrage_rate !== undefined) body.demurrageRate = u.demurrage_rate;
+        if (u.demurrage_currency !== undefined) body.demurrageCurrency = u.demurrage_currency;
+        if (u.demurrage_source !== undefined) body.demurrageSource = u.demurrage_source;
+        if (u.demurrage_updated_at !== undefined) body.demurrageUpdatedAt = u.demurrage_updated_at;
 
         await fetch("/api/memory/shipments", {
             method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
@@ -1124,6 +1157,15 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                                 discharge_port: s.dischargePort || "-",
                                 product: s.product || "-",
                                 analysis_method: s.analysisMethod || "-",
+                                operational_info: s.operationalInfo,
+                                demurrage_rate: s.demurrageRate,
+                                demurrage_currency: s.demurrageCurrency,
+                                demurrage_source: s.demurrageSource,
+                                demurrage_updated_at: s.demurrageUpdatedAt,
+                                riskScore: s.riskScore,
+                                riskLevel: s.riskLevel,
+                                riskReport: s.riskReport,
+                                lastAnalyzedAt: s.lastAnalyzedAt,
                                 pending_items: Array.isArray(s.pendingItems) ? s.pendingItems : [],
                                 milestones: Array.isArray(s.milestones) ? s.milestones : [],
                                 type: (() => {
@@ -1276,6 +1318,12 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                                 approved_by: project.approvedBy,
                                 approved_by_name: project.approvedByName,
                                 approved_at: project.approvedAt,
+                                template_type: project.templateType,
+                                template_checklist: project.templateChecklist,
+                                urgency_score: project.urgencyScore,
+                                urgency_level: project.urgencyLevel,
+                                urgency_report: project.urgencyReport,
+                                last_urgency_analyzed_at: project.lastUrgencyAnalyzedAt,
                                 created_at: project.createdAt,
                                 updated_at: project.updatedAt,
                                 is_deleted: project.isDeleted,

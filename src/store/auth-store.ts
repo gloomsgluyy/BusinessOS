@@ -36,8 +36,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const role = user.role.toUpperCase();
         if (["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(role)) roleKey = "ceo";
         else if (role.startsWith("TRADERS_") || role === "CMO" || role === "ADMIN_MARKETING" || role === "JUNIOR_TRADER") roleKey = "marketing";
-        else if (role.startsWith("SOURCING_") || role === "SPV_SOURCING") roleKey = "purchasing";
-        else if (role.startsWith("TRAFFIC_") || role.startsWith("QC_") || role === "CPPO" || role === "ADMIN_OPERATION") roleKey = "operation";
+        else if (role.startsWith("SOURCING_") || role === "SPV_SOURCING" || role === "CPPO") roleKey = "purchasing";
+        else if (role.startsWith("TRAFFIC_") || role.startsWith("QC_") || role === "QQ_MANAGER" || role === "ADMIN_OPERATION") roleKey = "operation";
 
         return ROLE_PERMISSIONS[roleKey as Role]?.includes(permission) ?? false;
     },

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import { useCommercialStore } from "@/store/commercial-store";
+import { useAuthStore } from "@/store/auth-store";
 
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const LS_TIME_KEY = "lastMarketScrapeTime";
@@ -14,12 +16,17 @@ const LS_INTERVAL_KEY = "marketScrapeInterval";
  * Renders nothing (null).
  */
 export function GlobalMarketScraper() {
+    const { status } = useSession();
+    const currentUser = useAuthStore((s) => s.currentUser);
+    const hasPermission = useAuthStore((s) => s.hasPermission);
     const addMarketPrice = useCommercialStore((s) => s.addMarketPrice);
     const syncFromMemory = useCommercialStore((s) => s.syncFromMemory);
     const scrapingRef = useRef(false);
     const [intervalMs, setIntervalMs] = useState(DEFAULT_INTERVAL_MS);
 
     useEffect(() => {
+        if (status !== "authenticated") return;
+
         // Ensure latest data is loaded into the store on app boot
         syncFromMemory();
 
@@ -36,11 +43,15 @@ export function GlobalMarketScraper() {
         };
         window.addEventListener("marketScrapeIntervalChanged", handleReload);
         return () => window.removeEventListener("marketScrapeIntervalChanged", handleReload);
-    }, [syncFromMemory]);
+    }, [status, syncFromMemory]);
 
     useEffect(() => {
         let timeoutId: ReturnType<typeof setTimeout> | null = null;
         let intervalId: ReturnType<typeof setInterval> | null = null;
+
+        if (status !== "authenticated" || !currentUser || !hasPermission("market_price_edit")) {
+            return () => undefined;
+        }
 
         const doScrape = async () => {
             if (scrapingRef.current) return;
@@ -107,7 +118,7 @@ export function GlobalMarketScraper() {
             if (timeoutId) clearTimeout(timeoutId);
             if (intervalId) clearInterval(intervalId);
         };
-    }, [addMarketPrice, intervalMs]);
+    }, [addMarketPrice, currentUser, hasPermission, intervalMs, status]);
 
     return null;
 }

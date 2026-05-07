@@ -260,6 +260,11 @@ model ShipmentDetail {
   riskLevel        String?
   riskReport       String?
   lastAnalyzedAt   DateTime?
+  operationalInfo  String?
+  demurrageRate    Float?
+  demurrageCurrency String?   @default("USD")
+  demurrageSource  String?
+  demurrageUpdatedAt DateTime?
 }
 
 model SourceSupplier {
@@ -493,6 +498,12 @@ model ProjectItem {
   approvedBy     String?
   approvedByName String?
   approvedAt     DateTime?
+  templateType    String?
+  templateChecklist String?
+  urgencyScore    Int?
+  urgencyLevel    String?
+  urgencyReport   String?
+  lastUrgencyAnalyzedAt DateTime?
 }
 
 model Partner {
@@ -509,6 +520,10 @@ model Partner {
   taxId         String?
   status        String   @default("active")
   notes         String?
+  legalDocumentName String?
+  legalExpiryDate DateTime?
+  legalReminderDays Int     @default(30)
+  legalStatus   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   isDeleted     Boolean  @default(false)
