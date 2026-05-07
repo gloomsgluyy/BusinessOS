@@ -1,0 +1,5 @@
+ALTER TABLE "Partner"
+  ADD COLUMN IF NOT EXISTS "dueDiligenceScore" INTEGER,
+  ADD COLUMN IF NOT EXISTS "dueDiligenceLevel" TEXT,
+  ADD COLUMN IF NOT EXISTS "dueDiligenceReport" TEXT,
+  ADD COLUMN IF NOT EXISTS "lastDueDiligenceAt" TIMESTAMP(3);

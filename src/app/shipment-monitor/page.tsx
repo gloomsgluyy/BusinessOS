@@ -10,7 +10,7 @@ import { ShipmentDetail, ShipmentStatus } from "@/types";
 import {
     Ship, Calendar, Plus, ExternalLink, Activity, Anchor, FileText, CheckCircle2,
     AlertTriangle, Package, DollarSign, TrendingUp, Filter, Search, Edit, Trash2, X, Download, Truck, Droplets, Flame, Beaker, Clock, ShieldCheck, CloudLightning, Leaf, Loader2, Wand2,
-    Map as MapIcon, ChevronUp, ChevronDown, Eye, List, Info, CreditCard
+    Map as MapIcon, MapPin, ChevronUp, ChevronDown, Eye, List, Info, CreditCard
 } from "lucide-react";
 import { AIAgent } from "@/lib/ai-agent";
 import { ReportModal } from "@/components/shared/report-modal";
@@ -2015,6 +2015,23 @@ export default function ShipmentMonitorPage() {
                                                                 <p className="text-xs font-bold flex items-center gap-1.5 mb-2"><Wand2 className="w-4 h-4 text-blue-500" /> Recommendations</p>
                                                                 <p className="text-xs text-muted-foreground leading-relaxed">{report.recommendations}</p>
                                                             </div>
+                                                            {Array.isArray(report.routeFindings) && report.routeFindings.length > 0 && (
+                                                                <div className="bg-background/60 border border-border/50 rounded-lg p-4">
+                                                                    <p className="text-xs font-bold flex items-center gap-1.5 mb-2"><MapPin className="w-4 h-4 text-amber-500" /> Route Findings</p>
+                                                                    <ul className="list-disc pl-4 space-y-1">
+                                                                        {report.routeFindings.slice(0, 5).map((f: string, i: number) => (
+                                                                            <li key={i} className="text-xs text-muted-foreground">{f}</li>
+                                                                        ))}
+                                                                    </ul>
+                                                                </div>
+                                                            )}
+                                                            {report.consultantDecision && (
+                                                                <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4">
+                                                                    <p className="text-xs font-bold uppercase text-blue-600 mb-1">Consultant Decision</p>
+                                                                    <p className="text-xs font-bold text-foreground">{report.consultantDecision.suggestedDecision} - {report.consultantDecision.owner}</p>
+                                                                    <p className="text-xs text-muted-foreground mt-1">{report.consultantDecision.nextStep}</p>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                         {Array.isArray(report.mitigationPlan) && report.mitigationPlan.length > 0 && (
                                                             <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-4">

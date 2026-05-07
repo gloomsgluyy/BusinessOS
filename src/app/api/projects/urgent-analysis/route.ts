@@ -34,6 +34,29 @@ function daysUntil(value?: Date | null): number | null {
   return Math.ceil((target.getTime() - today.getTime()) / 86400000);
 }
 
+function safeNum(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function parseChecklist(value?: string | null) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.map((item) => ({
+        label: cleanText(item?.label) || "Document",
+        owner: cleanText(item?.owner) || "Team",
+        done: Boolean(item?.done),
+        fileUrl: cleanText(item?.fileUrl),
+        required: item?.required !== false,
+      }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function projectMatchesShipment(project: any, shipment: any): boolean {
   const projectKey = normalizeKey(project.name);
   const fields = [
@@ -46,8 +69,19 @@ function projectMatchesShipment(project: any, shipment: any): boolean {
   return fields.some((field) => field && (field.includes(projectKey) || projectKey.includes(field)));
 }
 
-function buildProjectReport(project: any, shipments: any[], news: any[]) {
+function buildProjectReport(input: {
+  project: any;
+  shipments: any[];
+  news: any[];
+  marketPrices: any[];
+  plForecasts: any[];
+  deals: any[];
+}) {
+  const { project, shipments, news, marketPrices, plForecasts, deals } = input;
   const factors: string[] = [];
+  const documentGaps: string[] = [];
+  const shipmentBlockers: string[] = [];
+  const commercialSignals: string[] = [];
   let score = 15;
   const status = normalizeKey(project.status);
 
@@ -69,6 +103,9 @@ function buildProjectReport(project: any, shipments: any[], news: any[]) {
   if (pendingShipments.length > 0) {
     score += Math.min(25, pendingShipments.length * 12);
     factors.push(`${pendingShipments.length} shipment terkait punya indikasi pending/waiting/delay.`);
+    shipmentBlockers.push(...pendingShipments.slice(0, 4).map((s) =>
+      `${s.vesselName || s.mvProjectName || s.nomination || s.id}: ${s.statusReason || s.issueNotes || s.status || "pending signal"}`,
+    ));
   }
 
   const soonestEta = activeShipments
@@ -86,17 +123,79 @@ function buildProjectReport(project: any, shipments: any[], news: any[]) {
     factors.push(`Berita eksternal ditemukan: ${realNews.slice(0, 2).map((n) => n.title).join("; ")}.`);
   }
 
+  const checklist = parseChecklist(project.templateChecklist);
+  const requiredDocs = checklist.filter((item) => item.required);
+  const missingDocs = requiredDocs.filter((item) => !item.done && !item.fileUrl);
+  if (requiredDocs.length > 0) {
+    const missingPct = missingDocs.length / requiredDocs.length;
+    if (missingDocs.length > 0) {
+      score += Math.min(22, Math.round(missingPct * 22));
+      documentGaps.push(...missingDocs.slice(0, 6).map((item) => `${item.label} (${item.owner})`));
+      factors.push(`${missingDocs.length}/${requiredDocs.length} required project documents belum complete/uploaded.`);
+    }
+  }
+
+  const projectKey = normalizeKey(project.name);
+  const relatedPl = plForecasts.filter((p) => {
+    const key = normalizeKey(`${p.projectName || ""} ${p.dealNumber || ""} ${p.buyer || ""}`);
+    return key.includes(projectKey) || projectKey.includes(key) || normalizeKey(project.buyer).includes(normalizeKey(p.buyer));
+  });
+  const relatedDeals = deals.filter((d) => {
+    const key = normalizeKey(`${d.dealNumber || ""} ${d.buyer || ""} ${d.vesselName || ""}`);
+    return normalizeKey(project.buyer).includes(normalizeKey(d.buyer)) || normalizeKey(d.buyer).includes(normalizeKey(project.buyer)) || key.includes(projectKey);
+  });
+  const latestMarket = marketPrices[0];
+  const benchmark = safeNum(latestMarket?.ici4 || latestMarket?.ici3 || latestMarket?.hba || latestMarket?.newcastle);
+  const avgSell = relatedDeals.length
+    ? relatedDeals.reduce((sum, d) => sum + safeNum(d.pricePerMt), 0) / relatedDeals.length
+    : 0;
+  const avgPlMargin = relatedPl.length
+    ? relatedPl.reduce((sum, p) => sum + safeNum(p.grossProfitMt), 0) / relatedPl.length
+    : 0;
+
+  if (benchmark > 0 && avgSell > 0) {
+    const spread = avgSell - benchmark;
+    commercialSignals.push(`Average selling price spread vs selected benchmark: ${spread >= 0 ? "+" : ""}${spread.toFixed(2)} USD/MT.`);
+    if (spread < -3) {
+      score += 12;
+      factors.push("Selling price berada di bawah benchmark market, perlu review commercial decision.");
+    } else if (spread > 3) {
+      commercialSignals.push("Selling price terlihat lebih baik dari benchmark; cek peluang percepat approval/execution.");
+    }
+  }
+
+  if (relatedPl.length > 0) {
+    commercialSignals.push(`P&L forecast rows: ${relatedPl.length}, average GP/MT: ${avgPlMargin.toFixed(2)}.`);
+    if (avgPlMargin < 0) {
+      score += 18;
+      factors.push("P&L forecast menunjukkan margin negatif.");
+    } else if (avgPlMargin > 5) {
+      commercialSignals.push("Margin forecast sehat; execution risk lebih banyak datang dari operasi/dokumen.");
+    }
+  }
+
   score = Math.max(0, Math.min(100, Math.round(score)));
   const level = scoreToLevel(score);
+  const recommendedAction = level === "HIGH" || level === "CRITICAL"
+    ? documentGaps.length > 0
+      ? "Prioritaskan project ini hari ini: tuntaskan document gaps, assign owner per dokumen, lalu eskalasi blocker shipment dan keputusan commercial ke executive."
+      : "Prioritaskan project ini hari ini: eskalasi blocker shipment, cek commercial spread, dan putuskan proceed/hold dengan executive."
+    : "Monitor normal, namun jalankan ulang analisis saat dokumen/market/shipment berubah.";
 
   return {
     score,
     level,
-    summary: `${project.name} berada pada level ${level}. Prioritas dihitung dari status approval, shipment aktif, pending reason, timeline, dan berita eksternal.`,
+    summary: `${project.name} berada pada level ${level}. Prioritas dihitung dari status approval, shipment aktif, pending reason, timeline, kelengkapan dokumen, P&L/market signal, dan berita eksternal.`,
     factors: factors.length ? factors : ["Tidak ada sinyal urgensi tinggi dari data internal saat ini."],
-    recommendedAction: level === "HIGH" || level === "CRITICAL"
-      ? "CEO/Dirut perlu review hari ini: cek blocker shipment, keputusan approval, dan eskalasi counterparty bila ada delay."
-      : "Monitor di ritme normal dan jalankan ulang analisis ketika ada update shipment atau berita baru.",
+    recommendedAction,
+    documentGaps,
+    shipmentBlockers,
+    commercialSignals: commercialSignals.length ? commercialSignals : ["Belum ada data market/P&L/deal yang cukup untuk commercial signal."],
+    decisionMemo: {
+      suggestedDecision: level === "CRITICAL" ? "HOLD / EXECUTIVE REVIEW" : level === "HIGH" ? "FAST REVIEW" : "MONITOR",
+      owner: level === "HIGH" || level === "CRITICAL" ? "CEO / DIRUT / ASS_DIRUT" : "Project owner",
+      nextStep: recommendedAction,
+    },
     relatedShipments: activeShipments.slice(0, 6).map((s) => ({
       id: s.id,
       vesselName: s.vesselName || s.mvProjectName || s.nomination,
@@ -104,6 +203,14 @@ function buildProjectReport(project: any, shipments: any[], news: any[]) {
       statusReason: s.statusReason,
       eta: s.eta,
     })),
+    marketSnapshot: latestMarket ? {
+      date: latestMarket.date,
+      ici3: latestMarket.ici3,
+      ici4: latestMarket.ici4,
+      hba: latestMarket.hba,
+      newcastle: latestMarket.newcastle,
+      source: latestMarket.source,
+    } : null,
     news: news.slice(0, 5),
     analyzedAt: new Date().toISOString(),
   };
@@ -136,11 +243,28 @@ export async function POST(req: Request) {
       take: targetProjectId ? 1 : 30,
     });
 
-    const shipments = await prisma.shipmentDetail.findMany({
-      where: { isDeleted: false },
-      orderBy: { updatedAt: "desc" },
-      take: 500,
-    });
+    const [shipments, marketPrices, plForecasts, deals] = await Promise.all([
+      prisma.shipmentDetail.findMany({
+        where: { isDeleted: false },
+        orderBy: { updatedAt: "desc" },
+        take: 500,
+      }),
+      prisma.marketPrice.findMany({
+        where: { isDeleted: false },
+        orderBy: { date: "desc" },
+        take: 8,
+      }),
+      prisma.pLForecast.findMany({
+        where: { isDeleted: false },
+        orderBy: { updatedAt: "desc" },
+        take: 300,
+      }),
+      prisma.salesDeal.findMany({
+        where: { isDeleted: false },
+        orderBy: { updatedAt: "desc" },
+        take: 300,
+      }),
+    ]);
 
     const analyzed = [];
     for (const project of projects) {
@@ -149,7 +273,14 @@ export async function POST(req: Request) {
         .filter(Boolean)
         .join(" coal shipment delay port");
       const news = await fetchShipmentNews(query || `${project.name} coal shipment`);
-      const report = buildProjectReport(project, relatedShipments, news);
+      const report = buildProjectReport({
+        project,
+        shipments: relatedShipments,
+        news,
+        marketPrices,
+        plForecasts,
+        deals,
+      });
 
       const updated = await prisma.projectItem.update({
         where: { id: project.id },

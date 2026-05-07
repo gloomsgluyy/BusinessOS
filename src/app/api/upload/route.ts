@@ -29,8 +29,8 @@ export async function POST(req: Request) {
         const originalName = (file as any).name || "uploaded_file";
         const safeName = path.basename(originalName).replace(/[^a-zA-Z0-9._-]/g, "_");
         const ext = path.extname(safeName) || "";
-        const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".pdf", ".mp3", ".mp4", ".wav", ".m4a", ".webm"];
-        const ALLOWED_MIME_PREFIXES = ["image/", "application/pdf", "audio/", "video/"];
+        const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".mp3", ".mp4", ".wav", ".m4a", ".webm"];
+        const ALLOWED_MIME_PREFIXES = ["image/", "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument", "application/vnd.ms-excel", "text/csv", "audio/", "video/"];
 
         if (!ALLOWED_EXTENSIONS.includes(ext.toLowerCase())) {
             return NextResponse.json({ error: "File type not allowed" }, { status: 400 });

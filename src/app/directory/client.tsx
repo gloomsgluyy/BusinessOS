@@ -3,7 +3,7 @@
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { cn } from "@/lib/utils";
-import { Users, Building2, Truck, Search, MapPin, Mail, Phone, CalendarClock, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Users, Building2, Truck, Search, MapPin, Mail, Phone, CalendarClock, ShieldCheck, AlertTriangle, Wand2, BrainCircuit } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 
 import { Plus, Edit2, X, Trash2, Loader2 } from "lucide-react";
@@ -28,6 +28,23 @@ const legalStatusFor = (entry: DirectoryEntry) => {
     if (days < 0) return { label: "Legal expired", tone: "danger", days };
     if (days <= reminder) return { label: `Due in ${days} days`, tone: "warning", days };
     return { label: `Valid ${days} days`, tone: "success", days };
+};
+
+const dueDiligenceTone = (level?: string) => {
+    const key = String(level || "").toUpperCase();
+    if (key === "CRITICAL" || key === "HIGH") return "danger";
+    if (key === "MEDIUM") return "warning";
+    if (key === "LOW") return "success";
+    return "muted";
+};
+
+const parseDueDiligenceReport = (value?: string) => {
+    if (!value) return null;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return null;
+    }
 };
 
 export default function DirectoryPageClient() {
@@ -56,6 +73,22 @@ export default function DirectoryPageClient() {
     const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
     const [editItem, setEditItem] = React.useState<DirectoryEntry | null>(null);
     const [form, setForm] = React.useState<Partial<DirectoryEntry>>({ type: "buyer", status: "active" });
+    const [analyzingId, setAnalyzingId] = React.useState<string | null>(null);
+
+    const runDueDiligence = async (entry: DirectoryEntry) => {
+        setAnalyzingId(entry.id);
+        try {
+            const res = await fetch(`/api/partners/${entry.id}/due-diligence`, { method: "POST" });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to run due diligence");
+            await syncFromMemory();
+            setToast({ message: `Due diligence complete: ${data.report?.level || "OK"} ${data.report?.score ?? ""}`, type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to run due diligence", type: "error" });
+        } finally {
+            setAnalyzingId(null);
+        }
+    };
 
     const openModal = (item?: DirectoryEntry) => {
         if (item) {
@@ -149,7 +182,10 @@ export default function DirectoryPageClient() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filtered.map(d => (
+                    {filtered.map(d => {
+                        const dueReport = parseDueDiligenceReport(d.due_diligence_report);
+                        const dueTone = dueDiligenceTone(d.due_diligence_level);
+                        return (
                         <div key={d.id} className="p-5 bg-card border border-border/50 rounded-2xl shadow-sm hover:shadow-md transition-all hover:border-border group">
                             <div className="flex items-start justify-between">
                                 <div className="flex items-center gap-3">
@@ -205,9 +241,48 @@ export default function DirectoryPageClient() {
                                         </span>
                                     </div>
                                 </div>
+                                <div className="mt-3 rounded-xl border border-border/50 bg-background/60 p-3">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <p className="text-[10px] font-bold uppercase text-muted-foreground flex items-center gap-1.5">
+                                                <BrainCircuit className="w-3.5 h-3.5" /> AI Due Diligence
+                                            </p>
+                                            <p className="text-xs font-semibold mt-1">
+                                                {d.due_diligence_level ? `${d.due_diligence_level} ${d.due_diligence_score ?? 0}` : "Not analyzed"}
+                                            </p>
+                                            {dueReport?.summary && (
+                                                <p className="text-[10px] text-muted-foreground mt-1 line-clamp-3">{dueReport.summary}</p>
+                                            )}
+                                        </div>
+                                        <span className={cn(
+                                            "shrink-0 rounded-md px-2 py-1 text-[10px] font-bold border",
+                                            dueTone === "danger" && "bg-red-500/10 text-red-600 border-red-500/30",
+                                            dueTone === "warning" && "bg-amber-500/10 text-amber-600 border-amber-500/30",
+                                            dueTone === "success" && "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+                                            dueTone === "muted" && "bg-muted text-muted-foreground border-border",
+                                        )}>
+                                            {d.last_due_diligence_at ? new Date(d.last_due_diligence_at).toLocaleDateString("id-ID") : "Pending"}
+                                        </span>
+                                    </div>
+                                    {dueReport && (
+                                        <div className="mt-2 grid grid-cols-1 gap-2">
+                                            {(dueReport.redFlags || []).slice(0, 2).map((flag: string, index: number) => (
+                                                <p key={index} className="text-[10px] text-muted-foreground">- {flag}</p>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
                             <div className="flex gap-2 w-full mt-5">
+                                <button
+                                    onClick={() => runDueDiligence(d)}
+                                    disabled={analyzingId !== null}
+                                    className="flex-1 py-2 rounded-xl border border-blue-500/20 bg-blue-500/10 hover:bg-blue-500/20 text-xs font-semibold text-blue-600 transition-colors flex items-center justify-center gap-1.5"
+                                >
+                                    {analyzingId === d.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                                    Analyze
+                                </button>
                                 <button onClick={() => openModal(d)} className="flex-1 py-2 rounded-xl border border-border/50 hover:bg-accent text-xs font-semibold text-foreground transition-colors flex items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0">
                                     <Edit2 className="w-3.5 h-3.5" /> Edit
                                 </button>
@@ -216,7 +291,8 @@ export default function DirectoryPageClient() {
                                 </button>
                             </div>
                         </div>
-                    ))}
+                    );
+                    })}
                     {filtered.length === 0 && (
                         <div className="col-span-full text-center py-12 text-muted-foreground">
                             <Users className="w-8 h-8 mx-auto opacity-20 mb-3" />

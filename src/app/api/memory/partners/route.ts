@@ -8,6 +8,17 @@ import { PushService } from "@/lib/push-to-sheets";
 import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 import { canWriteModuleForRole } from "@/lib/role-access";
 
+async function ensurePartnerDueDiligenceColumns() {
+    try {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "dueDiligenceScore" INTEGER;`);
+        await prisma.$executeRawUnsafe(`ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "dueDiligenceLevel" TEXT;`);
+        await prisma.$executeRawUnsafe(`ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "dueDiligenceReport" TEXT;`);
+        await prisma.$executeRawUnsafe(`ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "lastDueDiligenceAt" TIMESTAMP(3);`);
+    } catch (error) {
+        console.warn("[partners] ensure due diligence columns skipped:", error);
+    }
+}
+
 async function triggerPush() {
     PushService.debouncedPush("partner").catch(err => console.error("Push failed:", err));
 }
@@ -180,6 +191,7 @@ export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensurePartnerDueDiligenceColumns();
 
         const url = new URL(req.url);
         const pagination = parsePaginationParams(url.searchParams);
@@ -220,6 +232,7 @@ export async function POST(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensurePartnerDueDiligenceColumns();
 
         const data = await req.json();
         const legalExpiryDate = parseDate(data.legalExpiryDate);
@@ -275,6 +288,7 @@ export async function PUT(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensurePartnerDueDiligenceColumns();
 
         const data = await req.json();
         if (!data.id) return NextResponse.json({ error: "Partner ID missing" }, { status: 400 });

@@ -19,6 +19,10 @@ export interface DirectoryEntry {
     legal_expiry_date?: string;
     legal_reminder_days?: number;
     legal_status?: string;
+    due_diligence_score?: number;
+    due_diligence_level?: string;
+    due_diligence_report?: string;
+    last_due_diligence_at?: string;
     updated_at?: string;
     created_at?: string;
     is_deleted?: boolean;
@@ -99,6 +103,10 @@ export const useDirectoryStore = create<DirectoryState>((set, get) => ({
                         legal_expiry_date: p.legalExpiryDate || undefined,
                         legal_reminder_days: p.legalReminderDays || 30,
                         legal_status: p.legalStatus || undefined,
+                        due_diligence_score: p.dueDiligenceScore ?? undefined,
+                        due_diligence_level: p.dueDiligenceLevel || undefined,
+                        due_diligence_report: p.dueDiligenceReport || undefined,
+                        last_due_diligence_at: p.lastDueDiligenceAt || undefined,
                         created_at: p.createdAt, updated_at: p.updatedAt, is_deleted: p.isDeleted
                     }));
                     set({

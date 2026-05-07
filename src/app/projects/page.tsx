@@ -3,11 +3,12 @@
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { cn } from "@/lib/utils";
-import { FolderKanban, Search, Plus, X, Edit, Trash2, CheckCircle2, XCircle, Clock3, ClipboardCheck, Wand2, AlertTriangle, Loader2 } from "lucide-react";
+import { FolderKanban, Search, Plus, X, Edit, Trash2, CheckCircle2, XCircle, Clock3, ClipboardCheck, Wand2, AlertTriangle, Loader2, Download, UploadCloud, FileText, ExternalLink } from "lucide-react";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
 import { ProjectItem, ShipmentDetail } from "@/types";
 import { useSearchParams } from "next/navigation";
+import { jsPDF } from "jspdf";
 
 type ProjectStatus = "waiting_approval" | "approved" | "rejected" | "upcoming" | "ongoing" | "completed" | "cancelled";
 
@@ -42,9 +43,15 @@ type ProjectForm = {
 };
 
 type TemplateItem = {
+  code?: string;
   label: string;
   owner: string;
   done: boolean;
+  required?: boolean;
+  fileName?: string;
+  fileUrl?: string;
+  uploadedAt?: string;
+  uploadedByName?: string;
 };
 
 const safeNum = (v: unknown): number => {
@@ -128,26 +135,31 @@ const fmtUsd = (n: number): string => `$${safeNum(n).toLocaleString("en-US", { m
 
 const PROJECT_TEMPLATES: Record<string, TemplateItem[]> = {
   export_shipment: [
-    { label: "Buyer confirmation and commercial terms locked", owner: "Trader", done: false },
-    { label: "Supplier/source allocation confirmed", owner: "Sourcing", done: false },
-    { label: "Laycan, vessel, and barge nomination confirmed", owner: "Traffic", done: false },
-    { label: "Operational Info filled including demurrage exposure", owner: "Operation", done: false },
-    { label: "Quality/surveyor plan prepared", owner: "QC", done: false },
-    { label: "P&L forecast reviewed", owner: "Trader/CMO", done: false },
+    { code: "a", label: "COPY OF LAPORAN HASIL VERIFIKASI", owner: "QC / Surveyor", required: true, done: false },
+    { code: "b", label: "1 ORIGINAL DRAUGHT SURVEY REPORT", owner: "Traffic / Surveyor", required: true, done: false },
+    { code: "c", label: "1 ORIGINAL SURAT KETERANGAN ASAL BARANG", owner: "Sourcing", required: true, done: false },
+    { code: "d", label: "1 ORIGINAL SURAT KEBENARAN DOKUMEN", owner: "Operation", required: true, done: false },
+    { code: "e", label: "1 ORIGINAL SURAT KIRIM BARANG", owner: "Operation", required: true, done: false },
+    { code: "f", label: "1 ORIGINAL BUKTI BAYAR ROYALTI", owner: "Finance / Sourcing", required: true, done: false },
+    { code: "g", label: "3/3 ORIGINAL BILL OF LADING ISSUED BY LOADPORT AGENT", owner: "Traffic", required: true, done: false },
+    { code: "h", label: "3/3 COPIES NON NEGOTIABLE BILL OF LADING ISSUED BY LOADPORT AGENT", owner: "Traffic", required: true, done: false },
+    { code: "i", label: "1 ORIGINAL AND 4 COPIES OF CERTIFICATE OF SAMPLING AND ANALYSIS ISSUED BY INDEPENDENT SURVEYOR AT LOADING PORT (IF ANY)", owner: "QC", required: true, done: false },
+    { code: "j", label: "1 ORIGINAL AND 4 COPIES OF CERTIFICATE OF WEIGHT ISSUED BY INDEPENDENT SURVEYOR AT LOADING PORT (IF ANY)", owner: "QC", required: true, done: false },
+    { code: "k", label: "1 ORIGINAL AND 2 COPIES OF CERTIFICATE OF DRAUGHT SURVEY REPORT BY INDEPENDENT SURVEYOR AT LOADING PORT", owner: "QC / Surveyor", required: true, done: false },
   ],
   domestic_delivery: [
-    { label: "Buyer PO and delivery schedule confirmed", owner: "Trader", done: false },
-    { label: "Supplier stock and loading window confirmed", owner: "Sourcing", done: false },
-    { label: "Transport/fleet readiness confirmed", owner: "Traffic", done: false },
-    { label: "Operational Info updated", owner: "Operation", done: false },
-    { label: "Payment terms and due date reviewed", owner: "Finance/Admin", done: false },
+    { code: "a", label: "Buyer PO and delivery schedule confirmed", owner: "Trader", required: true, done: false },
+    { code: "b", label: "Supplier stock and loading window confirmed", owner: "Sourcing", required: true, done: false },
+    { code: "c", label: "Transport/fleet readiness confirmed", owner: "Traffic", required: true, done: false },
+    { code: "d", label: "Operational Info updated", owner: "Operation", required: true, done: false },
+    { code: "e", label: "Payment terms and due date reviewed", owner: "Finance/Admin", required: true, done: false },
   ],
   spot_purchase: [
-    { label: "Supplier KYC/legal documents checked", owner: "Sourcing", done: false },
-    { label: "Coal specs and price index benchmarked", owner: "QC/Trader", done: false },
-    { label: "Purchase request submitted", owner: "Sourcing", done: false },
-    { label: "Logistics and demurrage assumptions captured", owner: "Traffic", done: false },
-    { label: "Approval decision recorded", owner: "Executive", done: false },
+    { code: "a", label: "Supplier KYC/legal documents checked", owner: "Sourcing", required: true, done: false },
+    { code: "b", label: "Coal specs and price index benchmarked", owner: "QC/Trader", required: true, done: false },
+    { code: "c", label: "Purchase request submitted", owner: "Sourcing", required: true, done: false },
+    { code: "d", label: "Logistics and demurrage assumptions captured", owner: "Traffic", required: true, done: false },
+    { code: "e", label: "Approval decision recorded", owner: "Executive", required: true, done: false },
   ],
 };
 
@@ -167,14 +179,54 @@ const parseTemplateChecklist = (value?: string | null): TemplateItem[] => {
     const parsed = JSON.parse(value);
     return Array.isArray(parsed)
       ? parsed.map((item) => ({
+        code: cleanText(item?.code) || undefined,
         label: cleanText(item?.label) || "Checklist item",
         owner: cleanText(item?.owner) || "Team",
         done: Boolean(item?.done),
+        required: item?.required !== undefined ? Boolean(item.required) : true,
+        fileName: cleanText(item?.fileName) || undefined,
+        fileUrl: cleanText(item?.fileUrl) || undefined,
+        uploadedAt: cleanText(item?.uploadedAt) || undefined,
+        uploadedByName: cleanText(item?.uploadedByName) || undefined,
       }))
       : [];
   } catch {
     return [];
   }
+};
+
+const romanMonth = (date = new Date()) => {
+  const months = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+  return months[date.getMonth()] || "I";
+};
+
+const slugFile = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "project";
+
+const pickText = (...values: Array<string | number | null | undefined>) => {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    const text = String(value).replace(/\s+/g, " ").trim();
+    if (text) return text;
+  }
+  return "-";
+};
+
+const qtyText = (value: number) => {
+  if (!value) return "-";
+  return `${fmtInt(value)} MT +/- 5% (TIDAK BOLEH LEBIH)`;
+};
+
+const buildSiNumber = (project: ProjectCard, row?: ShipmentDetail) => {
+  const raw = pickText(row?.no_si, row?.shipment_number);
+  if (raw !== "-") return raw;
+  const date = project.createdAt ? new Date(project.createdAt) : new Date();
+  const no = row?.no ? String(row.no).padStart(3, "0") : String(project.projectName.length).padStart(3, "0");
+  return `${no} SI-SUPPLIER/${romanMonth(date)}/${date.getFullYear()}`;
 };
 
 const urgencyBadgeClass = (level?: string | null) =>
@@ -200,6 +252,7 @@ export default function ProjectsPage() {
   const [form, setForm] = React.useState<ProjectForm>(defaultForm);
   const [saving, setSaving] = React.useState(false);
   const [urgencyLoading, setUrgencyLoading] = React.useState<string | null>(null);
+  const [uploadingDoc, setUploadingDoc] = React.useState<string | null>(null);
   const role = String(currentUser?.role || "").toUpperCase();
   const canApprove = ["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(role);
   const canAnalyzeUrgency = ["CEO", "DIRUT", "ASS_DIRUT"].includes(role);
@@ -356,11 +409,165 @@ export default function ProjectsPage() {
     }
   };
 
+  const downloadProjectShippingInstruction = (project: ProjectCard) => {
+    const row = project.rows[0];
+    const checklist = parseTemplateChecklist(project.projectRecord?.template_checklist)
+      .filter((item) => item.required !== false);
+    const docs = checklist.length ? checklist : PROJECT_TEMPLATES.export_shipment;
+    const siNo = buildSiNumber(project, row);
+    const shipper = pickText(row?.supplier, row?.source, "PT. FONTANA RESOURCES INDONESIA");
+    const consignee = pickText(project.buyer, row?.buyer);
+    const notifyParty = consignee;
+    const quantity = safeNum(row?.qty_plan || row?.quantity_loaded || project.volume);
+    const nomination = pickText(row?.nomination, row?.barge_name, row?.vessel_name, project.projectName);
+    const loadingPort = pickText(row?.jetty_loading_port, row?.loading_port);
+    const dischargePort = pickText(row?.discharge_port);
+    const laycan = pickText(row?.laycan, project.laycan);
+    const shippingTerm = pickText(row?.shipping_term, project.shippingTerm, "CIF");
+    const method = pickText(row?.analysis_method, "ASTM");
+    const goods = pickText(row?.product, "BATUBARA").toUpperCase();
+
+    const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const left = 54;
+    const labelX = 54;
+    const colonX = 236;
+    const valueX = 246;
+    const valueWidth = 290;
+
+    doc.setProperties({ title: `Shipping Instruction - ${project.projectName}` });
+    doc.setFont("helvetica");
+
+    // Compact vector mark approximating the company logo placement in the reference SI.
+    doc.setFillColor(0, 143, 181);
+    doc.roundedRect(left, 45, 16, 12, 2, 2, "F");
+    doc.setFillColor(23, 73, 145);
+    doc.roundedRect(left + 13, 45, 16, 12, 2, 2, "F");
+    doc.setFillColor(229, 57, 53);
+    doc.roundedRect(left + 26, 51, 22, 10, 2, 2, "F");
+    doc.setFontSize(4.5);
+    doc.setTextColor(30, 64, 114);
+    doc.text("PT MAHAKARYA SENTRA ENERGI", left, 68);
+
+    doc.setFontSize(5.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 64, 114);
+    doc.text("PT MAHAKARYA SENTRA ENERGI", 410, 43);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(0, 0, 0);
+    doc.text("Jalan Pulau Saliara Raya No. 106, Pluit,", 410, 51);
+    doc.text("Penjaringan, Jakarta Utara 14450, Indonesia", 410, 58);
+    doc.text("Tel: +62 21 66660996, +62 21 66660990", 410, 65);
+
+    doc.setDrawColor(20, 57, 112);
+    doc.setLineWidth(1.4);
+    doc.line(36, 86, pageWidth - 36, 86);
+
+    doc.setTextColor(0, 0, 0);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("SHIPPING INSTRUCTION", pageWidth / 2, 106, { align: "center" });
+    doc.setLineWidth(0.4);
+    doc.line(pageWidth / 2 - 54, 108, pageWidth / 2 + 54, 108);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.text(`NO.: ${siNo}`, pageWidth / 2, 118, { align: "center" });
+
+    let y = 143;
+    const drawField = (label: string, value: string, emphasis = false) => {
+      doc.setFont("helvetica", emphasis ? "bold" : "normal");
+      doc.setFontSize(7.5);
+      doc.text(label.toUpperCase(), labelX, y);
+      doc.text(":", colonX, y);
+      const lines = doc.splitTextToSize(value, valueWidth);
+      doc.text(lines, valueX, y);
+      y += Math.max(11, lines.length * 8.5 + 2);
+    };
+
+    doc.setFont("helvetica", "bold");
+    doc.text("TO", labelX - 24, y);
+    doc.text(":", labelX - 6, y);
+    doc.text(shipper.toUpperCase(), labelX + 7, y);
+    y += 23;
+
+    drawField("Shipper", `${shipper.toUpperCase()}\nQQ PT. MAHAKARYA SENTRA ENERGI`);
+    drawField("Consignee", consignee.toUpperCase());
+    drawField("Notify Party", notifyParty.toUpperCase());
+    y += 6;
+    drawField("Shipping Term", shippingTerm.toUpperCase());
+    drawField("Description of Goods", goods);
+    drawField("Marked", '" CLEAN ON BOARD "\n" FREIGHT PAYABLE AS PER CHARTER PARTY "');
+    drawField("Quantity", qtyText(quantity), true);
+    drawField("Barge Nomination", nomination.toUpperCase(), true);
+    drawField("Laycan", laycan.toUpperCase());
+    drawField("Port of Loading", loadingPort.toUpperCase());
+    drawField("Port of Discharge", dischargePort.toUpperCase());
+    drawField("Method", method.toUpperCase());
+
+    let docY = Math.max(y + 42, 405);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.text("DOCUMENT REQUIRED", labelX + 28, docY);
+    doc.line(labelX + 28, docY + 2, labelX + 101, docY + 2);
+    docY += 11;
+
+    docs.forEach((item, index) => {
+      const code = (item.code || String.fromCharCode(97 + index)).replace(/\.$/, "");
+      const label = item.label.toUpperCase();
+      const lines = doc.splitTextToSize(label, 480);
+      doc.text(`${code}.`, labelX + 10, docY);
+      doc.text(lines, labelX + 26, docY);
+      docY += Math.max(9.5, lines.length * 8.5);
+    });
+
+    doc.save(`shipping-instruction-${slugFile(project.projectName)}.pdf`);
+  };
+
+  const uploadProjectDocument = async (project: ProjectItem, index: number, file: File | null) => {
+    if (!file) return;
+    const key = `${project.id}:${index}`;
+    setUploadingDoc(key);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Upload failed");
+
+      const items = parseTemplateChecklist(project.template_checklist);
+      if (!items[index]) return;
+      items[index] = {
+        ...items[index],
+        done: true,
+        fileName: file.name,
+        fileUrl: data.url,
+        uploadedAt: new Date().toISOString(),
+        uploadedByName: currentUser?.name || currentUser?.email || "User",
+      };
+      const nextChecklist = JSON.stringify(items);
+      await updateProject(project.id, { template_checklist: nextChecklist });
+      setSelectedProject((current) => {
+        if (!current?.projectRecord || current.projectRecord.id !== project.id) return current;
+        return { ...current, projectRecord: { ...current.projectRecord, template_checklist: nextChecklist } };
+      });
+      await syncFromMemory({ force: true });
+    } catch (error: any) {
+      window.alert(error?.message || "Failed to upload document");
+    } finally {
+      setUploadingDoc(null);
+    }
+  };
+
   const toggleTemplateItem = async (project: ProjectItem, index: number) => {
     const items = parseTemplateChecklist(project.template_checklist);
     if (!items[index]) return;
     items[index] = { ...items[index], done: !items[index].done };
-    await updateProject(project.id, { template_checklist: JSON.stringify(items) });
+    const nextChecklist = JSON.stringify(items);
+    await updateProject(project.id, { template_checklist: nextChecklist });
+    setSelectedProject((current) => {
+      if (!current?.projectRecord || current.projectRecord.id !== project.id) return current;
+      return { ...current, projectRecord: { ...current.projectRecord, template_checklist: nextChecklist } };
+    });
     await syncFromMemory({ force: true });
   };
 
@@ -554,7 +761,17 @@ export default function ProjectsPage() {
                   <h2 className="text-xl font-bold">{selectedProject.projectName}</h2>
                   <p className="text-xs text-muted-foreground">Buyer: {selectedProject.buyer} • Segment: {selectedProject.segment}</p>
                 </div>
-                <button onClick={() => setSelectedProject(null)} className="p-2 rounded-lg hover:bg-accent"><X className="w-4 h-4 text-muted-foreground" /></button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => downloadProjectShippingInstruction(selectedProject)}
+                    className="px-3 py-2 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:shadow-md"
+                    title="Download Shipping Instruction PDF"
+                  >
+                    <Download className="w-3.5 h-3.5 inline mr-1.5" />
+                    Download PDF
+                  </button>
+                  <button onClick={() => setSelectedProject(null)} className="p-2 rounded-lg hover:bg-accent"><X className="w-4 h-4 text-muted-foreground" /></button>
+                </div>
               </div>
               <div className="p-5 space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
@@ -662,32 +879,120 @@ export default function ProjectsPage() {
                           <p className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Recommended Action</p>
                           <p className="text-xs text-muted-foreground leading-relaxed">{report.recommendedAction}</p>
                         </div>
+                        <div className="rounded-lg border border-border/50 bg-background/50 p-3">
+                          <p className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Document Gaps</p>
+                          {(report.documentGaps || []).length > 0 ? (
+                            <ul className="list-disc pl-4 space-y-1">
+                              {(report.documentGaps || []).slice(0, 5).map((gap: string, index: number) => (
+                                <li key={index} className="text-xs text-muted-foreground">{gap}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">No missing required document detected.</p>
+                          )}
+                        </div>
+                        <div className="rounded-lg border border-border/50 bg-background/50 p-3">
+                          <p className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Commercial Signal</p>
+                          <ul className="list-disc pl-4 space-y-1">
+                            {(report.commercialSignals || []).slice(0, 4).map((signal: string, index: number) => (
+                              <li key={index} className="text-xs text-muted-foreground">{signal}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        {report.decisionMemo && (
+                          <div className="md:col-span-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+                            <p className="text-[10px] font-bold uppercase text-blue-600 mb-1">Consultant Decision Memo</p>
+                            <p className="text-xs font-bold text-foreground">{report.decisionMemo.suggestedDecision} - {report.decisionMemo.owner}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{report.decisionMemo.nextStep}</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
                 })()}
                 {selectedProject.projectRecord?.template_checklist && (
                   <div className="card-elevated p-4">
-                    <h4 className="text-sm font-bold mb-3 flex items-center gap-1.5"><ClipboardCheck className="w-4 h-4 text-primary" /> Project Template Checklist</h4>
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <h4 className="text-sm font-bold flex items-center gap-1.5"><ClipboardCheck className="w-4 h-4 text-primary" /> Project Document Requirements</h4>
+                      <button
+                        onClick={() => downloadProjectShippingInstruction(selectedProject)}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
+                      >
+                        <Download className="w-3.5 h-3.5 inline mr-1" />
+                        Shipping Instruction PDF
+                      </button>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {parseTemplateChecklist(selectedProject.projectRecord.template_checklist).map((item, index) => (
-                        <button
-                          key={`${item.label}-${index}`}
-                          onClick={() => selectedProject.projectRecord && toggleTemplateItem(selectedProject.projectRecord, index)}
-                          className={cn(
-                            "text-left rounded-lg border p-3 text-xs transition-colors",
-                            item.done ? "border-emerald-500/30 bg-emerald-500/10" : "border-border/50 bg-background/50 hover:bg-accent/50",
-                          )}
-                        >
-                          <span className="flex items-start gap-2">
-                            <CheckCircle2 className={cn("w-4 h-4 mt-0.5", item.done ? "text-emerald-500" : "text-muted-foreground/40")} />
-                            <span>
-                              <span className="font-semibold block">{item.label}</span>
-                              <span className="text-[10px] text-muted-foreground">{item.owner}</span>
-                            </span>
-                          </span>
-                        </button>
-                      ))}
+                      {parseTemplateChecklist(selectedProject.projectRecord.template_checklist).map((item, index) => {
+                        const inputId = `project-doc-${selectedProject.projectRecord!.id}-${index}`;
+                        const uploadKey = `${selectedProject.projectRecord!.id}:${index}`;
+                        return (
+                          <div
+                            key={`${item.label}-${index}`}
+                            className={cn(
+                              "rounded-lg border p-3 text-xs transition-colors space-y-2",
+                              item.done ? "border-emerald-500/30 bg-emerald-500/10" : "border-border/50 bg-background/50",
+                            )}
+                          >
+                            <div className="flex items-start gap-2">
+                              <button
+                                type="button"
+                                onClick={() => selectedProject.projectRecord && toggleTemplateItem(selectedProject.projectRecord, index)}
+                                className="mt-0.5"
+                                title="Toggle completed"
+                              >
+                                <CheckCircle2 className={cn("w-4 h-4", item.done ? "text-emerald-500" : "text-muted-foreground/40")} />
+                              </button>
+                              <div className="min-w-0 flex-1">
+                                <span className="font-semibold block break-words">{item.code ? `${item.code}. ` : ""}{item.label}</span>
+                                <span className="text-[10px] text-muted-foreground">{item.owner}</span>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 pl-6">
+                              {item.fileUrl ? (
+                                <a
+                                  href={item.fileUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex max-w-full items-center gap-1 rounded-md bg-background/70 border border-border px-2 py-1 text-[10px] font-semibold text-foreground hover:bg-accent"
+                                >
+                                  <FileText className="w-3 h-3 shrink-0" />
+                                  <span className="truncate max-w-[180px]">{item.fileName || "Uploaded document"}</span>
+                                  <ExternalLink className="w-3 h-3 shrink-0 text-muted-foreground" />
+                                </a>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground">No document uploaded</span>
+                              )}
+                              <input
+                                id={inputId}
+                                type="file"
+                                className="hidden"
+                                accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx,.csv"
+                                onChange={(e) => {
+                                  const file = e.currentTarget.files?.[0] || null;
+                                  uploadProjectDocument(selectedProject.projectRecord!, index, file);
+                                  e.currentTarget.value = "";
+                                }}
+                              />
+                              <label
+                                htmlFor={inputId}
+                                className={cn(
+                                  "inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-semibold hover:bg-accent",
+                                  uploadingDoc === uploadKey && "pointer-events-none opacity-60",
+                                )}
+                              >
+                                {uploadingDoc === uploadKey ? <Loader2 className="w-3 h-3 animate-spin" /> : <UploadCloud className="w-3 h-3" />}
+                                {item.fileUrl ? "Replace" : "Upload"}
+                              </label>
+                            </div>
+                            {item.uploadedAt && (
+                              <p className="pl-6 text-[10px] text-muted-foreground">
+                                Uploaded {new Date(item.uploadedAt).toLocaleDateString("id-ID")} by {item.uploadedByName || "-"}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
