@@ -2025,11 +2025,17 @@ export default function ShipmentMonitorPage() {
                                                                     </ul>
                                                                 </div>
                                                             )}
-                                                            {report.consultantDecision && (
+                                                            {(report.decision || report.consultantDecision) && (
                                                                 <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4">
-                                                                    <p className="text-xs font-bold uppercase text-blue-600 mb-1">Consultant Decision</p>
-                                                                    <p className="text-xs font-bold text-foreground">{report.consultantDecision.suggestedDecision} - {report.consultantDecision.owner}</p>
-                                                                    <p className="text-xs text-muted-foreground mt-1">{report.consultantDecision.nextStep}</p>
+                                                                    <p className="text-xs font-bold uppercase text-blue-600 mb-1">Decision Helper</p>
+                                                                    <p className="text-xs font-bold text-foreground">
+                                                                        {report.decision?.label || report.consultantDecision?.suggestedDecision} - {report.decision?.owner || report.consultantDecision?.owner}
+                                                                    </p>
+                                                                    {report.decision?.confidence && (
+                                                                        <p className="text-[10px] text-blue-600 font-bold mt-1">Confidence: {report.decision.confidence}</p>
+                                                                    )}
+                                                                    <p className="text-xs text-muted-foreground mt-1">{report.decision?.nextAction || report.consultantDecision?.nextStep}</p>
+                                                                    {report.decision?.deadline && <p className="text-[10px] text-muted-foreground mt-1">Deadline: {report.decision.deadline}</p>}
                                                                 </div>
                                                             )}
                                                         </div>
@@ -2065,6 +2071,37 @@ export default function ShipmentMonitorPage() {
                                                                     <p className="text-xs font-semibold">Wave {safeFmt(report.sourceSnapshot.marineData?.waveHeight, 1)} m</p>
                                                                     <p className="text-[10px] text-muted-foreground">{report.sourceSnapshot.marineData?.source || "-"}</p>
                                                                 </div>
+                                                            </div>
+                                                        )}
+                                                        {(report.dataQuality || report.humanApproval || Array.isArray(report.sourceAttribution)) && (
+                                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                                {report.dataQuality && (
+                                                                    <div className="rounded-lg border border-border/50 bg-background/60 p-3">
+                                                                        <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Data Quality</p>
+                                                                        <p className="text-xs font-bold text-foreground">{report.dataQuality.completenessScore ?? 0}% complete</p>
+                                                                        {(report.dataQuality.missingFields || []).slice(0, 3).map((field: string, i: number) => (
+                                                                            <p key={i} className="text-[10px] text-muted-foreground mt-1">Missing: {field}</p>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                                {report.humanApproval && (
+                                                                    <div className="rounded-lg border border-border/50 bg-background/60 p-3">
+                                                                        <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Human Approval</p>
+                                                                        <p className="text-xs font-bold text-foreground">{report.humanApproval.required ? "Required" : "Not required"}</p>
+                                                                        <p className="text-[10px] text-muted-foreground mt-1">{(report.humanApproval.approverRoles || []).join(", ") || "PIC Shipment"}</p>
+                                                                    </div>
+                                                                )}
+                                                                {Array.isArray(report.sourceAttribution) && (
+                                                                    <div className="rounded-lg border border-border/50 bg-background/60 p-3">
+                                                                        <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Evidence Sources</p>
+                                                                        {report.sourceAttribution.slice(0, 3).map((source: any, i: number) => (
+                                                                            <p key={i} className="text-[10px] text-muted-foreground truncate">
+                                                                                {source.url ? <ExternalLink className="w-3 h-3 inline mr-1" /> : null}
+                                                                                {source.label || source.source} ({source.reliability || "UNKNOWN"})
+                                                                            </p>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         )}
                                                     </div>

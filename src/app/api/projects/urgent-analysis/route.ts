@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { fetchShipmentNews } from "@/services/apiExtraction/newsExtractor";
 import { checkAiRateLimit } from "@/lib/ai-security";
 import { normalizeRole } from "@/lib/role-access";
+import { buildSource, calculateDataQuality, normalizeDecisionReport } from "@/lib/decision-helper";
 
 export const dynamic = "force-dynamic";
 
@@ -181,8 +182,64 @@ function buildProjectReport(input: {
       ? "Prioritaskan project ini hari ini: tuntaskan document gaps, assign owner per dokumen, lalu eskalasi blocker shipment dan keputusan commercial ke executive."
       : "Prioritaskan project ini hari ini: eskalasi blocker shipment, cek commercial spread, dan putuskan proceed/hold dengan executive."
     : "Monitor normal, namun jalankan ulang analisis saat dokumen/market/shipment berubah.";
+  const dataQuality = calculateDataQuality([
+    { label: "Project name", value: project.name, critical: true },
+    { label: "Buyer", value: project.buyer, critical: true },
+    { label: "Project status", value: project.status },
+    { label: "Required document checklist", value: requiredDocs },
+    { label: "Related shipments", value: shipments },
+    { label: "Market price benchmark", value: latestMarket },
+    { label: "P&L forecast", value: relatedPl },
+    { label: "Sales deals", value: relatedDeals },
+    { label: "External news", value: realNews },
+  ]);
+  const sources = [
+    buildSource({
+      type: "internal",
+      label: "Project record",
+      source: "ProjectItem",
+      detail: `${project.name || project.id} - ${project.status || "no status"}`,
+      reliability: "INTERNAL_SYSTEM",
+    }),
+    buildSource({
+      type: "document",
+      label: "Project document checklist",
+      source: "ProjectItem.templateChecklist",
+      detail: `${requiredDocs.length - missingDocs.length}/${requiredDocs.length || 0} required documents complete`,
+      reliability: "INTERNAL_SYSTEM",
+    }),
+    buildSource({
+      type: "internal",
+      label: "Related shipment records",
+      source: "ShipmentDetail",
+      detail: `${activeShipments.length} active shipments, ${pendingShipments.length} blocker signals`,
+      reliability: "INTERNAL_SYSTEM",
+    }),
+    buildSource({
+      type: "market",
+      label: "Market benchmark",
+      source: latestMarket?.source || "MarketPrice",
+      detail: latestMarket ? `ICI3 ${latestMarket.ici3 || "-"} / ICI4 ${latestMarket.ici4 || "-"} / HBA ${latestMarket.hba || "-"}` : "No market benchmark available",
+      reliability: latestMarket ? "INTERNAL_SYSTEM" : "UNKNOWN",
+    }),
+    buildSource({
+      type: "market",
+      label: "P&L forecast",
+      source: "PLForecast",
+      detail: `${relatedPl.length} related forecast rows`,
+      reliability: relatedPl.length ? "INTERNAL_SYSTEM" : "UNKNOWN",
+    }),
+    ...realNews.slice(0, 5).map((item) => buildSource({
+      type: "news" as const,
+      label: item?.title || "News signal",
+      source: item?.source || "News API",
+      detail: item?.description || item?.title || "News context",
+      url: item?.url,
+      reliability: "API" as const,
+    })),
+  ];
 
-  return {
+  const report = {
     score,
     level,
     summary: `${project.name} berada pada level ${level}. Prioritas dihitung dari status approval, shipment aktif, pending reason, timeline, kelengkapan dokumen, P&L/market signal, dan berita eksternal.`,
@@ -214,6 +271,32 @@ function buildProjectReport(input: {
     news: news.slice(0, 5),
     analyzedAt: new Date().toISOString(),
   };
+
+  return normalizeDecisionReport(report, {
+    level,
+    score,
+    reason: factors[0] || "No urgent blocker detected from current project context.",
+    owner: level === "HIGH" || level === "CRITICAL" ? "CEO / DIRUT / ASS_DIRUT" : "Project owner",
+    nextAction: recommendedAction,
+    deadline: level === "CRITICAL" || level === "HIGH" ? "Today before executive close" : "Next project review",
+    approverRoles: ["CEO", "DIRUT", "ASS_DIRUT"],
+    holdOnCritical: false,
+    sources,
+    dataQuality,
+    inputSnapshot: {
+      projectId: project.id,
+      projectName: project.name,
+      buyer: project.buyer,
+      status: project.status,
+      activeShipmentCount: activeShipments.length,
+      pendingShipmentCount: pendingShipments.length,
+      missingDocumentCount: missingDocs.length,
+      marketBenchmark: benchmark || null,
+      relatedPlCount: relatedPl.length,
+      relatedDealCount: relatedDeals.length,
+      sourceCount: sources.length,
+    },
+  });
 }
 
 export async function POST(req: Request) {
@@ -267,6 +350,7 @@ export async function POST(req: Request) {
     ]);
 
     const analyzed = [];
+    const auditSummaries = [];
     for (const project of projects) {
       const relatedShipments = shipments.filter((s) => projectMatchesShipment(project, s));
       const query = [project.name, project.buyer, ...relatedShipments.slice(0, 2).map((s) => s.loadingPort || s.dischargePort)]
@@ -293,6 +377,15 @@ export async function POST(req: Request) {
       });
 
       analyzed.push(updated);
+      auditSummaries.push({
+        id: project.id,
+        score: report.score,
+        level: report.level,
+        decision: report.decision?.action,
+        confidence: report.decision?.confidence,
+        sourceCount: report.sourceAttribution?.length || 0,
+        missingFields: report.dataQuality?.missingFields?.length || 0,
+      });
     }
 
     await prisma.auditLog.create({
@@ -302,7 +395,7 @@ export async function POST(req: Request) {
         action: "PROJECT_URGENCY_ANALYSIS",
         entity: "ProjectItem",
         entityId: targetProjectId || "batch",
-        details: JSON.stringify({ count: analyzed.length }),
+        details: JSON.stringify({ count: analyzed.length, reports: auditSummaries.slice(0, 20) }),
       },
     }).catch(() => null);
 

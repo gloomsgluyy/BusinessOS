@@ -8,6 +8,7 @@ import { fetchMarineData } from "@/services/apiExtraction/marineExtractor";
 import { fetchBMKGEarthquakeAndAlerts } from "@/services/apiExtraction/bmkgExtractor";
 import { checkAiRateLimit } from "@/lib/ai-security";
 import { normalizeRole } from "@/lib/role-access";
+import { buildSource, calculateDataQuality, normalizeDecisionReport } from "@/lib/decision-helper";
 
 export const dynamic = "force-dynamic";
 
@@ -158,8 +159,65 @@ function buildFallbackReport(input: {
       ? "Coordinate with barge owner and surveyor for loading/discharge safety window."
       : "Keep standard route and safety checks active.",
   ];
+  const dataQuality = calculateDataQuality([
+    { label: "Vessel / project identity", value: shipment.vesselName || shipment.mvProjectName, critical: true },
+    { label: "Loading port", value: loadingPort, critical: true },
+    { label: "Discharge port", value: dischargePort, critical: true },
+    { label: "Shipment status reason", value: shipment.statusReason || shipment.issueNotes },
+    { label: "Operational info", value: shipment.operationalInfo },
+    { label: "Demurrage rate", value: shipment.demurrageRate },
+    { label: "Load port weather", value: weatherLoad?.description },
+    { label: "Discharge port weather", value: weatherDischarge?.description },
+    { label: "Marine wave data", value: marineData?.waveHeight },
+    { label: "External news", value: news.filter((n) => n?.source !== "System" && n?.source !== "Mock News") },
+  ]);
+  const sources = [
+    buildSource({
+      type: "internal",
+      label: "Shipment operational record",
+      source: "ShipmentDetail",
+      detail: `${shipment.vesselName || shipment.mvProjectName || shipment.id} ${loadingPort} -> ${dischargePort}`,
+      reliability: "INTERNAL_SYSTEM",
+    }),
+    buildSource({
+      type: "weather",
+      label: "Load port weather",
+      source: weatherLoad?.source || "Weather API",
+      detail: weatherLoad?.description || "No weather description returned",
+      reliability: weatherLoad?.source ? "API" : "UNKNOWN",
+    }),
+    buildSource({
+      type: "weather",
+      label: "Discharge port weather",
+      source: weatherDischarge?.source || "Weather API",
+      detail: weatherDischarge?.description || "No weather description returned",
+      reliability: weatherDischarge?.source ? "API" : "UNKNOWN",
+    }),
+    buildSource({
+      type: "weather",
+      label: "Marine condition",
+      source: marineData?.source || "Marine weather API",
+      detail: waveHeight ? `Wave ${waveHeight.toFixed(1)} m` : "No wave height returned",
+      reliability: marineData?.source ? "API" : "UNKNOWN",
+    }),
+    buildSource({
+      type: "external",
+      label: "BMKG alerts",
+      source: bmkgAlerts?.source || "BMKG",
+      detail: bmkgAlerts?.latestEarthquake?.region || "No material BMKG event in snapshot",
+      reliability: "API",
+    }),
+    ...news.slice(0, 5).map((item) => buildSource({
+      type: "news" as const,
+      label: item?.title || "News signal",
+      source: item?.source || "News API",
+      detail: item?.description || item?.title || "News context",
+      url: item?.url,
+      reliability: item?.source && !["System", "Mock News", "Error"].includes(String(item.source)) ? "API" as const : "UNKNOWN" as const,
+    })),
+  ];
 
-  return {
+  const report = {
     score,
     level,
     summary: `${shipment.vesselName || shipment.mvProjectName || "Shipment"} is rated ${level} for route ${loadingPort} -> ${dischargePort}. The decision uses route exposure, weather, marine condition, status reason, news, BMKG alert, and demurrage exposure.`,
@@ -201,6 +259,31 @@ function buildFallbackReport(input: {
       chokepoints,
     },
   };
+
+  return normalizeDecisionReport(report, {
+    level,
+    score,
+    reason: factors[0] || "No major risk signal detected from current shipment context.",
+    owner: level === "CRITICAL" || level === "HIGH" ? "Traffic Head + Operation" : "PIC Shipment",
+    nextAction: decisionTriggers[0] || recommendations[0],
+    deadline: level === "CRITICAL" || level === "HIGH" ? "Before next operational milestone" : "Next shipment status update",
+    approverRoles: level === "CRITICAL" ? ["CEO", "DIRUT", "ASS_DIRUT", "COO"] : ["COO", "TRAFFIC_HEAD"],
+    holdOnCritical: true,
+    sources,
+    dataQuality,
+    inputSnapshot: {
+      shipmentId: shipment.id,
+      vesselName: shipment.vesselName,
+      project: shipment.mvProjectName,
+      route: `${loadingPort} -> ${dischargePort}`,
+      status: shipment.status,
+      shipmentStatus: shipment.shipmentStatus,
+      statusReason: shipment.statusReason,
+      demurrageRate: shipment.demurrageRate,
+      demurrageCurrency: shipment.demurrageCurrency,
+      sourceCount: sources.length,
+    },
+  });
 }
 
 async function runAiReport(prompt: string) {
@@ -346,6 +429,19 @@ Kembalikan HANYA JSON:
           level: String(aiReport.level || fallbackReport.level).toUpperCase(),
           sourceSnapshot: aiReport.sourceSnapshot || fallbackReport.sourceSnapshot,
         };
+        reportData = normalizeDecisionReport(reportData, {
+          level: reportData.level,
+          score: reportData.score,
+          reason: reportData.factors?.[0] || reportData.summary,
+          owner: reportData.consultantDecision?.owner || reportData.decision?.owner || "Traffic Head + Operation",
+          nextAction: reportData.consultantDecision?.nextStep || reportData.decision?.nextAction || reportData.recommendations,
+          deadline: reportData.decision?.deadline || "Before next operational milestone",
+          approverRoles: reportData.level === "CRITICAL" ? ["CEO", "DIRUT", "ASS_DIRUT", "COO"] : ["COO", "TRAFFIC_HEAD"],
+          holdOnCritical: true,
+          sources: fallbackReport.sourceAttribution || [],
+          dataQuality: fallbackReport.dataQuality,
+          inputSnapshot: fallbackReport.inputSnapshot,
+        });
       }
     } catch (error) {
       console.warn("Risk AI unavailable, using deterministic fallback:", error);
@@ -368,7 +464,14 @@ Kembalikan HANYA JSON:
         action: "RISK_ANALYSIS",
         entity: "ShipmentDetail",
         entityId: id,
-        details: JSON.stringify({ score: reportData.score, level: reportData.level }),
+        details: JSON.stringify({
+          score: reportData.score,
+          level: reportData.level,
+          decision: reportData.decision?.action,
+          confidence: reportData.decision?.confidence,
+          sourceCount: reportData.sourceAttribution?.length || 0,
+          missingFields: reportData.dataQuality?.missingFields?.length || 0,
+        }),
       },
     }).catch(() => null);
 

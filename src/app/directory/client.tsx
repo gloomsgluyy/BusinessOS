@@ -3,7 +3,7 @@
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { cn } from "@/lib/utils";
-import { Users, Building2, Truck, Search, MapPin, Mail, Phone, CalendarClock, ShieldCheck, AlertTriangle, Wand2, BrainCircuit } from "lucide-react";
+import { Users, Building2, Truck, Search, MapPin, Mail, Phone, CalendarClock, ShieldCheck, AlertTriangle, Wand2, BrainCircuit, ExternalLink } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 
 import { Plus, Edit2, X, Trash2, Loader2 } from "lucide-react";
@@ -266,9 +266,43 @@ export default function DirectoryPageClient() {
                                     </div>
                                     {dueReport && (
                                         <div className="mt-2 grid grid-cols-1 gap-2">
+                                            {dueReport.decision && (
+                                                <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-2">
+                                                    <p className="text-[10px] font-bold text-blue-600 uppercase">Decision Helper</p>
+                                                    <p className="text-[10px] font-semibold text-foreground mt-1">
+                                                        {dueReport.decision.label} - {dueReport.decision.owner}
+                                                    </p>
+                                                    <p className="text-[10px] text-muted-foreground mt-1">{dueReport.decision.nextAction}</p>
+                                                    <p className="text-[10px] text-muted-foreground mt-1">Confidence: {dueReport.decision.confidence || "-"}</p>
+                                                </div>
+                                            )}
                                             {(dueReport.redFlags || []).slice(0, 2).map((flag: string, index: number) => (
                                                 <p key={index} className="text-[10px] text-muted-foreground">- {flag}</p>
                                             ))}
+                                            {(dueReport.dataQuality || Array.isArray(dueReport.sourceAttribution)) && (
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    {dueReport.dataQuality && (
+                                                        <div className="rounded-lg border border-border/50 bg-background/70 p-2">
+                                                            <p className="text-[10px] font-bold uppercase text-muted-foreground">Data</p>
+                                                            <p className="text-[10px] font-semibold">{dueReport.dataQuality.completenessScore ?? 0}% complete</p>
+                                                            {(dueReport.dataQuality.missingFields || []).slice(0, 2).map((field: string, index: number) => (
+                                                                <p key={index} className="text-[10px] text-muted-foreground truncate">Missing: {field}</p>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    {Array.isArray(dueReport.sourceAttribution) && (
+                                                        <div className="rounded-lg border border-border/50 bg-background/70 p-2">
+                                                            <p className="text-[10px] font-bold uppercase text-muted-foreground">Sources</p>
+                                                            {dueReport.sourceAttribution.slice(0, 2).map((source: any, index: number) => (
+                                                                <p key={index} className="text-[10px] text-muted-foreground truncate">
+                                                                    {source.url ? <ExternalLink className="w-3 h-3 inline mr-1" /> : null}
+                                                                    {source.label || source.source}
+                                                                </p>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>

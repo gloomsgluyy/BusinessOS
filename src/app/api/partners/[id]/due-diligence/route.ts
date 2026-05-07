@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { checkAiRateLimit } from "@/lib/ai-security";
 import { canUseAiAssistant } from "@/lib/role-access";
 import { fetchShipmentNews } from "@/services/apiExtraction/newsExtractor";
+import { buildSource, calculateDataQuality, normalizeDecisionReport } from "@/lib/decision-helper";
 
 export const dynamic = "force-dynamic";
 
@@ -152,8 +153,59 @@ function buildDeterministicReport(input: {
 
   score = Math.max(0, Math.min(100, Math.round(score)));
   const level = scoreToLevel(score);
+  const dataQuality = calculateDataQuality([
+    { label: "Partner name", value: partner.name, critical: true },
+    { label: "Partner type", value: partner.type },
+    { label: "Partner status", value: partner.status },
+    { label: "Tax ID / NPWP", value: partner.taxId },
+    { label: "Legal document name", value: partner.legalDocumentName, critical: true },
+    { label: "Legal expiry date", value: partner.legalExpiryDate, critical: true },
+    { label: "PIC email", value: partner.email },
+    { label: "PIC phone", value: partner.phone },
+    { label: "Related shipments", value: relatedShipments },
+    { label: "Related deals", value: relatedDeals },
+    { label: "External news", value: realNews },
+  ]);
+  const sources = [
+    buildSource({
+      type: "internal",
+      label: "Partner master record",
+      source: "Partner",
+      detail: `${partner.name || partner.id} - ${partner.status || "no status"}`,
+      reliability: "INTERNAL_SYSTEM",
+    }),
+    buildSource({
+      type: "document",
+      label: "Legal document tracker",
+      source: "Partner.legalExpiryDate",
+      detail: legalDays === null ? "No legal expiry date" : legalDays < 0 ? `Expired ${Math.abs(legalDays)} days ago` : `Valid ${legalDays} days`,
+      reliability: "INTERNAL_SYSTEM",
+    }),
+    buildSource({
+      type: "internal",
+      label: "Related shipment records",
+      source: "ShipmentDetail",
+      detail: `${relatedShipments.length} related shipments, ${blockedShipments.length} blocker signals`,
+      reliability: "INTERNAL_SYSTEM",
+    }),
+    buildSource({
+      type: "market",
+      label: "Related commercial deals",
+      source: "SalesDeal",
+      detail: `${relatedDeals.length} related deals`,
+      reliability: relatedDeals.length ? "INTERNAL_SYSTEM" : "UNKNOWN",
+    }),
+    ...realNews.slice(0, 5).map((item) => buildSource({
+      type: "news" as const,
+      label: item?.title || "News signal",
+      source: item?.source || "News API",
+      detail: item?.description || item?.title || "News context",
+      url: item?.url,
+      reliability: "API" as const,
+    })),
+  ];
 
-  return {
+  const report = {
     score,
     level,
     summary: `${partner.name} berada pada level due-diligence ${level}. Analisis memakai legal deadline, status internal, shipment/deal terkait, dan berita eksternal.`,
@@ -182,6 +234,35 @@ function buildDeterministicReport(input: {
     news: news.slice(0, 5),
     analyzedAt: new Date().toISOString(),
   };
+
+  return normalizeDecisionReport(report, {
+    level,
+    score,
+    reason: redFlags[0] || findings[0] || "No material red flag detected from available partner data.",
+    owner: level === "HIGH" || level === "CRITICAL" ? "Legal / Compliance Owner + Commercial PIC" : "Directory owner",
+    nextAction: level === "HIGH" || level === "CRITICAL"
+      ? "Freeze new transaction/onboarding until legal identity, tax ID, and related shipment issues are verified."
+      : level === "MEDIUM"
+        ? "Proceed only after missing admin fields are completed and external news is validated."
+        : "Proceed with normal monitoring and keep legal expiry updated.",
+    deadline: level === "HIGH" || level === "CRITICAL" ? "Before next transaction or nomination" : "Before legal reminder date",
+    approverRoles: ["CEO", "DIRUT", "ASS_DIRUT", "COO", "CMO"],
+    holdOnCritical: true,
+    sources,
+    dataQuality,
+    inputSnapshot: {
+      partnerId: partner.id,
+      name: partner.name,
+      type: partner.type,
+      status: partner.status,
+      legalDocumentName: partner.legalDocumentName,
+      legalExpiryDate: partner.legalExpiryDate,
+      taxIdPresent: Boolean(cleanText(partner.taxId)),
+      relatedShipmentCount: relatedShipments.length,
+      relatedDealCount: relatedDeals.length,
+      sourceCount: sources.length,
+    },
+  });
 }
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
@@ -276,6 +357,19 @@ Kembalikan HANYA JSON:
           news: aiReport.news || fallbackReport.news,
           analyzedAt: new Date().toISOString(),
         };
+        report = normalizeDecisionReport(report, {
+          level: report.level,
+          score: report.score,
+          reason: report.redFlags?.[0] || report.findings?.[0] || report.summary,
+          owner: report.decision?.owner || "Legal / Compliance Owner + Commercial PIC",
+          nextAction: report.decision?.nextAction || report.recommendation,
+          deadline: report.decision?.deadline || "Before next transaction or nomination",
+          approverRoles: ["CEO", "DIRUT", "ASS_DIRUT", "COO", "CMO"],
+          holdOnCritical: true,
+          sources: fallbackReport.sourceAttribution || [],
+          dataQuality: fallbackReport.dataQuality,
+          inputSnapshot: fallbackReport.inputSnapshot,
+        });
       }
     } catch (error) {
       console.warn("Partner due-diligence AI unavailable, using deterministic fallback:", error);
@@ -299,7 +393,14 @@ Kembalikan HANYA JSON:
         action: "PARTNER_DUE_DILIGENCE",
         entity: "Partner",
         entityId: partner.id,
-        details: JSON.stringify({ score: report.score, level: report.level }),
+        details: JSON.stringify({
+          score: report.score,
+          level: report.level,
+          decision: report.decision?.action,
+          confidence: report.decision?.confidence,
+          sourceCount: report.sourceAttribution?.length || 0,
+          missingFields: report.dataQuality?.missingFields?.length || 0,
+        }),
       },
     }).catch(() => null);
 
