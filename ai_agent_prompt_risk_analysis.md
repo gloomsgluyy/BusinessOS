@@ -57,7 +57,7 @@ Implementasikan fungsi `fetchPortWeather(lat: number, lon: number)`:
 
 ### 3. `marineExtractor.ts`
 Implementasikan fungsi `fetchMarineData(lat: number, lon: number)`:
-- Ambil data swell (gelombang) dan arus (current) laut menggunakan **Stormglass API**.
+- Ambil data swell (gelombang) dan arus (current) laut menggunakan ** Stormglass API**.
 
 ### 4. `bmkgExtractor.ts`
 Implementasikan fungsi `fetchBMKGEarthquakeAndAlerts()`:
