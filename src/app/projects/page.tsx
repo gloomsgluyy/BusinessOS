@@ -455,8 +455,21 @@ export default function ProjectsPage() {
     });
   };
 
-  const downloadProjectShippingInstruction = (project: ProjectCard, shipmentRow?: ShipmentDetail) => {
+  const downloadProjectShippingInstruction = async (project: ProjectCard, shipmentRow?: ShipmentDetail) => {
     const row = shipmentRow || project.rows[0];
+    let requiredDocsForShipment = row?.id ? (shipmentDocDownloads[row.id] || []) : [];
+    if (row?.id && !shipmentDocDownloads[row.id]) {
+      try {
+        const res = await fetch(`/api/shipments/${row.id}/documents?group=required`);
+        const data = await res.json();
+        if (res.ok && data.success) {
+          requiredDocsForShipment = data.documents || [];
+          setShipmentDocDownloads((current) => ({ ...current, [row.id]: requiredDocsForShipment }));
+        }
+      } catch {
+        requiredDocsForShipment = [];
+      }
+    }
     const checklist = parseTemplateChecklist(project.projectRecord?.template_checklist)
       .filter((item) => item.required !== false);
     const docs = checklist.length ? checklist : PROJECT_TEMPLATES.export_shipment;
@@ -488,27 +501,6 @@ export default function ProjectsPage() {
 
     doc.setProperties({ title: `Shipping Instruction - ${projectName}` });
     doc.setFont("helvetica");
-
-    // Compact vector mark approximating the company logo placement in the reference SI.
-    doc.setFillColor(0, 143, 181);
-    doc.roundedRect(left, 45, 16, 12, 2, 2, "F");
-    doc.setFillColor(23, 73, 145);
-    doc.roundedRect(left + 13, 45, 16, 12, 2, 2, "F");
-    doc.setFillColor(229, 57, 53);
-    doc.roundedRect(left + 26, 51, 22, 10, 2, 2, "F");
-    doc.setFontSize(4.5);
-    doc.setTextColor(30, 64, 114);
-    doc.text("PT MAHAKARYA SENTRA ENERGI", left, 68);
-
-    doc.setFontSize(5.5);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(30, 64, 114);
-    doc.text("PT MAHAKARYA SENTRA ENERGI", 410, 43);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(0, 0, 0);
-    doc.text("Jalan Pulau Saliara Raya No. 106, Pluit,", 410, 51);
-    doc.text("Penjaringan, Jakarta Utara 14450, Indonesia", 410, 58);
-    doc.text("Tel: +62 21 66660996, +62 21 66660990", 410, 65);
 
     doc.setDrawColor(20, 57, 112);
     doc.setLineWidth(1.4);
@@ -565,7 +557,16 @@ export default function ProjectsPage() {
 
     docs.forEach((item, index) => {
       const code = (item.code || String.fromCharCode(97 + index)).replace(/\.$/, "");
-      const label = item.label.toUpperCase();
+      const uploadedCount = requiredDocsForShipment.filter((doc) => {
+        if (doc.documentGroup !== "required") return false;
+        const sameCode = (doc.requirementCode || "").toLowerCase() === code.toLowerCase();
+        const sameLabel = normalizeKey(doc.requirementLabel || doc.title) === normalizeKey(item.label);
+        return sameCode || sameLabel;
+      }).length;
+      const uploadStatus = uploadedCount > 0
+        ? ` (Filled, ${uploadedCount} Document${uploadedCount > 1 ? "s" : ""} Uploaded)`
+        : "";
+      const label = `${item.label}${uploadStatus}`.toUpperCase();
       const lines = doc.splitTextToSize(label, 480);
       doc.text(`${code}.`, labelX + 10, docY);
       doc.text(lines, labelX + 26, docY);
