@@ -63,11 +63,22 @@ function docSelect() {
   };
 }
 
+function timingHeader(timings: Record<string, number>) {
+  return Object.entries(timings)
+    .map(([key, value]) => `${key};dur=${Math.max(0, Math.round(value))}`)
+    .join(", ");
+}
+
 export async function POST(req: Request) {
+  const traceId = Math.random().toString(36).slice(2, 10);
+  const startedAt = Date.now();
+  const authStartedAt = Date.now();
   const session = await getServerSession(authOptions);
+  const authMs = Date.now() - authStartedAt;
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!canReadShipmentDocs(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  const parseStartedAt = Date.now();
   const body = await req.json().catch(() => ({}));
   const shipmentIds: string[] = Array.from(new Set<string>(
     (Array.isArray(body.shipmentIds) ? body.shipmentIds : [])
@@ -75,10 +86,15 @@ export async function POST(req: Request) {
       .filter(Boolean),
   )).slice(0, 200);
   const requestedGroup = String(body.group || "required").trim().toLowerCase();
+  const parseMs = Date.now() - parseStartedAt;
 
   if (!shipmentIds.length) {
     return NextResponse.json({ success: true, documents: [], documentsByShipment: {} }, {
-      headers: { "Cache-Control": "no-store" },
+      headers: {
+        "Cache-Control": "no-store",
+        "Server-Timing": timingHeader({ auth: authMs, parse: parseMs, total: Date.now() - startedAt }),
+        "X-BOS-Doc-Trace": `id=${traceId};shipments=0;docs=0;totalMs=${Date.now() - startedAt}`,
+      },
     });
   }
   if (!DOCUMENT_GROUPS.has(requestedGroup)) {
@@ -88,8 +104,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const ensureStartedAt = Date.now();
   await ensureShipmentDocumentTable();
+  const ensureMs = Date.now() - ensureStartedAt;
 
+  const queryStartedAt = Date.now();
   const docs = await prisma.shipmentDocument.findMany({
     where: {
       shipmentId: { in: shipmentIds },
@@ -99,7 +118,9 @@ export async function POST(req: Request) {
     orderBy: [{ shipmentId: "asc" }, { createdAt: "desc" }],
     select: docSelect(),
   });
+  const queryMs = Date.now() - queryStartedAt;
 
+  const serializeStartedAt = Date.now();
   const documents = docs.map((doc) => ({
     ...doc,
     url: `/api/shipments/${doc.shipmentId}/documents/${doc.id}`,
@@ -108,8 +129,34 @@ export async function POST(req: Request) {
     acc[doc.shipmentId] = [...(acc[doc.shipmentId] || []), doc];
     return acc;
   }, {});
+  const serializeMs = Date.now() - serializeStartedAt;
+  const totalMs = Date.now() - startedAt;
+
+  console.info("[shipment-docs-batch]", {
+    traceId,
+    group: requestedGroup,
+    shipmentCount: shipmentIds.length,
+    docCount: documents.length,
+    authMs,
+    parseMs,
+    ensureMs,
+    queryMs,
+    serializeMs,
+    totalMs,
+  });
 
   return NextResponse.json({ success: true, documents, documentsByShipment }, {
-    headers: { "Cache-Control": "no-store" },
+    headers: {
+      "Cache-Control": "no-store",
+      "Server-Timing": timingHeader({
+        auth: authMs,
+        parse: parseMs,
+        ensure: ensureMs,
+        query: queryMs,
+        serialize: serializeMs,
+        total: totalMs,
+      }),
+      "X-BOS-Doc-Trace": `id=${traceId};shipments=${shipmentIds.length};docs=${documents.length};authMs=${authMs};ensureMs=${ensureMs};queryMs=${queryMs};totalMs=${totalMs}`,
+    },
   });
 }

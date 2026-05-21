@@ -284,6 +284,7 @@ export default function ProjectsPage() {
     }
     let active = true;
     const shipmentIds = selectedProject.rows.map((row) => row.id).filter(Boolean);
+    const startedAt = performance.now();
     setLoadingShipmentDocs(true);
     fetch("/api/shipments/documents/batch", {
       method: "POST",
@@ -291,10 +292,32 @@ export default function ProjectsPage() {
       cache: "no-store",
       body: JSON.stringify({ shipmentIds, group: "required" }),
     }).then(async (res) => {
+      const trace = res.headers.get("x-bos-doc-trace");
+      const serverTiming = res.headers.get("server-timing");
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "Failed to load shipment documents");
+      const clientMs = Math.round(performance.now() - startedAt);
+      const payload = {
+        project: selectedProject.projectName,
+        shipmentCount: shipmentIds.length,
+        docCount: Array.isArray(data.documents) ? data.documents.length : 0,
+        clientMs,
+        trace,
+        serverTiming,
+      };
+      if (clientMs > 3000) {
+        console.warn("[projects] Required document batch load is slow", payload);
+      } else {
+        console.info("[projects] Required document batch load", payload);
+      }
       return data.documentsByShipment || {};
-    }).catch(() => {
+    }).catch((error) => {
+      console.warn("[projects] Failed to load required document batch", {
+        project: selectedProject.projectName,
+        shipmentCount: shipmentIds.length,
+        clientMs: Math.round(performance.now() - startedAt),
+        error: error instanceof Error ? error.message : String(error),
+      });
       return {};
     }).then((documentsByShipment) => {
       if (!active) return;
