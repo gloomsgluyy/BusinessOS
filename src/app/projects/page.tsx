@@ -492,13 +492,13 @@ export default function ProjectsPage() {
     }
   };
 
-  const openRequiredDocuments = (shipmentId: string) => {
-    const docs = (shipmentDocDownloads[shipmentId] || []).filter((doc) => doc.documentGroup === "required");
-    docs.forEach((doc, index) => {
-      window.setTimeout(() => {
-        window.open(doc.url || `/api/shipments/${shipmentId}/documents/${doc.id}`, "_blank", "noopener,noreferrer");
-      }, index * 150);
-    });
+  const downloadRequiredDocumentsZip = (shipmentId: string) => {
+    const link = document.createElement("a");
+    link.href = `/api/shipments/${encodeURIComponent(shipmentId)}/documents/download-all?group=required`;
+    link.download = "";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   const downloadProjectShippingInstruction = async (project: ProjectCard, shipmentRow?: ShipmentDetail) => {
@@ -1091,6 +1091,7 @@ export default function ProjectsPage() {
                       <tbody>
                         {selectedProject.rows.slice(0, 15).map((r) => {
                           const docs = shipmentDocDownloads[r.id] || [];
+                          const canDownloadRequiredZip = docs.length > 0 || loadingShipmentDocs;
                           const duplicateTotals = docs.reduce<Record<string, number>>((acc, doc) => {
                             const key = documentRequirementKey(doc);
                             acc[key] = (acc[key] || 0) + 1;
@@ -1104,44 +1105,57 @@ export default function ProjectsPage() {
                               <td className="py-2 pr-3">{r.laycan || "-"}</td>
                               <td className="py-2 pr-3">{r.shipment_status || r.status || "-"}</td>
                               <td className="py-2 pr-3 text-right">{fmtInt(rowQty(r))}</td>
-                              <td className="py-2 pr-3 min-w-[300px]">
-                                <div className="flex flex-wrap items-start gap-1.5">
+                              <td className="py-2 pr-3 min-w-[420px]">
+                                <div className="flex flex-wrap items-start gap-2">
                                   <button
                                     onClick={() => downloadProjectShippingInstruction(selectedProject, r)}
-                                    className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary border border-primary/20 px-2 py-1 text-[10px] font-semibold hover:bg-primary/20"
+                                    className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 text-primary border border-primary/20 px-3 py-2 text-xs font-semibold hover:bg-primary/20"
                                   >
-                                    <Download className="w-3 h-3" /> SI
+                                    <Download className="w-4 h-4" /> SI
+                                  </button>
+                                  <button
+                                    onClick={() => downloadRequiredDocumentsZip(r.id)}
+                                    disabled={!canDownloadRequiredZip}
+                                    className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 text-emerald-700 border border-emerald-500/20 px-3 py-2 text-xs font-bold hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:text-emerald-300"
+                                    title="Download semua required document dalam satu file ZIP"
+                                  >
+                                    {loadingShipmentDocs && docs.length === 0 ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Download className="w-4 h-4" />
+                                    )}
+                                    All Required ZIP
                                   </button>
                                   <details className="group relative">
                                     <summary className={cn(
-                                      "list-none inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-semibold hover:bg-accent",
+                                      "list-none inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-accent",
                                       docs.length === 0 && !loadingShipmentDocs && "opacity-70",
                                     )}>
-                                      {loadingShipmentDocs ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
-                                      {loadingShipmentDocs ? "Loading Docs" : `Required Docs (${docs.length})`}
-                                      <ChevronDown className="w-3 h-3 transition-transform group-open:rotate-180" />
+                                      {loadingShipmentDocs ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                                      {loadingShipmentDocs ? "Loading Docs" : `Choose File (${docs.length})`}
+                                      <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" />
                                     </summary>
-                                    <div className="absolute right-0 top-7 z-20 w-80 rounded-lg border border-border bg-card p-2 shadow-xl">
+                                    <div className="absolute right-0 top-10 z-20 w-[420px] max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-3 shadow-xl">
                                       <button
-                                        onClick={() => openRequiredDocuments(r.id)}
-                                        disabled={docs.length === 0 || loadingShipmentDocs}
-                                        className="mb-2 flex w-full items-center justify-between gap-2 rounded-md bg-primary/10 px-2 py-1.5 text-left text-[10px] font-bold text-primary hover:bg-primary/20 disabled:opacity-50"
+                                        onClick={() => downloadRequiredDocumentsZip(r.id)}
+                                        disabled={!canDownloadRequiredZip}
+                                        className="mb-2 flex w-full items-center justify-between gap-2 rounded-md bg-primary/10 px-3 py-2 text-left text-xs font-bold text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
                                       >
-                                        <span className="inline-flex items-center gap-1"><Download className="w-3 h-3" /> Download All Required</span>
+                                        <span className="inline-flex items-center gap-1.5"><Download className="w-4 h-4" /> Download All (.zip)</span>
                                         <span>{loadingShipmentDocs ? "..." : docs.length}</span>
                                       </button>
-                                      <div className="max-h-56 overflow-y-auto space-y-1">
+                                      <div className="max-h-72 overflow-y-auto space-y-1">
                                         {loadingShipmentDocs ? (
                                           <div className="rounded-md border border-border/50 bg-background/70 px-3 py-5 text-center">
-                                            <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2 text-primary" />
-                                            <p className="text-[10px] font-bold text-foreground">Loading required documents</p>
-                                            <p className="text-[10px] text-muted-foreground mt-0.5">Checking all files for this shipment...</p>
+                                            <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-primary" />
+                                            <p className="text-xs font-bold text-foreground">Loading required documents</p>
+                                            <p className="text-xs text-muted-foreground mt-0.5">Checking all files for this shipment...</p>
                                           </div>
                                         ) : docs.length === 0 ? (
                                           <div className="rounded-md border border-border/50 bg-background/70 px-3 py-4 text-center">
-                                            <FileText className="w-4 h-4 mx-auto mb-2 text-muted-foreground/60" />
-                                            <p className="text-[10px] font-bold text-foreground">No required document yet</p>
-                                            <p className="text-[10px] text-muted-foreground mt-0.5">Upload from Shipment Monitor.</p>
+                                            <FileText className="w-5 h-5 mx-auto mb-2 text-muted-foreground/60" />
+                                            <p className="text-xs font-bold text-foreground">No required document yet</p>
+                                            <p className="text-xs text-muted-foreground mt-0.5">Upload from Shipment Monitor.</p>
                                           </div>
                                         ) : docs.map((doc) => {
                                           const duplicateKey = documentRequirementKey(doc);
@@ -1155,19 +1169,19 @@ export default function ProjectsPage() {
                                               href={doc.url || `/api/shipments/${r.id}/documents/${doc.id}`}
                                               target="_blank"
                                               rel="noreferrer"
-                                              className="flex items-start gap-2 rounded-md px-2 py-2 text-[10px] hover:bg-accent"
+                                              className="flex items-start gap-2 rounded-md px-2.5 py-2.5 text-xs hover:bg-accent"
                                               title={`${doc.title || doc.requirementLabel || "Document"} - ${doc.fileName}`}
                                             >
-                                              <FileText className="w-3.5 h-3.5 shrink-0 text-muted-foreground mt-0.5" />
+                                              <FileText className="w-4 h-4 shrink-0 text-muted-foreground mt-0.5" />
                                               <span className="min-w-0 flex-1">
                                                 <span className="block truncate font-bold text-foreground">{title}</span>
-                                                <span className="block truncate text-[9px] text-muted-foreground">{doc.fileName}</span>
-                                                <span className="block text-[9px] text-muted-foreground">
+                                                <span className="block truncate text-[11px] text-muted-foreground">{doc.fileName}</span>
+                                                <span className="block text-[11px] text-muted-foreground">
                                                   Uploaded {formatDocDate(doc.createdAt)}
-                                                  {hasDuplicate ? ` • ${duplicateIndex} of ${duplicateTotals[duplicateKey]}` : ""}
+                                                  {hasDuplicate ? ` - ${duplicateIndex} of ${duplicateTotals[duplicateKey]}` : ""}
                                                 </span>
                                               </span>
-                                              <ExternalLink className="w-3 h-3 shrink-0 text-muted-foreground mt-0.5" />
+                                              <ExternalLink className="w-3.5 h-3.5 shrink-0 text-muted-foreground mt-0.5" />
                                             </a>
                                           );
                                         })}
