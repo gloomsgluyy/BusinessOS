@@ -122,7 +122,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     zip.file(zipEntryName(doc, index, seenNames), Buffer.from(doc.data));
   });
 
-  const zipBuffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+  const zipBuffer = await zip.generateAsync({ type: "nodebuffer", compression: "STORE" });
   const shipmentName = cleanText(shipment.nomination || shipment.bargeName || shipment.vesselName || shipment.mvProjectName || params.id, params.id);
   const filename = `${group}-documents-${attachmentFileName(shipmentName)}.zip`;
   const body = zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength) as ArrayBuffer;

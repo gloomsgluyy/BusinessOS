@@ -152,6 +152,18 @@ const compactDocumentTitle = (doc: ShipmentDocument) => {
     .trim();
   return `${code ? `${code}. ` : ""}${normalized || label}`;
 };
+const fileNameFromContentDisposition = (value: string | null, fallback: string) => {
+  if (!value) return fallback;
+  const utfName = value.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (utfName) {
+    try {
+      return decodeURIComponent(utfName);
+    } catch {
+      return utfName;
+    }
+  }
+  return value.match(/filename="?([^";]+)"?/i)?.[1] || fallback;
+};
 const rowQty = (r: ShipmentDetail) => safeNum(r.qty_plan ?? r.quantity_loaded ?? r.qty_cob);
 const rowSellPrice = (r: ShipmentDetail) => safeNum(r.sales_price ?? r.sp ?? r.harga_actual_fob_mv);
 const rowBuyPrice = (r: ShipmentDetail) => safeNum(r.buying_price ?? r.harga_actual_fob ?? r.hpb);
@@ -285,6 +297,7 @@ export default function ProjectsPage() {
   const [uploadingDoc, setUploadingDoc] = React.useState<string | null>(null);
   const [shipmentDocDownloads, setShipmentDocDownloads] = React.useState<Record<string, ShipmentDocument[]>>({});
   const [loadingShipmentDocs, setLoadingShipmentDocs] = React.useState(false);
+  const [downloadingRequiredZip, setDownloadingRequiredZip] = React.useState<Record<string, boolean>>({});
   const role = String(currentUser?.role || "").toUpperCase();
   const canApprove = ["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(role);
   const canAnalyzeUrgency = ["CEO", "DIRUT", "ASS_DIRUT"].includes(role);
@@ -492,13 +505,44 @@ export default function ProjectsPage() {
     }
   };
 
-  const downloadRequiredDocumentsZip = (shipmentId: string) => {
-    const link = document.createElement("a");
-    link.href = `/api/shipments/${encodeURIComponent(shipmentId)}/documents/download-all?group=required`;
-    link.download = "";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+  const downloadRequiredDocumentsZip = async (shipmentId: string) => {
+    if (downloadingRequiredZip[shipmentId]) return;
+    setDownloadingRequiredZip((current) => ({ ...current, [shipmentId]: true }));
+    try {
+      const res = await fetch(`/api/shipments/${encodeURIComponent(shipmentId)}/documents/download-all?group=required`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        let message = "Failed to prepare required documents ZIP";
+        try {
+          const data = await res.json();
+          message = data.error || message;
+        } catch {
+          message = res.statusText || message;
+        }
+        throw new Error(message);
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = fileNameFromContentDisposition(
+        res.headers.get("content-disposition"),
+        `required-documents-${shipmentId}.zip`,
+      );
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to prepare required documents ZIP");
+    } finally {
+      setDownloadingRequiredZip((current) => {
+        const next = { ...current };
+        delete next[shipmentId];
+        return next;
+      });
+    }
   };
 
   const downloadProjectShippingInstruction = async (project: ProjectCard, shipmentRow?: ShipmentDetail) => {
@@ -1091,7 +1135,8 @@ export default function ProjectsPage() {
                       <tbody>
                         {selectedProject.rows.slice(0, 15).map((r) => {
                           const docs = shipmentDocDownloads[r.id] || [];
-                          const canDownloadRequiredZip = docs.length > 0 || loadingShipmentDocs;
+                          const isDownloadingZip = Boolean(downloadingRequiredZip[r.id]);
+                          const canDownloadRequiredZip = docs.length > 0 && !loadingShipmentDocs && !isDownloadingZip;
                           const duplicateTotals = docs.reduce<Record<string, number>>((acc, doc) => {
                             const key = documentRequirementKey(doc);
                             acc[key] = (acc[key] || 0) + 1;
@@ -1119,12 +1164,14 @@ export default function ProjectsPage() {
                                     className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 text-emerald-700 border border-emerald-500/20 px-3 py-2 text-xs font-bold hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:text-emerald-300"
                                     title="Download semua required document dalam satu file ZIP"
                                   >
-                                    {loadingShipmentDocs && docs.length === 0 ? (
+                                    {isDownloadingZip ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : loadingShipmentDocs && docs.length === 0 ? (
                                       <Loader2 className="w-4 h-4 animate-spin" />
                                     ) : (
                                       <Download className="w-4 h-4" />
                                     )}
-                                    All Required ZIP
+                                    {isDownloadingZip ? "Preparing ZIP..." : "All Required ZIP"}
                                   </button>
                                   <details className="group relative">
                                     <summary className={cn(
@@ -1141,8 +1188,11 @@ export default function ProjectsPage() {
                                         disabled={!canDownloadRequiredZip}
                                         className="mb-2 flex w-full items-center justify-between gap-2 rounded-md bg-primary/10 px-3 py-2 text-left text-xs font-bold text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
                                       >
-                                        <span className="inline-flex items-center gap-1.5"><Download className="w-4 h-4" /> Download All (.zip)</span>
-                                        <span>{loadingShipmentDocs ? "..." : docs.length}</span>
+                                        <span className="inline-flex items-center gap-1.5">
+                                          {isDownloadingZip ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                                          {isDownloadingZip ? "Preparing ZIP..." : "Download All (.zip)"}
+                                        </span>
+                                        <span>{isDownloadingZip || loadingShipmentDocs ? "..." : docs.length}</span>
                                       </button>
                                       <div className="max-h-72 overflow-y-auto space-y-1">
                                         {loadingShipmentDocs ? (
