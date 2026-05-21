@@ -283,20 +283,23 @@ export default function ProjectsPage() {
       return;
     }
     let active = true;
+    const shipmentIds = selectedProject.rows.map((row) => row.id).filter(Boolean);
     setLoadingShipmentDocs(true);
-    Promise.all(
-      selectedProject.rows.map(async (row) => {
-        try {
-          const res = await fetch(`/api/shipments/${row.id}/documents?group=required`);
-          const data = await res.json();
-          return [row.id, res.ok && data.success ? data.documents || [] : []] as const;
-        } catch {
-          return [row.id, []] as const;
-        }
-      }),
-    ).then((entries) => {
+    fetch("/api/shipments/documents/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ shipmentIds, group: "required" }),
+    }).then(async (res) => {
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Failed to load shipment documents");
+      return data.documentsByShipment || {};
+    }).catch(() => {
+      return {};
+    }).then((documentsByShipment) => {
       if (!active) return;
-      setShipmentDocDownloads(Object.fromEntries(entries));
+      const next = Object.fromEntries(shipmentIds.map((id) => [id, documentsByShipment[id] || []]));
+      setShipmentDocDownloads(next);
       setLoadingShipmentDocs(false);
     });
     return () => {
@@ -460,10 +463,15 @@ export default function ProjectsPage() {
     let requiredDocsForShipment = row?.id ? (shipmentDocDownloads[row.id] || []) : [];
     if (row?.id && !shipmentDocDownloads[row.id]) {
       try {
-        const res = await fetch(`/api/shipments/${row.id}/documents?group=required`);
+        const res = await fetch("/api/shipments/documents/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({ shipmentIds: [row.id], group: "required" }),
+        });
         const data = await res.json();
         if (res.ok && data.success) {
-          requiredDocsForShipment = data.documents || [];
+          requiredDocsForShipment = data.documentsByShipment?.[row.id] || [];
           setShipmentDocDownloads((current) => ({ ...current, [row.id]: requiredDocsForShipment }));
         }
       } catch {

@@ -5,8 +5,12 @@ import { authOptions } from "@/lib/auth";
 import { canReadModuleForRole, canWriteModuleForRole, isExecutiveRole } from "@/lib/role-access";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+let shipmentDocumentTableReady = false;
 
 async function ensureShipmentDocumentTable() {
+  if (shipmentDocumentTableReady) return;
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "ShipmentDocument" (
       "id" TEXT NOT NULL,
@@ -29,6 +33,7 @@ async function ensureShipmentDocumentTable() {
       CONSTRAINT "ShipmentDocument_pkey" PRIMARY KEY ("id")
     );
   `);
+  shipmentDocumentTableReady = true;
 }
 
 function canReadShipmentDocs(role: unknown, group: string) {

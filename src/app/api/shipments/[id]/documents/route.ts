@@ -5,11 +5,14 @@ import { authOptions } from "@/lib/auth";
 import { canReadModuleForRole, canWriteModuleForRole, isExecutiveRole } from "@/lib/role-access";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const DOCUMENT_GROUPS = new Set(["required", "critical", "additional"]);
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+let shipmentDocumentTableReady = false;
 
 async function ensureShipmentDocumentTable() {
+  if (shipmentDocumentTableReady) return;
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "ShipmentDocument" (
       "id" TEXT NOT NULL,
@@ -34,6 +37,7 @@ async function ensureShipmentDocumentTable() {
   `);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentDocument_shipmentId_idx" ON "ShipmentDocument"("shipmentId");`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentDocument_shipmentId_documentGroup_idx" ON "ShipmentDocument"("shipmentId", "documentGroup");`);
+  shipmentDocumentTableReady = true;
 }
 
 function canReadShipmentDocs(role: unknown) {
@@ -123,6 +127,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       ...doc,
       url: `/api/shipments/${params.id}/documents/${doc.id}`,
     })),
+  }, {
+    headers: { "Cache-Control": "no-store" },
   });
 }
 
@@ -187,5 +193,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   return NextResponse.json({
     success: true,
     document: { ...doc, url: `/api/shipments/${params.id}/documents/${doc.id}` },
+  }, {
+    headers: { "Cache-Control": "no-store" },
   });
 }
