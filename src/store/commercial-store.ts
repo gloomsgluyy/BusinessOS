@@ -8,6 +8,31 @@ import {
 } from "@/types";
 import { generateId } from "@/lib/utils";
 
+function parseSourceStockLocations(value: unknown): SourceSupplier["stock_locations"] {
+    let raw = value;
+    if (typeof raw === "string") {
+        try {
+            raw = JSON.parse(raw);
+        } catch {
+            raw = [];
+        }
+    }
+    if (!Array.isArray(raw)) return undefined;
+    const locations = raw
+        .map((item, index) => {
+            const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
+            const quantity = Number(row.quantity);
+            return {
+                id: String(row.id || `storage-${index + 1}`),
+                name: String(row.name || "").replace(/\s+/g, " ").trim(),
+                quantity: Number.isFinite(quantity) ? quantity : 0,
+                condition: String(row.condition || "").replace(/\s+/g, " ").trim() || undefined,
+            };
+        })
+        .filter((item) => item.name || item.quantity > 0 || item.condition);
+    return locations.length ? locations : undefined;
+}
+
 type CommercialSyncOptions = {
     mode?: "full" | "dashboard_fast";
     force?: boolean;
@@ -573,6 +598,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (src.kyc_status !== undefined) body.kycStatus = src.kyc_status;
         if (src.psi_status !== undefined) body.psiStatus = src.psi_status;
         if (src.stock_available !== undefined) body.stockAvailable = src.stock_available;
+        if (src.stock_locations !== undefined) body.stockLocations = src.stock_locations;
         if (src.fob_barge_only !== undefined) body.fobBargeOnly = src.fob_barge_only;
         if (src.requires_transshipment !== undefined) body.requiresTransshipment = src.requires_transshipment;
         if (src.price_linked_index !== undefined) body.priceLinkedIndex = src.price_linked_index;
@@ -601,6 +627,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 spec: { gar: source.gar, ts: source.ts, ash: source.ash, tm: source.tm, hgi: source.hgi, adb: source.adb, nar: source.nar },
                 jetty_port: source.jettyPort, anchorage: source.anchorage, min_stock_alert: source.minStockAlert,
                 kyc_status: source.kycStatus, psi_status: source.psiStatus, stock_available: source.stockAvailable,
+                stock_locations: parseSourceStockLocations(source.stockLocations),
                 fob_barge_only: source.fobBargeOnly, requires_transshipment: source.requiresTransshipment,
                 price_linked_index: source.priceLinkedIndex, fob_barge_price_idr: source.fobBargePriceIdr, fob_barge_price_usd: source.fobBargePriceUsd,
                 transshipment_costs: source.transshipmentCosts ? JSON.parse(source.transshipmentCosts) : undefined,
@@ -626,6 +653,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.kyc_status !== undefined) body.kycStatus = u.kyc_status;
         if (u.psi_status !== undefined) body.psiStatus = u.psi_status;
         if (u.stock_available !== undefined) body.stockAvailable = u.stock_available;
+        if (u.stock_locations !== undefined) body.stockLocations = u.stock_locations;
         if (u.fob_barge_only !== undefined) body.fobBargeOnly = u.fob_barge_only;
         if (u.requires_transshipment !== undefined) body.requiresTransshipment = u.requires_transshipment;
         if (u.price_linked_index !== undefined) body.priceLinkedIndex = u.price_linked_index;
@@ -1224,6 +1252,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                                 jetty_port: s.jettyPort, anchorage: s.anchorage, min_stock_alert: s.minStockAlert,
                                 kyc_status: s.kycStatus, psi_status: s.psiStatus,
                                 stock_available: s.stockAvailable || 0,
+                                stock_locations: parseSourceStockLocations(s.stockLocations),
                                 fob_barge_only: s.fobBargeOnly, requires_transshipment: s.requiresTransshipment,
                                 price_linked_index: s.priceLinkedIndex, fob_barge_price_idr: s.fobBargePriceIdr, fob_barge_price_usd: s.fobBargePriceUsd,
                                 transshipment_costs: s.transshipmentCosts ? JSON.parse(s.transshipmentCosts) : undefined,

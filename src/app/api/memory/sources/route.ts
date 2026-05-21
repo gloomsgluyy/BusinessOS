@@ -14,10 +14,60 @@ export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 export const revalidate = 0;
 
+let sourceSupplierColumnsReady = false;
+
+async function ensureSourceSupplierColumns() {
+    if (sourceSupplierColumnsReady) return;
+    await prisma.$executeRawUnsafe(`ALTER TABLE "SourceSupplier" ADD COLUMN IF NOT EXISTS "stockLocations" TEXT;`);
+    sourceSupplierColumnsReady = true;
+}
+
+function safeNum(value: unknown): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseStockLocations(value: unknown) {
+    let raw = value;
+    if (typeof raw === "string") {
+        try {
+            raw = JSON.parse(raw);
+        } catch {
+            raw = [];
+        }
+    }
+    if (!Array.isArray(raw)) return [];
+    return raw
+        .map((item, index) => {
+            const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
+            const name = String(row.name || "").replace(/\s+/g, " ").trim();
+            const condition = String(row.condition || "").replace(/\s+/g, " ").trim();
+            const quantity = safeNum(row.quantity);
+            return {
+                id: String(row.id || `storage-${index + 1}`),
+                name,
+                quantity,
+                condition,
+            };
+        })
+        .filter((item) => item.name || item.quantity > 0 || item.condition)
+        .map((item) => ({
+            id: item.id,
+            name: item.name || "Unnamed Storage",
+            quantity: item.quantity,
+            ...(item.condition ? { condition: item.condition } : {}),
+        }));
+}
+
+function stockLocationsTotal(value: ReturnType<typeof parseStockLocations>) {
+    return value.reduce((sum, item) => sum + safeNum(item.quantity), 0);
+}
+
 export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureSourceSupplierColumns();
 
         const url = new URL(req.url);
         const pagination = parsePaginationParams(url.searchParams);
@@ -58,10 +108,13 @@ export async function POST(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureSourceSupplierColumns();
 
         const data = await req.json();
         const crypto = require("crypto");
         const newId = crypto.randomUUID();
+        const stockLocations = parseStockLocations(data.stockLocations);
+        const hasStockLocations = stockLocations.length > 0;
 
         // DATABASE-FIRST: Write to database as primary source
         const source = await prisma.$transaction(async (tx) => {
@@ -81,7 +134,10 @@ export async function POST(req: Request) {
                     adb: data.spec?.adb !== undefined && data.spec?.adb !== null ? parseFloat(data.spec.adb.toString()) : null,
                     jettyPort: data.jettyPort,
                     anchorage: data.anchorage,
-                    stockAvailable: data.stockAvailable !== undefined && data.stockAvailable !== null ? parseFloat(data.stockAvailable.toString()) : 0,
+                    stockAvailable: hasStockLocations
+                        ? stockLocationsTotal(stockLocations)
+                        : data.stockAvailable !== undefined && data.stockAvailable !== null ? parseFloat(data.stockAvailable.toString()) : 0,
+                    stockLocations: hasStockLocations ? JSON.stringify(stockLocations) : null,
                     minStockAlert: data.minStockAlert !== undefined && data.minStockAlert !== null ? parseFloat(data.minStockAlert.toString()) : null,
                     kycStatus: data.kycStatus || "not_started",
                     psiStatus: data.psiStatus || "not_started",
@@ -122,6 +178,7 @@ export async function PUT(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureSourceSupplierColumns();
 
         const data = await req.json();
         if (!data.id) return NextResponse.json({ error: "Source ID missing" }, { status: 400 });
@@ -131,6 +188,9 @@ export async function PUT(req: Request) {
         if (!canWriteModuleForRole(session.user.role, "SOURCING")) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
+        const stockLocationsProvided = data.stockLocations !== undefined;
+        const stockLocations = stockLocationsProvided ? parseStockLocations(data.stockLocations) : [];
+        const hasStockLocations = stockLocations.length > 0;
 
         // DATABASE-FIRST: Update database as primary source
         const source = await prisma.$transaction(async (tx) => {
@@ -150,7 +210,10 @@ export async function PUT(req: Request) {
                     adb: data.spec?.adb !== undefined && data.spec?.adb !== null ? parseFloat(data.spec.adb.toString()) : undefined,
                     jettyPort: data.jettyPort !== undefined ? data.jettyPort : undefined,
                     anchorage: data.anchorage !== undefined ? data.anchorage : undefined,
-                    stockAvailable: data.stockAvailable !== undefined && data.stockAvailable !== null ? parseFloat(data.stockAvailable.toString()) : undefined,
+                    stockAvailable: hasStockLocations
+                        ? stockLocationsTotal(stockLocations)
+                        : data.stockAvailable !== undefined && data.stockAvailable !== null ? parseFloat(data.stockAvailable.toString()) : undefined,
+                    stockLocations: stockLocationsProvided ? (hasStockLocations ? JSON.stringify(stockLocations) : null) : undefined,
                     minStockAlert: data.minStockAlert !== undefined && data.minStockAlert !== null ? parseFloat(data.minStockAlert.toString()) : undefined,
                     kycStatus: data.kycStatus,
                     psiStatus: data.psiStatus,
@@ -191,6 +254,7 @@ export async function DELETE(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureSourceSupplierColumns();
 
         const url = new URL(req.url);
         const id = url.searchParams.get("id");

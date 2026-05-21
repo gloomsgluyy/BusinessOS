@@ -411,6 +411,13 @@ export interface TransshipmentCost {
     usd?: number;
 }
 
+export interface SourceStockLocation {
+    id: string;
+    name: string;
+    quantity: number;
+    condition?: string;
+}
+
 export interface SourceSupplier {
     id: string;
     is_deleted?: boolean;
@@ -424,6 +431,7 @@ export interface SourceSupplier {
 
     stock_available: number;   // MT
     min_stock_alert?: number;  // MT
+    stock_locations?: SourceStockLocation[];
 
     fob_barge_only?: boolean;
     requires_transshipment?: boolean;

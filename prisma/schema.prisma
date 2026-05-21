@@ -292,6 +292,7 @@ model SourceSupplier {
   jettyPort        String?
   anchorage        String?
   stockAvailable   Float     @default(0)
+  stockLocations   String?
   minStockAlert    Float?
   kycStatus        String    @default("not_started")
   psiStatus        String    @default("not_started")

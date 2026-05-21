@@ -5,7 +5,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { KYC_STATUSES, PSI_STATUSES } from "@/lib/constants";
 import { cn, generateId } from "@/lib/utils";
-import { SourceSupplier, CoalSpec } from "@/types";
+import { SourceStockLocation, SourceSupplier, CoalSpec } from "@/types";
 import {
     MapPin, Package, Download, Plus, Search, Filter,
     Anchor, Ship, MoreVertical, LayoutGrid, List, AlertTriangle, TrendingUp, TrendingDown,
@@ -17,11 +17,25 @@ import { Toast } from "@/components/shared/toast";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
+const stockLocationTotal = (locations?: SourceStockLocation[]) =>
+    (locations || []).reduce((sum, loc) => sum + safeNum(loc.quantity), 0);
+const hasStockLocationInput = (locations?: SourceStockLocation[]) =>
+    (locations || []).some((loc) => Boolean(loc.name?.trim()) || safeNum(loc.quantity) > 0 || Boolean(loc.condition?.trim()));
+const normalizeStockLocations = (locations?: SourceStockLocation[]) =>
+    (locations || [])
+        .map((loc, index) => ({
+            id: loc.id || generateId(`storage-${index + 1}`),
+            name: (loc.name || "").replace(/\s+/g, " ").trim(),
+            quantity: safeNum(loc.quantity),
+            condition: (loc.condition || "").replace(/\s+/g, " ").trim(),
+        }))
+        .filter((loc) => loc.name || loc.quantity > 0 || loc.condition)
+        .map((loc) => ({ ...loc, name: loc.name || "Unnamed Storage" }));
 
 const emptySource: Partial<SourceSupplier> = {
     name: "", region: "", calorie_range: "",
     spec: { gar: 0, ts: 0, ash: 0, tm: 0, im: 0, fc: 0, adb: 0, nar: 0 },
-    stock_available: 0, min_stock_alert: 0,
+    stock_available: 0, min_stock_alert: 0, stock_locations: [],
     fob_barge_only: false, requires_transshipment: false,
     price_linked_index: "", fob_barge_price_usd: 0, fob_barge_price_idr: 0,
     jetty_port: "", anchorage: "",
@@ -51,6 +65,9 @@ export default function SourcesPage() {
     const [isEditing, setIsEditing] = React.useState(false);
     const [form, setForm] = React.useState<Partial<SourceSupplier>>(emptySource);
     const [showReportModal, setShowReportModal] = React.useState(false);
+    const formStockLocations = form.stock_locations || [];
+    const formHasStockLocations = hasStockLocationInput(formStockLocations);
+    const formLocationTotal = stockLocationTotal(formStockLocations);
 
     const lowStockSources = sources.filter(s => s.min_stock_alert && s.stock_available <= s.min_stock_alert);
 
@@ -64,26 +81,58 @@ export default function SourcesPage() {
     });
 
     const handleOpenAdd = () => {
-        setForm({ ...emptySource });
+        setForm({
+            ...emptySource,
+            stock_locations: [{ id: generateId("storage"), name: "", quantity: 0, condition: "" }],
+        });
         setIsEditing(false);
         setShowForm(true);
     };
 
     const handleOpenEdit = (src: SourceSupplier) => {
-        setForm({ ...src });
+        setForm({ ...src, stock_locations: src.stock_locations || [] });
         setIsEditing(true);
         setShowForm(true);
+    };
+
+    const setStockLocations = (locations: SourceStockLocation[]) => {
+        setForm((current) => ({
+            ...current,
+            stock_locations: locations,
+            ...(hasStockLocationInput(locations) ? { stock_available: stockLocationTotal(locations) } : {}),
+        }));
+    };
+
+    const addStockLocation = () => {
+        setStockLocations([
+            ...(form.stock_locations || []),
+            { id: generateId("storage"), name: "", quantity: 0, condition: "" },
+        ]);
+    };
+
+    const updateStockLocation = (id: string, patch: Partial<SourceStockLocation>) => {
+        setStockLocations((form.stock_locations || []).map((loc) => loc.id === id ? { ...loc, ...patch } : loc));
+    };
+
+    const removeStockLocation = (id: string) => {
+        setStockLocations((form.stock_locations || []).filter((loc) => loc.id !== id));
     };
 
     const handleSubmit = async () => {
         setIsSaving(true);
         try {
+            const stockLocations = normalizeStockLocations(form.stock_locations);
+            const payload: Partial<SourceSupplier> = {
+                ...form,
+                stock_locations: stockLocations,
+                stock_available: stockLocations.length ? stockLocationTotal(stockLocations) : safeNum(form.stock_available),
+            };
             if (isEditing && form.id) {
-                await updateSource(form.id, form);
+                await updateSource(form.id, payload);
                 setToast({ message: "Source updated successfully!", type: "success" });
             } else {
                 await addSource({
-                    ...form,
+                    ...payload,
                     id: generateId("src"),
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
@@ -244,6 +293,26 @@ export default function SourcesPage() {
                                         </div>
                                     </div>
 
+                                    {src.stock_locations?.length ? (
+                                        <div className="rounded-lg border border-border/50 bg-background/50 p-3 text-[10px] space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <span className="font-semibold uppercase text-muted-foreground">Storage Split</span>
+                                                <span className="font-bold text-emerald-500">{src.stock_locations.length} Places</span>
+                                            </div>
+                                            <div className="space-y-1">
+                                                {src.stock_locations.slice(0, 3).map((loc) => (
+                                                    <div key={loc.id} className="flex items-center justify-between gap-3">
+                                                        <span className="truncate text-foreground">{loc.name}</span>
+                                                        <span className="shrink-0 font-mono font-semibold">{safeNum(loc.quantity).toLocaleString()} MT</span>
+                                                    </div>
+                                                ))}
+                                                {src.stock_locations.length > 3 && (
+                                                    <div className="text-muted-foreground">+{src.stock_locations.length - 3} more locations</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : null}
+
                                     <div className="flex items-center justify-between text-[10px] pt-1 border-t border-border/30">
                                         <div className="flex gap-2">
                                             <span className="flex items-center gap-1.5 text-muted-foreground"><Shield className="w-3 h-3" /> <span style={{ color: kycCfg?.color }}>{kycCfg?.label}</span></span>
@@ -264,6 +333,7 @@ export default function SourcesPage() {
                                         <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Source Name</th>
                                         <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Region</th>
                                         <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Jetty Port</th>
+                                        <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Storage</th>
                                         <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">GAR</th>
                                         <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">TM%</th>
                                         <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">TS%</th>
@@ -287,6 +357,16 @@ export default function SourcesPage() {
                                                 <td className="px-4 py-3 font-semibold text-xs text-emerald-500">{src.name}</td>
                                                 <td className="px-4 py-3 text-xs">{src.region}</td>
                                                 <td className="px-4 py-3 text-xs">{src.jetty_port || "-"}</td>
+                                                <td className="px-4 py-3 text-xs min-w-[180px]">
+                                                    {src.stock_locations?.length ? (
+                                                        <div className="space-y-1">
+                                                            <div className="font-semibold text-foreground">{src.stock_locations.length} places</div>
+                                                            <div className="text-[10px] text-muted-foreground truncate">
+                                                                {src.stock_locations.slice(0, 2).map((loc) => `${loc.name}: ${safeNum(loc.quantity).toLocaleString()} MT`).join(" / ")}
+                                                            </div>
+                                                        </div>
+                                                    ) : "-"}
+                                                </td>
                                                 <td className="px-4 py-3 text-right text-xs font-mono">{src.spec.gar}</td>
                                                 <td className="px-4 py-3 text-right text-xs font-mono">{src.spec.tm || "-"}</td>
                                                 <td className="px-4 py-3 text-right text-xs font-mono">{src.spec.ts}</td>
@@ -377,7 +457,7 @@ export default function SourcesPage() {
                                     <h3 className="text-sm font-semibold flex items-center gap-2 border-b border-border/30 pb-2"><TrendingUp className="w-4 h-4 text-emerald-500" /> Inventory & Pricing Details</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
                                         <div className="space-y-1.5"><label className="text-[10px] font-semibold text-muted-foreground uppercase">Stock Available (MT)</label>
-                                            <input type="number" value={form.stock_available || ""} onChange={e => setForm({ ...form, stock_available: Number(e.target.value) })} className="w-full px-3 py-2 bg-accent/30 rounded border border-border focus:border-emerald-500/50 outline-none" /></div>
+                                            <input type="number" value={form.stock_available || ""} readOnly={formHasStockLocations} onChange={e => setForm({ ...form, stock_available: Number(e.target.value) })} className={cn("w-full px-3 py-2 bg-accent/30 rounded border border-border focus:border-emerald-500/50 outline-none", formHasStockLocations && "bg-emerald-500/10 text-emerald-500 font-semibold cursor-not-allowed")} /></div>
                                         <div className="space-y-1.5"><label className="text-[10px] font-semibold text-amber-500 uppercase flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Min Stock Alert</label>
                                             <input type="number" value={form.min_stock_alert || ""} onChange={e => setForm({ ...form, min_stock_alert: Number(e.target.value) })} className="w-full px-3 py-2 bg-accent/30 rounded border border-border focus:border-amber-500/50 outline-none" /></div>
                                         <div className="space-y-1.5"><label className="text-[10px] font-semibold text-muted-foreground uppercase">Linked Index Price</label>
@@ -389,6 +469,44 @@ export default function SourcesPage() {
                                             </select></div>
                                         <div className="space-y-1.5"><label className="text-[10px] font-semibold text-emerald-500 uppercase">FOB Barge Price (USD)</label>
                                             <input type="number" step="0.5" value={form.fob_barge_price_usd || ""} onChange={e => setForm({ ...form, fob_barge_price_usd: Number(e.target.value) })} className="w-full px-3 py-2 bg-emerald-500/10 rounded border border-emerald-500/30 focus:border-emerald-500/50 outline-none text-emerald-500 font-mono font-semibold" /></div>
+                                    </div>
+                                    <div className="rounded-lg border border-border/60 bg-background/40 p-4 space-y-3">
+                                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                            <div>
+                                                <h4 className="text-xs font-bold uppercase tracking-wide text-foreground">Storage / Stockpile Detail</h4>
+                                                <p className="text-[10px] text-muted-foreground mt-0.5">Total: <span className="font-bold text-emerald-500">{formHasStockLocations ? formLocationTotal.toLocaleString() : safeNum(form.stock_available).toLocaleString()} MT</span></p>
+                                            </div>
+                                            <button type="button" onClick={addStockLocation} className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-600 hover:bg-emerald-500/20">
+                                                <Plus className="w-3.5 h-3.5" /> Add Storage
+                                            </button>
+                                        </div>
+                                        {formStockLocations.length > 0 ? (
+                                            <div className="space-y-2">
+                                                {formStockLocations.map((loc, index) => (
+                                                    <div key={loc.id} className="grid grid-cols-1 md:grid-cols-[1.4fr_0.8fr_1fr_auto] gap-2 items-end rounded-md border border-border/50 bg-card/60 p-3">
+                                                        <div className="space-y-1.5">
+                                                            <label className="text-[10px] font-semibold text-muted-foreground uppercase">Storage Name</label>
+                                                            <input value={loc.name || ""} onChange={e => updateStockLocation(loc.id, { name: e.target.value })} placeholder={`Storage ${index + 1}`} className="w-full px-3 py-2 bg-accent/30 rounded border border-border focus:border-emerald-500/50 outline-none" />
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <label className="text-[10px] font-semibold text-muted-foreground uppercase">Stock (MT)</label>
+                                                            <input type="number" min="0" value={loc.quantity || ""} onChange={e => updateStockLocation(loc.id, { quantity: Number(e.target.value) })} className="w-full px-3 py-2 bg-accent/30 rounded border border-border focus:border-emerald-500/50 outline-none font-mono" />
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <label className="text-[10px] font-semibold text-muted-foreground uppercase">Condition</label>
+                                                            <input value={loc.condition || ""} onChange={e => updateStockLocation(loc.id, { condition: e.target.value })} placeholder="Ready / QC / Mixed" className="w-full px-3 py-2 bg-accent/30 rounded border border-border focus:border-emerald-500/50 outline-none" />
+                                                        </div>
+                                                        <button type="button" onClick={() => removeStockLocation(loc.id)} className="h-9 w-9 inline-flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-red-500 hover:border-red-500/40">
+                                                            <X className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+                                                No storage detail
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
