@@ -132,6 +132,26 @@ const statusBadgeClass = (status: ProjectStatus) =>
 
 const fmtInt = (n: number): string => safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
 const fmtUsd = (n: number): string => `$${safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+const formatDocDate = (value?: string | Date | null) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "2-digit" });
+};
+const documentRequirementKey = (doc: ShipmentDocument) =>
+  cleanText(doc.requirementCode || undefined)?.toLowerCase() ||
+  normalizeKey(doc.requirementLabel || doc.title || doc.fileName);
+const compactDocumentTitle = (doc: ShipmentDocument) => {
+  const code = cleanText(doc.requirementCode || undefined);
+  const label = cleanText(doc.requirementLabel || doc.title || doc.fileName) || "Required document";
+  const normalized = label
+    .replace(/^1\s+ORIGINAL\s+/i, "")
+    .replace(/^COPY OF\s+/i, "")
+    .replace(/^3\/3\s+/i, "")
+    .replace(/\s+ISSUED BY .+$/i, "")
+    .trim();
+  return `${code ? `${code}. ` : ""}${normalized || label}`;
+};
 const rowQty = (r: ShipmentDetail) => safeNum(r.qty_plan ?? r.quantity_loaded ?? r.qty_cob);
 const rowSellPrice = (r: ShipmentDetail) => safeNum(r.sales_price ?? r.sp ?? r.harga_actual_fob_mv);
 const rowBuyPrice = (r: ShipmentDetail) => safeNum(r.buying_price ?? r.harga_actual_fob ?? r.hpb);
@@ -1071,6 +1091,12 @@ export default function ProjectsPage() {
                       <tbody>
                         {selectedProject.rows.slice(0, 15).map((r) => {
                           const docs = shipmentDocDownloads[r.id] || [];
+                          const duplicateTotals = docs.reduce<Record<string, number>>((acc, doc) => {
+                            const key = documentRequirementKey(doc);
+                            acc[key] = (acc[key] || 0) + 1;
+                            return acc;
+                          }, {});
+                          const duplicateSeen = new Map<string, number>();
                           return (
                             <tr key={r.id} className="border-b border-border/30 align-top">
                               <td className="py-2 pr-3">{r.nomination || r.barge_name || "-"}</td>
@@ -1089,39 +1115,71 @@ export default function ProjectsPage() {
                                   <details className="group relative">
                                     <summary className={cn(
                                       "list-none inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-semibold hover:bg-accent",
-                                      docs.length === 0 && "pointer-events-none opacity-50",
+                                      docs.length === 0 && !loadingShipmentDocs && "opacity-70",
                                     )}>
-                                      <FileText className="w-3 h-3" /> Required Docs ({loadingShipmentDocs ? "..." : docs.length})
+                                      {loadingShipmentDocs ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
+                                      {loadingShipmentDocs ? "Loading Docs" : `Required Docs (${docs.length})`}
                                       <ChevronDown className="w-3 h-3 transition-transform group-open:rotate-180" />
                                     </summary>
-                                    <div className="absolute right-0 top-7 z-20 w-72 rounded-lg border border-border bg-card p-2 shadow-xl">
+                                    <div className="absolute right-0 top-7 z-20 w-80 rounded-lg border border-border bg-card p-2 shadow-xl">
                                       <button
                                         onClick={() => openRequiredDocuments(r.id)}
-                                        disabled={docs.length === 0}
+                                        disabled={docs.length === 0 || loadingShipmentDocs}
                                         className="mb-2 flex w-full items-center justify-between gap-2 rounded-md bg-primary/10 px-2 py-1.5 text-left text-[10px] font-bold text-primary hover:bg-primary/20 disabled:opacity-50"
                                       >
                                         <span className="inline-flex items-center gap-1"><Download className="w-3 h-3" /> Download All Required</span>
-                                        <span>{docs.length}</span>
+                                        <span>{loadingShipmentDocs ? "..." : docs.length}</span>
                                       </button>
                                       <div className="max-h-56 overflow-y-auto space-y-1">
-                                        {docs.map((doc) => (
-                                          <a
-                                            key={doc.id}
-                                            href={doc.url || `/api/shipments/${r.id}/documents/${doc.id}`}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[10px] font-medium hover:bg-accent"
-                                            title={doc.title || doc.fileName}
-                                          >
-                                            <FileText className="w-3 h-3 shrink-0 text-muted-foreground" />
-                                            <span className="min-w-0 flex-1 truncate">{doc.requirementCode ? `${doc.requirementCode}. ` : ""}{doc.title || doc.fileName}</span>
-                                            <ExternalLink className="w-3 h-3 shrink-0 text-muted-foreground" />
-                                          </a>
-                                        ))}
+                                        {loadingShipmentDocs ? (
+                                          <div className="rounded-md border border-border/50 bg-background/70 px-3 py-5 text-center">
+                                            <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2 text-primary" />
+                                            <p className="text-[10px] font-bold text-foreground">Loading required documents</p>
+                                            <p className="text-[10px] text-muted-foreground mt-0.5">Checking all files for this shipment...</p>
+                                          </div>
+                                        ) : docs.length === 0 ? (
+                                          <div className="rounded-md border border-border/50 bg-background/70 px-3 py-4 text-center">
+                                            <FileText className="w-4 h-4 mx-auto mb-2 text-muted-foreground/60" />
+                                            <p className="text-[10px] font-bold text-foreground">No required document yet</p>
+                                            <p className="text-[10px] text-muted-foreground mt-0.5">Upload from Shipment Monitor.</p>
+                                          </div>
+                                        ) : docs.map((doc) => {
+                                          const duplicateKey = documentRequirementKey(doc);
+                                          const duplicateIndex = (duplicateSeen.get(duplicateKey) || 0) + 1;
+                                          duplicateSeen.set(duplicateKey, duplicateIndex);
+                                          const hasDuplicate = duplicateTotals[duplicateKey] > 1;
+                                          const title = `${compactDocumentTitle(doc)}${hasDuplicate ? ` #${duplicateIndex}` : ""}`;
+                                          return (
+                                            <a
+                                              key={doc.id}
+                                              href={doc.url || `/api/shipments/${r.id}/documents/${doc.id}`}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="flex items-start gap-2 rounded-md px-2 py-2 text-[10px] hover:bg-accent"
+                                              title={`${doc.title || doc.requirementLabel || "Document"} - ${doc.fileName}`}
+                                            >
+                                              <FileText className="w-3.5 h-3.5 shrink-0 text-muted-foreground mt-0.5" />
+                                              <span className="min-w-0 flex-1">
+                                                <span className="block truncate font-bold text-foreground">{title}</span>
+                                                <span className="block truncate text-[9px] text-muted-foreground">{doc.fileName}</span>
+                                                <span className="block text-[9px] text-muted-foreground">
+                                                  Uploaded {formatDocDate(doc.createdAt)}
+                                                  {hasDuplicate ? ` • ${duplicateIndex} of ${duplicateTotals[duplicateKey]}` : ""}
+                                                </span>
+                                              </span>
+                                              <ExternalLink className="w-3 h-3 shrink-0 text-muted-foreground mt-0.5" />
+                                            </a>
+                                          );
+                                        })}
                                       </div>
                                     </div>
                                   </details>
                                 </div>
+                                {loadingShipmentDocs && (
+                                  <div className="mt-1.5 h-1.5 w-40 overflow-hidden rounded-full bg-accent">
+                                    <div className="h-full w-1/2 animate-pulse rounded-full bg-primary/60" />
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           );
