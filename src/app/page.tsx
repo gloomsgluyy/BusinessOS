@@ -180,7 +180,7 @@ function getShipmentMargin(sh: any): number {
     if (margin !== 0) return margin;
 
     const selling = getShipmentRevenuePrice(sh);
-    const cost = safeNum(sh.harga_actual_fob) || safeNum(sh.hpb);
+    const cost = safeNum(sh.buying_price) || safeNum(sh.harga_actual_fob) || safeNum(sh.hpb);
     if (selling > 0 && cost > 0) return selling - cost;
     return 0;
 }

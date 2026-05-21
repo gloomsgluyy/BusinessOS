@@ -76,6 +76,7 @@ const DEMO_SHIPMENTS: ShipmentDetail[] = [
         discharge_port: "Pohang, South Korea",
         quantity_loaded: 25000,
         sales_price: 61.45,
+        buying_price: 59.20,
         margin_mt: 2.25,
         type: "export",
         created_at: "2026-02-20T08:00:00Z",
@@ -408,9 +409,18 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             discharge_port: s.discharge_port,
             quantity_loaded: s.quantity_loaded,
             sales_price: s.sales_price,
+            buying_price: s.buying_price,
             margin_mt: s.margin_mt,
             product: s.product,
             analysis_method: s.analysis_method,
+            si_to: s.si_to,
+            si_shipper: s.si_shipper,
+            consignee: s.consignee,
+            consignee_address: s.consignee_address,
+            notify_party: s.notify_party,
+            notify_party_address: s.notify_party_address,
+            si_marked: s.si_marked,
+            quantity_tolerance: s.quantity_tolerance,
             type: s.type,
             statusReason: s.status_reason,
         };
@@ -455,9 +465,18 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 discharge_port: ship.dischargePort,
                 quantity_loaded: ship.quantityLoaded,
                 sales_price: ship.salesPrice,
+                buying_price: ship.buyingPrice,
                 margin_mt: ship.marginMt,
                 product: ship.product,
                 analysis_method: ship.analysisMethod,
+                si_to: ship.siTo,
+                si_shipper: ship.siShipper,
+                consignee: ship.consignee,
+                consignee_address: ship.consigneeAddress,
+                notify_party: ship.notifyParty,
+                notify_party_address: ship.notifyPartyAddress,
+                si_marked: ship.siMarked,
+                quantity_tolerance: ship.quantityTolerance,
                 type: ship.type,
                 year: ship.year, created_at: ship.createdAt, updated_at: ship.updatedAt
             };
@@ -499,9 +518,18 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.discharge_port !== undefined) body.discharge_port = u.discharge_port;
         if (u.quantity_loaded !== undefined) body.quantity_loaded = u.quantity_loaded;
         if (u.sales_price !== undefined) body.sales_price = u.sales_price;
+        if (u.buying_price !== undefined) body.buying_price = u.buying_price;
         if (u.margin_mt !== undefined) body.margin_mt = u.margin_mt;
         if (u.product !== undefined) body.product = u.product;
         if (u.analysis_method !== undefined) body.analysis_method = u.analysis_method;
+        if (u.si_to !== undefined) body.si_to = u.si_to;
+        if (u.si_shipper !== undefined) body.si_shipper = u.si_shipper;
+        if (u.consignee !== undefined) body.consignee = u.consignee;
+        if (u.consignee_address !== undefined) body.consignee_address = u.consignee_address;
+        if (u.notify_party !== undefined) body.notify_party = u.notify_party;
+        if (u.notify_party_address !== undefined) body.notify_party_address = u.notify_party_address;
+        if (u.si_marked !== undefined) body.si_marked = u.si_marked;
+        if (u.quantity_tolerance !== undefined) body.quantity_tolerance = u.quantity_tolerance;
         if (u.type !== undefined) body.type = u.type;
         if (u.sent_to_supplier !== undefined) body.sentToSupplier = u.sent_to_supplier;
         if (u.sent_to_barge_owner !== undefined) body.sentToBargeOwner = u.sent_to_barge_owner;
@@ -1148,6 +1176,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                                 quantity_load: s.quantityLoaded || s.qtyPlan || 0,
                                 quantity_loaded: s.quantityLoaded || s.qtyPlan || 0,
                                 sales_price: s.salesPrice || s.sp || 0,
+                                buying_price: s.buyingPrice || s.hargaActualFob || s.hpb || 0,
                                 margin_mt: s.marginMt || 0,
                                 buyer: s.buyer || s.counterparty || "-",
                                 supplier: s.supplier || s.source || "-",
@@ -1157,6 +1186,14 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                                 discharge_port: s.dischargePort || "-",
                                 product: s.product || "-",
                                 analysis_method: s.analysisMethod || "-",
+                                si_to: s.siTo,
+                                si_shipper: s.siShipper,
+                                consignee: s.consignee,
+                                consignee_address: s.consigneeAddress,
+                                notify_party: s.notifyParty,
+                                notify_party_address: s.notifyPartyAddress,
+                                si_marked: s.siMarked,
+                                quantity_tolerance: s.quantityTolerance,
                                 operational_info: s.operationalInfo,
                                 demurrage_rate: s.demurrageRate,
                                 demurrage_currency: s.demurrageCurrency,

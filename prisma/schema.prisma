@@ -207,6 +207,7 @@ model ShipmentDetail {
   blDate           DateTime?
   eta              DateTime?
   salesPrice       Float?
+  buyingPrice      Float?
   marginMt         Float?
   picName          String?
   type             String    @default("export")
@@ -265,6 +266,14 @@ model ShipmentDetail {
   demurrageCurrency String?   @default("USD")
   demurrageSource  String?
   demurrageUpdatedAt DateTime?
+  siTo             String?
+  siShipper        String?
+  consignee        String?
+  consigneeAddress String?
+  notifyParty      String?
+  notifyPartyAddress String?
+  siMarked         String?
+  quantityTolerance String?
 }
 
 model SourceSupplier {
@@ -521,6 +530,29 @@ model ProjectDocument {
   isDeleted        Boolean  @default(false)
 
   @@index([projectId])
+}
+
+model ShipmentDocument {
+  id               String   @id @default(cuid())
+  shipmentId       String
+  documentGroup    String
+  requirementCode  String?
+  requirementLabel String?
+  title            String
+  status           String   @default("draft")
+  notes            String?
+  fileName         String
+  mimeType         String?
+  sizeBytes        Int      @default(0)
+  data             Bytes
+  uploadedBy       String?
+  uploadedByName   String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  isDeleted        Boolean  @default(false)
+
+  @@index([shipmentId])
+  @@index([shipmentId, documentGroup])
 }
 
 model Partner {

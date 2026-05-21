@@ -3,10 +3,10 @@
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { cn } from "@/lib/utils";
-import { FolderKanban, Search, Plus, X, Edit, Trash2, CheckCircle2, XCircle, Clock3, ClipboardCheck, Wand2, AlertTriangle, Loader2, Download, UploadCloud, FileText, ExternalLink } from "lucide-react";
+import { FolderKanban, Search, Plus, X, Edit, Trash2, CheckCircle2, XCircle, Clock3, ClipboardCheck, Wand2, AlertTriangle, Loader2, Download, UploadCloud, FileText, ExternalLink, ChevronDown } from "lucide-react";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
-import { ProjectItem, ShipmentDetail } from "@/types";
+import { ProjectItem, ShipmentDetail, ShipmentDocument } from "@/types";
 import { useSearchParams } from "next/navigation";
 import { jsPDF } from "jspdf";
 
@@ -132,6 +132,16 @@ const statusBadgeClass = (status: ProjectStatus) =>
 
 const fmtInt = (n: number): string => safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
 const fmtUsd = (n: number): string => `$${safeNum(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+const rowQty = (r: ShipmentDetail) => safeNum(r.qty_plan ?? r.quantity_loaded ?? r.qty_cob);
+const rowSellPrice = (r: ShipmentDetail) => safeNum(r.sales_price ?? r.sp ?? r.harga_actual_fob_mv);
+const rowBuyPrice = (r: ShipmentDetail) => safeNum(r.buying_price ?? r.harga_actual_fob ?? r.hpb);
+const rowMargin = (r: ShipmentDetail) => {
+  const manual = safeNum(r.margin_mt);
+  if (manual) return manual;
+  const sell = rowSellPrice(r);
+  const buy = rowBuyPrice(r);
+  return sell && buy ? sell - buy : 0;
+};
 
 const PROJECT_TEMPLATES: Record<string, TemplateItem[]> = {
   export_shipment: [
@@ -216,9 +226,9 @@ const pickText = (...values: Array<string | number | null | undefined>) => {
   return "-";
 };
 
-const qtyText = (value: number) => {
+const qtyText = (value: number, tolerance?: string | null) => {
   if (!value) return "-";
-  return `${fmtInt(value)} MT +/- 5% (TIDAK BOLEH LEBIH)`;
+  return `${fmtInt(value)} MT ${pickText(tolerance, "+/- 5% (TIDAK BOLEH LEBIH)")}`;
 };
 
 const buildSiNumber = (project: ProjectCard, row?: ShipmentDetail) => {
@@ -253,6 +263,8 @@ export default function ProjectsPage() {
   const [saving, setSaving] = React.useState(false);
   const [urgencyLoading, setUrgencyLoading] = React.useState<string | null>(null);
   const [uploadingDoc, setUploadingDoc] = React.useState<string | null>(null);
+  const [shipmentDocDownloads, setShipmentDocDownloads] = React.useState<Record<string, ShipmentDocument[]>>({});
+  const [loadingShipmentDocs, setLoadingShipmentDocs] = React.useState(false);
   const role = String(currentUser?.role || "").toUpperCase();
   const canApprove = ["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(role);
   const canAnalyzeUrgency = ["CEO", "DIRUT", "ASS_DIRUT"].includes(role);
@@ -264,6 +276,33 @@ export default function ProjectsPage() {
     const q = searchParams.get("q");
     if (q) setSearch(q);
   }, [searchParams]);
+
+  React.useEffect(() => {
+    if (!selectedProject?.rows.length) {
+      setShipmentDocDownloads({});
+      return;
+    }
+    let active = true;
+    setLoadingShipmentDocs(true);
+    Promise.all(
+      selectedProject.rows.map(async (row) => {
+        try {
+          const res = await fetch(`/api/shipments/${row.id}/documents?group=required`);
+          const data = await res.json();
+          return [row.id, res.ok && data.success ? data.documents || [] : []] as const;
+        } catch {
+          return [row.id, []] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!active) return;
+      setShipmentDocDownloads(Object.fromEntries(entries));
+      setLoadingShipmentDocs(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [selectedProject?.id, selectedProject?.rows]);
 
   const groupedShipments = React.useMemo(() => {
     const map = new Map<string, ShipmentDetail[]>();
@@ -289,12 +328,10 @@ export default function ProjectsPage() {
       const rows = groupedShipments.get(key) || [];
       const years = rows.map((r) => safeNum(r.year)).filter((y) => y > 0);
       const year = years.length ? Math.max(...years) : (p.created_at ? new Date(p.created_at).getFullYear() : null);
-      const volume = rows.reduce((s, r) => s + safeNum(r.qty_plan || r.quantity_loaded), 0);
-      const revenue = rows.reduce((s, r) => s + safeNum(r.qty_plan || r.quantity_loaded) * safeNum(r.harga_actual_fob_mv || r.sales_price), 0);
+      const volume = rows.reduce((s, r) => s + rowQty(r), 0);
+      const revenue = rows.reduce((s, r) => s + rowQty(r) * rowSellPrice(r), 0);
       const grossProfit = rows.reduce((s, r) => {
-        const qty = safeNum(r.qty_plan || r.quantity_loaded);
-        const margin = safeNum(r.margin_mt) || (safeNum(r.harga_actual_fob_mv || r.sales_price) - safeNum(r.harga_actual_fob));
-        return s + qty * margin;
+        return s + rowQty(r) * rowMargin(r);
       }, 0);
       out.push({
         id: p.id,
@@ -337,9 +374,9 @@ export default function ProjectsPage() {
         laycan: cleanText(rows.find((r) => r.laycan)?.laycan) || "TBA",
         shippingTerm: cleanText(rows.find((r) => r.shipping_term)?.shipping_term) || "-",
         shipmentCount: rows.length,
-        volume: rows.reduce((s, r) => s + safeNum(r.qty_plan || r.quantity_loaded), 0),
-        revenue: rows.reduce((s, r) => s + safeNum(r.qty_plan || r.quantity_loaded) * safeNum(r.harga_actual_fob_mv || r.sales_price), 0),
-        grossProfit: rows.reduce((s, r) => s + safeNum(r.qty_plan || r.quantity_loaded) * (safeNum(r.margin_mt) || (safeNum(r.harga_actual_fob_mv || r.sales_price) - safeNum(r.harga_actual_fob))), 0),
+        volume: rows.reduce((s, r) => s + rowQty(r), 0),
+        revenue: rows.reduce((s, r) => s + rowQty(r) * rowSellPrice(r), 0),
+        grossProfit: rows.reduce((s, r) => s + rowQty(r) * rowMargin(r), 0),
         rows,
         sourceKind: "derived",
         createdAt: null,
@@ -409,15 +446,28 @@ export default function ProjectsPage() {
     }
   };
 
-  const downloadProjectShippingInstruction = (project: ProjectCard) => {
-    const row = project.rows[0];
+  const openRequiredDocuments = (shipmentId: string) => {
+    const docs = (shipmentDocDownloads[shipmentId] || []).filter((doc) => doc.documentGroup === "required");
+    docs.forEach((doc, index) => {
+      window.setTimeout(() => {
+        window.open(doc.url || `/api/shipments/${shipmentId}/documents/${doc.id}`, "_blank", "noopener,noreferrer");
+      }, index * 150);
+    });
+  };
+
+  const downloadProjectShippingInstruction = (project: ProjectCard, shipmentRow?: ShipmentDetail) => {
+    const row = shipmentRow || project.rows[0];
     const checklist = parseTemplateChecklist(project.projectRecord?.template_checklist)
       .filter((item) => item.required !== false);
     const docs = checklist.length ? checklist : PROJECT_TEMPLATES.export_shipment;
     const siNo = buildSiNumber(project, row);
-    const shipper = pickText(row?.supplier, row?.source, "PT. FONTANA RESOURCES INDONESIA");
-    const consignee = pickText(project.buyer, row?.buyer);
-    const notifyParty = consignee;
+    const projectName = pickText(row?.mv_project_name, project.projectName);
+    const siTo = pickText(row?.si_to, "PT. FONTANA RESOURCES INDONESIA");
+    const shipper = pickText(row?.si_shipper, row?.supplier, row?.source, "PT. FONTANA RESOURCES INDONESIA");
+    const consignee = pickText(row?.consignee, project.buyer, row?.buyer);
+    const consigneeText = row?.consignee_address ? `${consignee.toUpperCase()}\n${row.consignee_address.toUpperCase()}` : consignee.toUpperCase();
+    const notifyParty = pickText(row?.notify_party, consignee);
+    const notifyPartyText = row?.notify_party_address ? `${notifyParty.toUpperCase()}\n${row.notify_party_address.toUpperCase()}` : notifyParty.toUpperCase();
     const quantity = safeNum(row?.qty_plan || row?.quantity_loaded || project.volume);
     const nomination = pickText(row?.nomination, row?.barge_name, row?.vessel_name, project.projectName);
     const loadingPort = pickText(row?.jetty_loading_port, row?.loading_port);
@@ -426,6 +476,7 @@ export default function ProjectsPage() {
     const shippingTerm = pickText(row?.shipping_term, project.shippingTerm, "CIF");
     const method = pickText(row?.analysis_method, "ASTM");
     const goods = pickText(row?.product, "BATUBARA").toUpperCase();
+    const marked = (row?.si_marked?.trim() || '" CLEAN ON BOARD "\n" FREIGHT PAYABLE AS PER CHARTER PARTY "').replace(/;\s*/g, "\n");
 
     const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -435,7 +486,7 @@ export default function ProjectsPage() {
     const valueX = 246;
     const valueWidth = 290;
 
-    doc.setProperties({ title: `Shipping Instruction - ${project.projectName}` });
+    doc.setProperties({ title: `Shipping Instruction - ${projectName}` });
     doc.setFont("helvetica");
 
     // Compact vector mark approximating the company logo placement in the reference SI.
@@ -487,17 +538,18 @@ export default function ProjectsPage() {
     doc.setFont("helvetica", "bold");
     doc.text("TO", labelX - 24, y);
     doc.text(":", labelX - 6, y);
-    doc.text(shipper.toUpperCase(), labelX + 7, y);
+    doc.text(siTo.toUpperCase(), labelX + 7, y);
     y += 23;
 
+    drawField("Project Name / From MV", projectName.toUpperCase(), true);
     drawField("Shipper", `${shipper.toUpperCase()}\nQQ PT. MAHAKARYA SENTRA ENERGI`);
-    drawField("Consignee", consignee.toUpperCase());
-    drawField("Notify Party", notifyParty.toUpperCase());
+    drawField("Consignee", consigneeText);
+    drawField("Notify Party", notifyPartyText);
     y += 6;
     drawField("Shipping Term", shippingTerm.toUpperCase());
     drawField("Description of Goods", goods);
-    drawField("Marked", '" CLEAN ON BOARD "\n" FREIGHT PAYABLE AS PER CHARTER PARTY "');
-    drawField("Quantity", qtyText(quantity), true);
+    drawField("Marked", marked.toUpperCase());
+    drawField("Quantity", qtyText(quantity, row?.quantity_tolerance), true);
     drawField("Barge Nomination", nomination.toUpperCase(), true);
     drawField("Laycan", laycan.toUpperCase());
     drawField("Port of Loading", loadingPort.toUpperCase());
@@ -520,7 +572,7 @@ export default function ProjectsPage() {
       docY += Math.max(9.5, lines.length * 8.5);
     });
 
-    doc.save(`shipping-instruction-${slugFile(project.projectName)}.pdf`);
+    doc.save(`shipping-instruction-${slugFile(projectName)}-${slugFile(nomination)}.pdf`);
   };
 
   const uploadProjectDocument = async (project: ProjectItem, index: number, file: File | null) => {
@@ -952,86 +1004,21 @@ export default function ProjectsPage() {
                 {selectedProject.projectRecord?.template_checklist && (
                   <div className="card-elevated p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                      <h4 className="text-sm font-bold flex items-center gap-1.5"><ClipboardCheck className="w-4 h-4 text-primary" /> Project Document Requirements</h4>
-                      <button
-                        onClick={() => downloadProjectShippingInstruction(selectedProject)}
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
-                      >
-                        <Download className="w-3.5 h-3.5 inline mr-1" />
-                        Shipping Instruction PDF
-                      </button>
+                      <h4 className="text-sm font-bold flex items-center gap-1.5"><ClipboardCheck className="w-4 h-4 text-primary" /> Required Document Template</h4>
+                      <span className="text-[10px] font-semibold text-muted-foreground">Per Shipment</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {parseTemplateChecklist(selectedProject.projectRecord.template_checklist).map((item, index) => {
-                        const inputId = `project-doc-${selectedProject.projectRecord!.id}-${index}`;
-                        const uploadKey = `${selectedProject.projectRecord!.id}:${index}`;
-                        return (
-                          <div
-                            key={`${item.label}-${index}`}
-                            className={cn(
-                              "rounded-lg border p-3 text-xs transition-colors space-y-2",
-                              item.done ? "border-emerald-500/30 bg-emerald-500/10" : "border-border/50 bg-background/50",
-                            )}
-                          >
-                            <div className="flex items-start gap-2">
-                              <button
-                                type="button"
-                                onClick={() => selectedProject.projectRecord && toggleTemplateItem(selectedProject.projectRecord, index)}
-                                className="mt-0.5"
-                                title="Toggle completed"
-                              >
-                                <CheckCircle2 className={cn("w-4 h-4", item.done ? "text-emerald-500" : "text-muted-foreground/40")} />
-                              </button>
-                              <div className="min-w-0 flex-1">
-                                <span className="font-semibold block break-words">{item.code ? `${item.code}. ` : ""}{item.label}</span>
-                                <span className="text-[10px] text-muted-foreground">{item.owner}</span>
-                              </div>
+                      {parseTemplateChecklist(selectedProject.projectRecord.template_checklist).map((item, index) => (
+                        <div key={`${item.label}-${index}`} className="rounded-lg border border-border/50 bg-background/50 p-3 text-xs">
+                          <div className="flex items-start gap-2">
+                            <CheckCircle2 className={cn("w-4 h-4 mt-0.5", item.done ? "text-emerald-500" : "text-muted-foreground/40")} />
+                            <div className="min-w-0">
+                              <span className="font-semibold block break-words">{item.code ? `${item.code}. ` : ""}{item.label}</span>
+                              <span className="text-[10px] text-muted-foreground">{item.owner}</span>
                             </div>
-                            <div className="flex flex-wrap items-center gap-2 pl-6">
-                              {item.fileUrl ? (
-                                <a
-                                  href={item.fileUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex max-w-full items-center gap-1 rounded-md bg-background/70 border border-border px-2 py-1 text-[10px] font-semibold text-foreground hover:bg-accent"
-                                >
-                                  <FileText className="w-3 h-3 shrink-0" />
-                                  <span className="truncate max-w-[180px]">{item.fileName || "Uploaded document"}</span>
-                                  <ExternalLink className="w-3 h-3 shrink-0 text-muted-foreground" />
-                                </a>
-                              ) : (
-                                <span className="text-[10px] text-muted-foreground">No document uploaded</span>
-                              )}
-                              <input
-                                id={inputId}
-                                type="file"
-                                className="hidden"
-                                accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx,.csv"
-                                onChange={(e) => {
-                                  const file = e.currentTarget.files?.[0] || null;
-                                  uploadProjectDocument(selectedProject.projectRecord!, index, file);
-                                  e.currentTarget.value = "";
-                                }}
-                              />
-                              <label
-                                htmlFor={inputId}
-                                className={cn(
-                                  "inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-semibold hover:bg-accent",
-                                  uploadingDoc === uploadKey && "pointer-events-none opacity-60",
-                                )}
-                              >
-                                {uploadingDoc === uploadKey ? <Loader2 className="w-3 h-3 animate-spin" /> : <UploadCloud className="w-3 h-3" />}
-                                {item.fileUrl ? "Replace" : "Upload"}
-                              </label>
-                            </div>
-                            {item.uploadedAt && (
-                              <p className="pl-6 text-[10px] text-muted-foreground">
-                                Uploaded {new Date(item.uploadedAt).toLocaleDateString("id-ID")} by {item.uploadedByName || "-"}
-                              </p>
-                            )}
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -1046,18 +1033,67 @@ export default function ProjectsPage() {
                           <th className="text-left py-2 pr-3">Laycan</th>
                           <th className="text-left py-2 pr-3">Status</th>
                           <th className="text-right py-2 pr-3">Qty</th>
+                          <th className="text-left py-2 pr-3">Downloads</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {selectedProject.rows.slice(0, 15).map((r) => (
-                          <tr key={r.id} className="border-b border-border/30">
-                            <td className="py-2 pr-3">{r.nomination || r.barge_name || "-"}</td>
-                            <td className="py-2 pr-3">{r.jetty_loading_port || r.loading_port || "-"}</td>
-                            <td className="py-2 pr-3">{r.laycan || "-"}</td>
-                            <td className="py-2 pr-3">{r.shipment_status || r.status || "-"}</td>
-                            <td className="py-2 pr-3 text-right">{fmtInt(safeNum(r.qty_plan || r.quantity_loaded))}</td>
-                          </tr>
-                        ))}
+                        {selectedProject.rows.slice(0, 15).map((r) => {
+                          const docs = shipmentDocDownloads[r.id] || [];
+                          return (
+                            <tr key={r.id} className="border-b border-border/30 align-top">
+                              <td className="py-2 pr-3">{r.nomination || r.barge_name || "-"}</td>
+                              <td className="py-2 pr-3">{r.jetty_loading_port || r.loading_port || "-"}</td>
+                              <td className="py-2 pr-3">{r.laycan || "-"}</td>
+                              <td className="py-2 pr-3">{r.shipment_status || r.status || "-"}</td>
+                              <td className="py-2 pr-3 text-right">{fmtInt(rowQty(r))}</td>
+                              <td className="py-2 pr-3 min-w-[300px]">
+                                <div className="flex flex-wrap items-start gap-1.5">
+                                  <button
+                                    onClick={() => downloadProjectShippingInstruction(selectedProject, r)}
+                                    className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary border border-primary/20 px-2 py-1 text-[10px] font-semibold hover:bg-primary/20"
+                                  >
+                                    <Download className="w-3 h-3" /> SI
+                                  </button>
+                                  <details className="group relative">
+                                    <summary className={cn(
+                                      "list-none inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-semibold hover:bg-accent",
+                                      docs.length === 0 && "pointer-events-none opacity-50",
+                                    )}>
+                                      <FileText className="w-3 h-3" /> Required Docs ({loadingShipmentDocs ? "..." : docs.length})
+                                      <ChevronDown className="w-3 h-3 transition-transform group-open:rotate-180" />
+                                    </summary>
+                                    <div className="absolute right-0 top-7 z-20 w-72 rounded-lg border border-border bg-card p-2 shadow-xl">
+                                      <button
+                                        onClick={() => openRequiredDocuments(r.id)}
+                                        disabled={docs.length === 0}
+                                        className="mb-2 flex w-full items-center justify-between gap-2 rounded-md bg-primary/10 px-2 py-1.5 text-left text-[10px] font-bold text-primary hover:bg-primary/20 disabled:opacity-50"
+                                      >
+                                        <span className="inline-flex items-center gap-1"><Download className="w-3 h-3" /> Download All Required</span>
+                                        <span>{docs.length}</span>
+                                      </button>
+                                      <div className="max-h-56 overflow-y-auto space-y-1">
+                                        {docs.map((doc) => (
+                                          <a
+                                            key={doc.id}
+                                            href={doc.url || `/api/shipments/${r.id}/documents/${doc.id}`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[10px] font-medium hover:bg-accent"
+                                            title={doc.title || doc.fileName}
+                                          >
+                                            <FileText className="w-3 h-3 shrink-0 text-muted-foreground" />
+                                            <span className="min-w-0 flex-1 truncate">{doc.requirementCode ? `${doc.requirementCode}. ` : ""}{doc.title || doc.fileName}</span>
+                                            <ExternalLink className="w-3 h-3 shrink-0 text-muted-foreground" />
+                                          </a>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </details>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

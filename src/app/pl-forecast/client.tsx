@@ -266,7 +266,7 @@ export default function PLForecastClient() {
             const qty = safeNum(sh.qty_plan ?? sh.quantity_loaded ?? sh.qty_cob);
             const weight = qty > 0 ? qty : 1;
             const sellingPrice = safeNum(sh.sales_price ?? sh.sp ?? sh.harga_actual_fob_mv ?? sh.harga_actual_fob);
-            const buyingPrice = safeNum(sh.hpb);
+            const buyingPrice = safeNum(sh.buying_price ?? sh.harga_actual_fob ?? sh.hpb);
             const freightCost = safeNum(sh.price_freight ?? sh.shipping_rate);
             const otherCost = parseLooseNum(sh.allowance);
             if (!existing) {

@@ -11,6 +11,18 @@ async function triggerPush() {
     PushService.debouncedPush("shipmentDetail").catch(err => console.error("Optional Sheet push failed:", err));
 }
 
+async function ensureShipmentDetailExtendedColumns() {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "buyingPrice" DOUBLE PRECISION;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "siTo" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "siShipper" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "consignee" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "consigneeAddress" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "notifyParty" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "notifyPartyAddress" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "siMarked" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "quantityTolerance" TEXT;`);
+}
+
 async function tryAuditLog(userId: string, userName: string, action: string, entityId: string, details: string) {
     try {
         await prisma.auditLog.create({
@@ -209,6 +221,7 @@ export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureShipmentDetailExtendedColumns();
         const { searchParams } = new URL(req.url);
         const lite = ["1", "true", "yes"].includes((searchParams.get("lite") || "").toLowerCase());
         const includeTimeline = ["1", "true", "yes"].includes((searchParams.get("timeline") || "").toLowerCase());
@@ -247,6 +260,7 @@ export async function GET(req: Request) {
                         year: true,
                         quantityLoaded: true,
                         salesPrice: true,
+                        buyingPrice: true,
                         marginMt: true,
                         buyer: true,
                         supplier: true,
@@ -264,6 +278,14 @@ export async function GET(req: Request) {
                         demurrageCurrency: true,
                         demurrageSource: true,
                         demurrageUpdatedAt: true,
+                        siTo: true,
+                        siShipper: true,
+                        consignee: true,
+                        consigneeAddress: true,
+                        notifyParty: true,
+                        notifyPartyAddress: true,
+                        siMarked: true,
+                        quantityTolerance: true,
                         createdAt: true,
                         updatedAt: true,
                         isDeleted: true,
@@ -372,6 +394,7 @@ export async function POST(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureShipmentDetailExtendedColumns();
 
         const data = await req.json();
 
@@ -434,6 +457,7 @@ export async function POST(req: Request) {
                 // Detailed/Unified fields
                 quantityLoaded: parseNum(data.quantity_loaded ?? data.quantityLoaded),
                 salesPrice: parseNum(data.sales_price ?? data.salesPrice),
+                buyingPrice: parseNum(data.buying_price ?? data.buyingPrice),
                 marginMt: parseNum(data.margin_mt ?? data.marginMt),
                 buyer: data.buyer,
                 supplier: data.supplier || data.source,
@@ -443,6 +467,14 @@ export async function POST(req: Request) {
                 dischargePort: data.discharge_port ?? data.dischargePort,
                 product: data.product,
                 analysisMethod: data.analysis_method ?? data.analysisMethod,
+                siTo: data.si_to ?? data.siTo,
+                siShipper: data.si_shipper ?? data.siShipper,
+                consignee: data.consignee,
+                consigneeAddress: data.consignee_address ?? data.consigneeAddress,
+                notifyParty: data.notify_party ?? data.notifyParty,
+                notifyPartyAddress: data.notify_party_address ?? data.notifyPartyAddress,
+                siMarked: data.si_marked ?? data.siMarked,
+                quantityTolerance: data.quantity_tolerance ?? data.quantityTolerance,
                 type: data.type || "export",
                 operationalInfo: data.operationalInfo ?? data.operational_info,
                 demurrageRate: data.demurrageRate !== undefined
@@ -477,6 +509,7 @@ export async function PUT(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureShipmentDetailExtendedColumns();
 
         const data = await req.json();
         if (!data.id) return NextResponse.json({ error: "ID missing" }, { status: 400 });
@@ -524,6 +557,9 @@ export async function PUT(req: Request) {
                 salesPrice: data.sales_price !== undefined
                     ? parseNum(data.sales_price)
                     : (data.salesPrice !== undefined ? parseNum(data.salesPrice) : undefined),
+                buyingPrice: data.buying_price !== undefined
+                    ? parseNum(data.buying_price)
+                    : (data.buyingPrice !== undefined ? parseNum(data.buyingPrice) : undefined),
                 marginMt: data.margin_mt !== undefined
                     ? parseNum(data.margin_mt)
                     : (data.marginMt !== undefined ? parseNum(data.marginMt) : undefined),
@@ -535,6 +571,14 @@ export async function PUT(req: Request) {
                 dischargePort: data.discharge_port !== undefined ? data.discharge_port : (data.dischargePort !== undefined ? data.dischargePort : undefined),
                 product: data.product,
                 analysisMethod: data.analysis_method !== undefined ? data.analysis_method : (data.analysisMethod !== undefined ? data.analysisMethod : undefined),
+                siTo: data.si_to !== undefined ? data.si_to : (data.siTo !== undefined ? data.siTo : undefined),
+                siShipper: data.si_shipper !== undefined ? data.si_shipper : (data.siShipper !== undefined ? data.siShipper : undefined),
+                consignee: data.consignee !== undefined ? data.consignee : undefined,
+                consigneeAddress: data.consignee_address !== undefined ? data.consignee_address : (data.consigneeAddress !== undefined ? data.consigneeAddress : undefined),
+                notifyParty: data.notify_party !== undefined ? data.notify_party : (data.notifyParty !== undefined ? data.notifyParty : undefined),
+                notifyPartyAddress: data.notify_party_address !== undefined ? data.notify_party_address : (data.notifyPartyAddress !== undefined ? data.notifyPartyAddress : undefined),
+                siMarked: data.si_marked !== undefined ? data.si_marked : (data.siMarked !== undefined ? data.siMarked : undefined),
+                quantityTolerance: data.quantity_tolerance !== undefined ? data.quantity_tolerance : (data.quantityTolerance !== undefined ? data.quantityTolerance : undefined),
                 type: data.type !== undefined ? data.type : undefined,
                 operationalInfo: data.operationalInfo !== undefined
                     ? data.operationalInfo

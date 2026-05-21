@@ -6,11 +6,11 @@ import { useCommercialStore } from "@/store/commercial-store";
 import { useDailyDeliveryStore } from "@/store/daily-delivery-store";
 import { SHIPMENT_STATUSES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { ShipmentDetail, ShipmentStatus } from "@/types";
+import { ShipmentDetail, ShipmentDocument, ShipmentDocumentGroup, ShipmentStatus } from "@/types";
 import {
     Ship, Calendar, Plus, ExternalLink, Activity, Anchor, FileText, CheckCircle2,
     AlertTriangle, Package, DollarSign, TrendingUp, Filter, Search, Edit, Trash2, X, Download, Truck, Droplets, Flame, Beaker, Clock, ShieldCheck, CloudLightning, Leaf, Loader2, Wand2,
-    Map as MapIcon, MapPin, ChevronUp, ChevronDown, Eye, List, Info, CreditCard
+    Map as MapIcon, MapPin, ChevronUp, ChevronDown, Eye, List, Info, CreditCard, UploadCloud, Save
 } from "lucide-react";
 import { AIAgent } from "@/lib/ai-agent";
 import { ReportModal } from "@/components/shared/report-modal";
@@ -25,10 +25,43 @@ import { canWriteModuleForRole, normalizeRole } from "@/lib/role-access";
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 const normalizeKey = (v?: string | null) => (v || "").toUpperCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+const shipmentQty = (s: ShipmentDetail) => safeNum(s.quantity_loaded ?? s.qty_plan ?? s.qty_cob);
+const shipmentSellPrice = (s: ShipmentDetail) => safeNum(s.sales_price ?? s.sp ?? s.harga_actual_fob_mv);
+const shipmentBuyPrice = (s: ShipmentDetail) => safeNum(s.buying_price ?? s.harga_actual_fob ?? s.hpb);
+const shipmentMargin = (s: ShipmentDetail) => {
+    const manualMargin = safeNum(s.margin_mt);
+    if (manualMargin) return manualMargin;
+    const sell = shipmentSellPrice(s);
+    const buy = shipmentBuyPrice(s);
+    return sell && buy ? sell - buy : 0;
+};
 const monthToNumber: Record<string, number> = {
     JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5,
     JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11,
     MEI: 4, AGU: 7, OKT: 9, DES: 11,
+};
+
+const DOCUMENT_ACCEPT = "image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.docx,.jpg,.jpeg,.png,.webp,.gif";
+
+const SHIPMENT_REQUIRED_DOCUMENTS = [
+    { code: "a", label: "COPY OF LAPORAN HASIL VERIFIKASI" },
+    { code: "b", label: "1 ORIGINAL DRAUGHT SURVEY REPORT" },
+    { code: "c", label: "1 ORIGINAL SURAT KETERANGAN ASAL BARANG" },
+    { code: "d", label: "1 ORIGINAL SURAT KEBENARAN DOKUMEN" },
+    { code: "e", label: "1 ORIGINAL SURAT KIRIM BARANG" },
+    { code: "f", label: "1 ORIGINAL BUKTI BAYAR ROYALTI" },
+    { code: "g", label: "3/3 ORIGINAL BILL OF LADING ISSUED BY LOADPORT AGENT" },
+    { code: "h", label: "3/3 COPIES NON NEGOTIABLE BILL OF LADING ISSUED BY LOADPORT AGENT" },
+    { code: "i", label: "1 ORIGINAL AND 4 COPIES OF CERTIFICATE OF SAMPLING AND ANALYSIS ISSUED BY INDEPENDENT SURVEYOR AT LOADING PORT (IF ANY)" },
+    { code: "j", label: "1 ORIGINAL AND 4 COPIES OF CERTIFICATE OF WEIGHT ISSUED BY INDEPENDENT SURVEYOR AT LOADING PORT (IF ANY)" },
+    { code: "k", label: "1 ORIGINAL AND 2 COPIES OF CERTIFICATE OF DRAUGHT SURVEY REPORT BY INDEPENDENT SURVEYOR AT LOADING PORT" },
+];
+
+type DocumentUploadDraft = {
+    title: string;
+    status: string;
+    notes: string;
+    file: File | null;
 };
 
 const parseFlexibleDate = (value?: string | null): Date | null => {
@@ -254,7 +287,7 @@ export default function ShipmentMonitorPage() {
     const [activeTab, setActiveTab] = React.useState<"all" | "upcoming" | "loading" | "in_transit" | "completed" | "cancelled">("all");
     const [activeView, setActiveView] = React.useState<"list" | "card" | "map">("list");
     const [detailShipment, setDetailShipment] = React.useState<ShipmentDetail | null>(null);
-    const [detailModalTab, setDetailModalTab] = React.useState<"overview" | "blending" | "timeline" | "risk">("overview");
+    const [detailModalTab, setDetailModalTab] = React.useState<"overview" | "documents" | "blending" | "timeline" | "risk">("overview");
     const [showChildBargeDetails, setShowChildBargeDetails] = React.useState(false);
     const [editShipment, setEditShipment] = React.useState<ShipmentDetail | null>(null);
     const [editForm, setEditForm] = React.useState<Partial<ShipmentDetail>>({});
@@ -383,8 +416,17 @@ export default function ShipmentMonitorPage() {
     const [milestoneForm, setMilestoneForm] = React.useState({ title: "", subtitle: "", status: "pending" as "completed" | "current" | "pending" });
     const [isSaving, setIsSaving] = React.useState(false);
     const [toast, setToast] = React.useState<{ message: string; type: ToastType } | null>(null);
+    const [shipmentDocuments, setShipmentDocuments] = React.useState<ShipmentDocument[]>([]);
+    const [isLoadingDocuments, setIsLoadingDocuments] = React.useState(false);
+    const [documentAction, setDocumentAction] = React.useState<string | null>(null);
+    const [additionalDraft, setAdditionalDraft] = React.useState<DocumentUploadDraft>({ title: "", status: "draft", notes: "", file: null });
+    const [criticalDraft, setCriticalDraft] = React.useState<DocumentUploadDraft>({ title: "", status: "draft", notes: "", file: null });
+    const [editingDocumentId, setEditingDocumentId] = React.useState<string | null>(null);
+    const [editingDocumentDraft, setEditingDocumentDraft] = React.useState({ title: "", status: "draft", notes: "" });
+    const [draggingDocumentKey, setDraggingDocumentKey] = React.useState<string | null>(null);
     const normalizedRole = normalizeRole((session?.user as any)?.role);
     const canManageShipments = canWriteModuleForRole((session?.user as any)?.role, "OPERATIONS_TRAFFIC");
+    const canAccessCriticalDocuments = Boolean(normalizedRole && ["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(normalizedRole));
     const canRunRiskAnalysis = Boolean(normalizedRole && [
         "CEO",
         "DIRUT",
@@ -400,6 +442,275 @@ export default function ShipmentMonitorPage() {
         "QC_ADMIN_1",
         "QC_ADMIN_2",
     ].includes(normalizedRole));
+
+    const loadShipmentDocuments = React.useCallback(async (shipmentId: string) => {
+        setIsLoadingDocuments(true);
+        try {
+            const res = await fetch(`/api/shipments/${shipmentId}/documents`);
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to load shipment documents");
+            setShipmentDocuments(data.documents || []);
+        } catch (error: any) {
+            setShipmentDocuments([]);
+            setToast({ message: error?.message || "Failed to load shipment documents", type: "error" });
+        } finally {
+            setIsLoadingDocuments(false);
+        }
+    }, []);
+
+    React.useEffect(() => {
+        if (!detailShipment?.id) {
+            setShipmentDocuments([]);
+            return;
+        }
+        loadShipmentDocuments(detailShipment.id);
+    }, [detailShipment?.id, loadShipmentDocuments]);
+
+    const uploadShipmentDocument = async (params: {
+        group: ShipmentDocumentGroup;
+        file: File | null;
+        title: string;
+        status?: string;
+        notes?: string;
+        requirementCode?: string;
+        requirementLabel?: string;
+    }) => {
+        if (!detailShipment?.id || !params.file) return;
+        if (params.group === "critical" && !canAccessCriticalDocuments) {
+            setToast({ message: "Critical document can only be managed by executive roles.", type: "error" });
+            return;
+        }
+        if (params.group !== "critical" && !canManageShipments) {
+            setToast({ message: "You do not have permission to upload shipment documents.", type: "error" });
+            return;
+        }
+
+        const key = `${params.group}:${params.requirementCode || params.title}`;
+        setDocumentAction(key);
+        try {
+            const formData = new FormData();
+            formData.append("file", params.file);
+            formData.append("documentGroup", params.group);
+            formData.append("title", params.title);
+            formData.append("status", params.status || "draft");
+            formData.append("notes", params.notes || "");
+            formData.append("requirementCode", params.requirementCode || "");
+            formData.append("requirementLabel", params.requirementLabel || "");
+            const res = await fetch(`/api/shipments/${detailShipment.id}/documents`, { method: "POST", body: formData });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Upload failed");
+            setShipmentDocuments((current) => [data.document, ...current]);
+            setToast({ message: "Document uploaded", type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to upload document", type: "error" });
+        } finally {
+            setDocumentAction(null);
+        }
+    };
+
+    const saveCustomDocument = async (group: "additional" | "critical") => {
+        const draft = group === "critical" ? criticalDraft : additionalDraft;
+        await uploadShipmentDocument({
+            group,
+            file: draft.file,
+            title: draft.title || (group === "critical" ? "Critical document" : "Additional document"),
+            status: draft.status || "draft",
+            notes: draft.notes,
+        });
+        if (draft.file) {
+            if (group === "critical") setCriticalDraft({ title: "", status: "draft", notes: "", file: null });
+            else setAdditionalDraft({ title: "", status: "draft", notes: "", file: null });
+        }
+    };
+
+    const uploadRequiredFiles = async (req: { code: string; label: string }, files: File[]) => {
+        for (const file of files) {
+            await uploadShipmentDocument({
+                group: "required",
+                file,
+                title: req.label,
+                status: "received",
+                requirementCode: req.code,
+                requirementLabel: req.label,
+            });
+        }
+    };
+
+    const renderDocumentDropzone = (params: {
+        id: string;
+        actionKey: string;
+        disabled?: boolean;
+        multiple?: boolean;
+        selectedFileName?: string;
+        tone?: "primary" | "red";
+        onFiles: (files: File[]) => void;
+    }) => {
+        const active = draggingDocumentKey === params.actionKey;
+        const busy = documentAction === params.actionKey;
+        const color = params.tone === "red" ? "red" : "primary";
+        return (
+            <label
+                htmlFor={params.id}
+                onDragEnter={(e) => {
+                    e.preventDefault();
+                    if (!params.disabled) setDraggingDocumentKey(params.actionKey);
+                }}
+                onDragOver={(e) => {
+                    e.preventDefault();
+                    if (!params.disabled) e.dataTransfer.dropEffect = "copy";
+                }}
+                onDragLeave={(e) => {
+                    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                    setDraggingDocumentKey(null);
+                }}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    setDraggingDocumentKey(null);
+                    if (params.disabled) return;
+                    const files = Array.from(e.dataTransfer.files || []);
+                    if (files.length) params.onFiles(params.multiple ? files : files.slice(0, 1));
+                }}
+                className={cn(
+                    "flex min-h-20 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-3 py-3 text-center text-xs transition-colors",
+                    color === "red"
+                        ? "border-red-500/30 bg-red-500/5 hover:bg-red-500/10"
+                        : "border-primary/30 bg-primary/5 hover:bg-primary/10",
+                    active && (color === "red" ? "border-red-500 bg-red-500/15" : "border-primary bg-primary/15"),
+                    params.disabled && "pointer-events-none opacity-50",
+                )}
+            >
+                <input
+                    id={params.id}
+                    type="file"
+                    multiple={params.multiple}
+                    className="hidden"
+                    accept={DOCUMENT_ACCEPT}
+                    onChange={(e) => {
+                        const files = Array.from(e.currentTarget.files || []);
+                        if (files.length) params.onFiles(params.multiple ? files : files.slice(0, 1));
+                        e.currentTarget.value = "";
+                    }}
+                />
+                {busy ? <Loader2 className="mb-1.5 h-4 w-4 animate-spin" /> : <UploadCloud className="mb-1.5 h-4 w-4" />}
+                <span className="font-bold">{busy ? "Uploading..." : "Drop files or choose file"}</span>
+                <span className="mt-0.5 max-w-full truncate text-[10px] text-muted-foreground">
+                    {params.selectedFileName || "Images, PDF, DOCX"}
+                </span>
+            </label>
+        );
+    };
+
+    const startEditDocument = (doc: ShipmentDocument) => {
+        setEditingDocumentId(doc.id);
+        setEditingDocumentDraft({ title: doc.title || "", status: doc.status || "draft", notes: doc.notes || "" });
+    };
+
+    const saveDocumentEdit = async (doc: ShipmentDocument) => {
+        if (!detailShipment?.id) return;
+        setDocumentAction(`edit:${doc.id}`);
+        try {
+            const res = await fetch(`/api/shipments/${detailShipment.id}/documents/${doc.id}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(editingDocumentDraft),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to update document");
+            setShipmentDocuments((current) => current.map((item) => item.id === doc.id ? data.document : item));
+            setEditingDocumentId(null);
+            setToast({ message: "Document saved", type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to save document", type: "error" });
+        } finally {
+            setDocumentAction(null);
+        }
+    };
+
+    const deleteShipmentDocument = async (doc: ShipmentDocument) => {
+        if (!detailShipment?.id) return;
+        if (!window.confirm(`Delete ${doc.title || doc.fileName}?`)) return;
+        setDocumentAction(`delete:${doc.id}`);
+        try {
+            const res = await fetch(`/api/shipments/${detailShipment.id}/documents/${doc.id}`, { method: "DELETE" });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to delete document");
+            setShipmentDocuments((current) => current.filter((item) => item.id !== doc.id));
+            setToast({ message: "Document deleted", type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to delete document", type: "error" });
+        } finally {
+            setDocumentAction(null);
+        }
+    };
+
+    const renderShipmentDocumentList = (docs: ShipmentDocument[]) => {
+        if (docs.length === 0) {
+            return <p className="text-[10px] text-muted-foreground">No files uploaded yet.</p>;
+        }
+        return (
+            <div className="space-y-1.5">
+                {docs.map((doc) => {
+                    const isEditing = editingDocumentId === doc.id;
+                    const canManageThisDoc = doc.documentGroup === "critical" ? canAccessCriticalDocuments : canManageShipments;
+                    return (
+                        <div key={doc.id} className="rounded-lg border border-border/50 bg-background/70 p-2.5 text-xs">
+                            {isEditing ? (
+                                <div className="space-y-2">
+                                    <input
+                                        value={editingDocumentDraft.title}
+                                        onChange={(e) => setEditingDocumentDraft({ ...editingDocumentDraft, title: e.target.value })}
+                                        className="w-full px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs"
+                                    />
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <select
+                                            value={editingDocumentDraft.status}
+                                            onChange={(e) => setEditingDocumentDraft({ ...editingDocumentDraft, status: e.target.value })}
+                                            className="w-full px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs"
+                                        >
+                                            <option value="draft">Draft</option>
+                                            <option value="received">Received</option>
+                                            <option value="reviewed">Reviewed</option>
+                                            <option value="final">Final</option>
+                                        </select>
+                                        <input
+                                            value={editingDocumentDraft.notes}
+                                            onChange={(e) => setEditingDocumentDraft({ ...editingDocumentDraft, notes: e.target.value })}
+                                            placeholder="Notes"
+                                            className="w-full px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs"
+                                        />
+                                    </div>
+                                    <div className="flex justify-end gap-2">
+                                        <button onClick={() => setEditingDocumentId(null)} className="px-2 py-1 rounded-md hover:bg-accent text-[10px]">Cancel</button>
+                                        <button onClick={() => saveDocumentEdit(doc)} disabled={documentAction === `edit:${doc.id}`} className="px-2 py-1 rounded-md bg-primary text-primary-foreground text-[10px] font-semibold disabled:opacity-60">
+                                            {documentAction === `edit:${doc.id}` ? "Saving..." : "Save"}
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <a href={doc.url || `/api/shipments/${doc.shipmentId}/documents/${doc.id}`} target="_blank" rel="noreferrer" className="min-w-0 inline-flex items-center gap-1.5 font-semibold text-foreground hover:text-primary">
+                                        <FileText className="w-3.5 h-3.5 shrink-0" />
+                                        <span className="truncate max-w-[220px]">{doc.title || doc.fileName}</span>
+                                        <ExternalLink className="w-3 h-3 shrink-0 text-muted-foreground" />
+                                    </a>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="rounded bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase text-muted-foreground">{doc.status || "draft"}</span>
+                                        {canManageThisDoc && (
+                                            <>
+                                                <button onClick={() => startEditDocument(doc)} className="p-1 rounded hover:bg-accent" title="Edit document metadata"><Edit className="w-3.5 h-3.5" /></button>
+                                                <button onClick={() => deleteShipmentDocument(doc)} disabled={documentAction === `delete:${doc.id}`} className="p-1 rounded hover:bg-red-500/10 text-red-500 disabled:opacity-50" title="Delete document"><Trash2 className="w-3.5 h-3.5" /></button>
+                                            </>
+                                        )}
+                                    </div>
+                                    {doc.notes && <p className="w-full text-[10px] text-muted-foreground">{doc.notes}</p>}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
 
     const handleAddMilestone = () => {
         if (!canManageShipments) {
@@ -649,9 +960,9 @@ export default function ShipmentMonitorPage() {
         intransit: statusCounts.in_transit,
         completed: statusCounts.completed,
         cancelled: statusCounts.cancelled,
-        revenue: shipments.reduce((sum, s) => sum + (safeNum(s.quantity_loaded || s.qty_plan || s.qty_cob) * safeNum(s.harga_actual_fob_mv || s.sales_price || s.sp)), 0),
-        gp: shipments.reduce((sum, s) => sum + (safeNum(s.quantity_loaded || s.qty_plan || s.qty_cob) * safeNum(s.margin_mt)), 0),
-        volume: shipments.reduce((sum, s) => sum + safeNum(s.quantity_loaded || s.qty_plan || s.qty_cob), 0)
+        revenue: shipments.reduce((sum, s) => sum + (shipmentQty(s) * shipmentSellPrice(s)), 0),
+        gp: shipments.reduce((sum, s) => sum + (shipmentQty(s) * shipmentMargin(s)), 0),
+        volume: shipments.reduce((sum, s) => sum + shipmentQty(s), 0)
     };
 
     const { page, pageSize, setPage, setPageSize } = usePagination({ defaultPageSize: activeView === "card" ? 9 : 20 });
@@ -1102,8 +1413,8 @@ export default function ShipmentMonitorPage() {
                                                             <p className="font-medium truncate">{sh.jetty_loading_port || sh.loading_port || "-"}</p>
                                                         </div>
                                                         <div>
-                                                            <p className="text-muted-foreground text-[10px] uppercase">Harga FOB MV</p>
-                                                            <p className="font-medium text-emerald-500 font-mono">{sh.harga_actual_fob_mv ? `$${safeFmt(sh.harga_actual_fob_mv)}` : (sh.sales_price ? `$${safeFmt(sh.sales_price)}` : "-")}</p>
+                                                            <p className="text-muted-foreground text-[10px] uppercase">Sales Price</p>
+                                                            <p className="font-medium text-emerald-500 font-mono">{shipmentSellPrice(sh) ? `$${safeFmt(shipmentSellPrice(sh))}` : "-"}</p>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1149,8 +1460,8 @@ export default function ShipmentMonitorPage() {
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Nomination</th>
                                                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Qty Plan</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Laycan</th>
-                                                <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">FOB MV</th>
-                                                <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">HPB</th>
+                                                <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Sales</th>
+                                                <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Buy/Margin</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Status</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Pending Reason</th>
                                                 {mainTab === "Risk Assessment" && <th className="text-center px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Risk</th>}
@@ -1179,8 +1490,10 @@ export default function ShipmentMonitorPage() {
                                                             <td className="px-4 py-3 text-xs">{sh.nomination || sh.vessel_name || sh.barge_name || "-"}</td>
                                                             <td className="px-4 py-3 text-right text-xs font-semibold">{(sh.qty_plan || sh.quantity_loaded) ? safeNum(sh.qty_plan || sh.quantity_loaded).toLocaleString() : "-"}</td>
                                                             <td className="px-4 py-3 text-[10px] text-muted-foreground">{formatLaycanWithYear(sh)}</td>
-                                                            <td className="px-4 py-3 text-right text-xs font-mono">{(sh.harga_actual_fob_mv || sh.sales_price) ? `$${safeFmt(sh.harga_actual_fob_mv || sh.sales_price)}` : "-"}</td>
-                                                            <td className="px-4 py-3 text-right text-xs font-mono font-medium text-emerald-500">{sh.hpb ? `$${safeFmt(sh.hpb)}` : (sh.margin_mt ? `$${safeFmt(sh.margin_mt)}` : "-")}</td>
+                                                            <td className="px-4 py-3 text-right text-xs font-mono">{shipmentSellPrice(sh) ? `$${safeFmt(shipmentSellPrice(sh))}` : "-"}</td>
+                                                            <td className="px-4 py-3 text-right text-xs font-mono font-medium text-emerald-500">
+                                                                {shipmentBuyPrice(sh) ? `$${safeFmt(shipmentBuyPrice(sh))}` : "-"} / {shipmentMargin(sh) ? `$${safeFmt(shipmentMargin(sh))}` : "-"}
+                                                            </td>
                                                             <td className="px-4 py-3">
                                                                 <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
                                                                     {stCfg?.label}
@@ -1628,6 +1941,7 @@ export default function ShipmentMonitorPage() {
                             <div className="mb-4">
                                 <div className="grid grid-cols-2 md:flex md:items-center gap-1.5 bg-accent/40 p-1.5 rounded-xl border border-border/40">
                                     <button onClick={() => setDetailModalTab("overview")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "overview" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Overview</button>
+                                    <button onClick={() => setDetailModalTab("documents")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "documents" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Documents</button>
                                     <button onClick={() => setDetailModalTab("blending")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "blending" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Blending Details</button>
                                     <button onClick={() => setDetailModalTab("timeline")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "timeline" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Timeline</button>
                                     <button onClick={() => setDetailModalTab("risk")} className={cn("px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all", detailModalTab === "risk" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50")}>Risk Analysis</button>
@@ -1670,10 +1984,12 @@ export default function ShipmentMonitorPage() {
                                                     <DollarSign className="w-4 h-4" /> Commercials
                                                 </h4>
                                                 <div className="space-y-2.5 text-xs sm:text-[13px]">
-                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Qty Loaded</span><span className="font-black text-foreground break-words">{detailShipment.quantity_loaded?.toLocaleString() || "0"} MT</span></div>
-                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Sales Price</span><span className="font-bold text-emerald-600 break-words">${safeNum(detailShipment.sales_price || detailShipment.sp)}/MT</span></div>
-                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Margin</span><span className="font-bold text-blue-600 break-words">${safeNum(detailShipment.margin_mt)}/MT</span></div>
-                                                    <div className="grid grid-cols-[96px_1fr] gap-3 border-t border-emerald-500/10 pt-2"><span className="text-muted-foreground uppercase">Est. Revenue</span><span className="font-black text-emerald-700 break-words">${((detailShipment.quantity_loaded || 0) * safeNum(detailShipment.sales_price || detailShipment.sp)).toLocaleString()}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Qty Loaded</span><span className="font-black text-foreground break-words">{shipmentQty(detailShipment).toLocaleString()} MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Sales Price</span><span className="font-bold text-emerald-600 break-words">${safeFmt(shipmentSellPrice(detailShipment))}/MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Buying Price</span><span className="font-bold text-amber-600 break-words">${safeFmt(shipmentBuyPrice(detailShipment))}/MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Margin</span><span className="font-bold text-blue-600 break-words">${safeFmt(shipmentMargin(detailShipment))}/MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3 border-t border-emerald-500/10 pt-2"><span className="text-muted-foreground uppercase">Est. Revenue</span><span className="font-black text-emerald-700 break-words">${(shipmentQty(detailShipment) * shipmentSellPrice(detailShipment)).toLocaleString()}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Est. GP</span><span className="font-black text-blue-700 break-words">${(shipmentQty(detailShipment) * shipmentMargin(detailShipment)).toLocaleString()}</span></div>
                                                 </div>
                                             </div>
                                         </div>
@@ -1843,6 +2159,140 @@ export default function ShipmentMonitorPage() {
                                                 </div>
                                             </div>
                                         </div>
+                                    </div>
+                                )}
+
+                                {detailModalTab === "documents" && (
+                                    <div className="space-y-5 animate-fade-in">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            <div>
+                                                <h4 className="text-sm font-bold flex items-center gap-2 text-foreground">
+                                                    <FileText className="w-4 h-4 text-primary" /> Shipment Documents
+                                                </h4>
+                                                <p className="text-xs text-muted-foreground mt-1">{detailShipment.mv_project_name || "-"} / {detailShipment.nomination || detailShipment.barge_name || "-"}</p>
+                                            </div>
+                                            <button
+                                                onClick={() => detailShipment.id && loadShipmentDocuments(detailShipment.id)}
+                                                disabled={isLoadingDocuments}
+                                                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-background border border-border hover:bg-accent disabled:opacity-60"
+                                            >
+                                                {isLoadingDocuments ? <Loader2 className="w-3.5 h-3.5 inline mr-1 animate-spin" /> : <Activity className="w-3.5 h-3.5 inline mr-1" />}
+                                                Refresh
+                                            </button>
+                                        </div>
+
+                                        {isLoadingDocuments ? (
+                                            <div className="rounded-xl border border-border/60 bg-background/50 p-8 text-center text-sm text-muted-foreground">
+                                                <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                                                Loading documents...
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <div className="rounded-xl border border-border/60 bg-background/50 p-4">
+                                                    <div className="flex items-center justify-between gap-3 mb-3">
+                                                        <h5 className="text-[11px] font-bold uppercase text-primary flex items-center gap-1.5">
+                                                            <FileText className="w-3.5 h-3.5" /> Required Documents
+                                                        </h5>
+                                                        <span className="text-[10px] font-semibold text-muted-foreground">
+                                                            {shipmentDocuments.filter((doc) => doc.documentGroup === "required").length} files
+                                                        </span>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                                        {SHIPMENT_REQUIRED_DOCUMENTS.map((req) => {
+                                                            const docs = shipmentDocuments.filter((doc) => doc.documentGroup === "required" && doc.requirementCode === req.code);
+                                                            const inputId = `shipment-required-${detailShipment.id}-${req.code}`;
+                                                            const actionKey = `required:${req.code}`;
+                                                            return (
+                                                                <div key={req.code} className="rounded-lg border border-border/50 bg-card/60 p-3 space-y-2">
+                                                                    <div className="flex items-start justify-between gap-3">
+                                                                        <div className="min-w-0">
+                                                                            <p className="text-xs font-bold text-foreground break-words">{req.code}. {req.label}</p>
+                                                                            <p className="text-[10px] text-muted-foreground">{docs.length} uploaded</p>
+                                                                        </div>
+                                                                    </div>
+                                                                    {canManageShipments && renderDocumentDropzone({
+                                                                        id: inputId,
+                                                                        actionKey,
+                                                                        multiple: true,
+                                                                        onFiles: (files) => uploadRequiredFiles(req, files),
+                                                                    })}
+                                                                    {renderShipmentDocumentList(docs)}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                                    <div className="rounded-xl border border-border/60 bg-background/50 p-4 space-y-3">
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <h5 className="text-[11px] font-bold uppercase text-emerald-600 flex items-center gap-1.5">
+                                                                <FileText className="w-3.5 h-3.5" /> Additional Documents
+                                                            </h5>
+                                                            <span className="text-[10px] font-semibold text-muted-foreground">{shipmentDocuments.filter((doc) => doc.documentGroup === "additional").length} files</span>
+                                                        </div>
+                                                        {canManageShipments && (
+                                                            <div className="rounded-lg border border-border/50 bg-card/60 p-3 space-y-2">
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                                    <input value={additionalDraft.title} onChange={(e) => setAdditionalDraft({ ...additionalDraft, title: e.target.value })} placeholder="Document title" className="px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs" />
+                                                                    <select value={additionalDraft.status} onChange={(e) => setAdditionalDraft({ ...additionalDraft, status: e.target.value })} className="px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs">
+                                                                        <option value="draft">Draft</option>
+                                                                        <option value="received">Received</option>
+                                                                        <option value="reviewed">Reviewed</option>
+                                                                        <option value="final">Final</option>
+                                                                    </select>
+                                                                    <input value={additionalDraft.notes} onChange={(e) => setAdditionalDraft({ ...additionalDraft, notes: e.target.value })} placeholder="Notes" className="px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs sm:col-span-2" />
+                                                                </div>
+                                                                {renderDocumentDropzone({
+                                                                    id: `shipment-additional-${detailShipment.id}`,
+                                                                    actionKey: `additional:${additionalDraft.title || "Additional document"}`,
+                                                                    selectedFileName: additionalDraft.file?.name,
+                                                                    onFiles: (files) => setAdditionalDraft({ ...additionalDraft, file: files[0] || null }),
+                                                                })}
+                                                                <button onClick={() => saveCustomDocument("additional")} disabled={!additionalDraft.file || documentAction === `additional:${additionalDraft.title || "Additional document"}`} className="inline-flex items-center gap-1.5 rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-xs font-semibold disabled:opacity-60">
+                                                                    <Save className="w-3.5 h-3.5" /> Save
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                        {renderShipmentDocumentList(shipmentDocuments.filter((doc) => doc.documentGroup === "additional"))}
+                                                    </div>
+
+                                                    {canAccessCriticalDocuments && (
+                                                        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 space-y-3">
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <h5 className="text-[11px] font-bold uppercase text-red-600 flex items-center gap-1.5">
+                                                                    <ShieldCheck className="w-3.5 h-3.5" /> Critical Documents
+                                                                </h5>
+                                                                <span className="text-[10px] font-semibold text-red-600/80">{shipmentDocuments.filter((doc) => doc.documentGroup === "critical").length} files</span>
+                                                            </div>
+                                                            <div className="rounded-lg border border-red-500/20 bg-card/70 p-3 space-y-2">
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                                    <input value={criticalDraft.title} onChange={(e) => setCriticalDraft({ ...criticalDraft, title: e.target.value })} placeholder="Critical document title" className="px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs" />
+                                                                    <select value={criticalDraft.status} onChange={(e) => setCriticalDraft({ ...criticalDraft, status: e.target.value })} className="px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs">
+                                                                        <option value="draft">Draft</option>
+                                                                        <option value="received">Received</option>
+                                                                        <option value="reviewed">Reviewed</option>
+                                                                        <option value="final">Final</option>
+                                                                    </select>
+                                                                    <input value={criticalDraft.notes} onChange={(e) => setCriticalDraft({ ...criticalDraft, notes: e.target.value })} placeholder="Notes" className="px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs sm:col-span-2" />
+                                                                </div>
+                                                                {renderDocumentDropzone({
+                                                                    id: `shipment-critical-${detailShipment.id}`,
+                                                                    actionKey: `critical:${criticalDraft.title || "Critical document"}`,
+                                                                    selectedFileName: criticalDraft.file?.name,
+                                                                    tone: "red",
+                                                                    onFiles: (files) => setCriticalDraft({ ...criticalDraft, file: files[0] || null }),
+                                                                })}
+                                                                <button onClick={() => saveCustomDocument("critical")} disabled={!criticalDraft.file || documentAction === `critical:${criticalDraft.title || "Critical document"}`} className="inline-flex items-center gap-1.5 rounded-md bg-red-600 text-white px-3 py-1.5 text-xs font-semibold disabled:opacity-60">
+                                                                    <Save className="w-3.5 h-3.5" /> Save
+                                                                </button>
+                                                            </div>
+                                                            {renderShipmentDocumentList(shipmentDocuments.filter((doc) => doc.documentGroup === "critical"))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 )}
 
@@ -2203,13 +2653,74 @@ export default function ShipmentMonitorPage() {
                                     <input type="text" value={editForm.shipping_term || ""} onChange={(e) => setEditForm({ ...editForm, shipping_term: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
                                 </div>
 
+                                {/* Shipping Instruction Section */}
+                                <div className="col-span-2 border-b border-border/30 pb-2 mb-1 mt-3">
+                                    <h3 className="text-[10px] font-bold text-sky-500 uppercase flex items-center gap-1.5"><FileText className="w-3 h-3" /> Shipping Instruction Data</h3>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">SI To</label>
+                                    <input type="text" value={editForm.si_to || ""} onChange={(e) => setEditForm({ ...editForm, si_to: e.target.value })} placeholder="PT. FONTANA RESOURCES INDONESIA" className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Shipper</label>
+                                    <input type="text" value={editForm.si_shipper || ""} onChange={(e) => setEditForm({ ...editForm, si_shipper: e.target.value })} placeholder="PT. FONTANA RESOURCES INDONESIA" className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Consignee</label>
+                                    <input type="text" value={editForm.consignee || ""} onChange={(e) => setEditForm({ ...editForm, consignee: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Notify Party</label>
+                                    <input type="text" value={editForm.notify_party || ""} onChange={(e) => setEditForm({ ...editForm, notify_party: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="space-y-1.5 col-span-2">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Consignee Address</label>
+                                    <textarea value={editForm.consignee_address || ""} onChange={(e) => setEditForm({ ...editForm, consignee_address: e.target.value })} rows={2} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs resize-none" />
+                                </div>
+                                <div className="space-y-1.5 col-span-2">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Notify Party Address</label>
+                                    <textarea value={editForm.notify_party_address || ""} onChange={(e) => setEditForm({ ...editForm, notify_party_address: e.target.value })} rows={2} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs resize-none" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Quantity Tolerance</label>
+                                    <input type="text" value={editForm.quantity_tolerance || ""} onChange={(e) => setEditForm({ ...editForm, quantity_tolerance: e.target.value })} placeholder="+/- 5% (TIDAK BOLEH LEBIH)" className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Marked Clause</label>
+                                    <input type="text" value={editForm.si_marked || ""} onChange={(e) => setEditForm({ ...editForm, si_marked: e.target.value })} placeholder='"CLEAN ON BOARD"; "FREIGHT PAYABLE AS PER CHARTER PARTY"' className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                </div>
+
                                 {/* Financial section */}
                                 <div className="col-span-2 border-b border-border/30 pb-2 mb-1 mt-3">
                                     <h3 className="text-[10px] font-bold text-emerald-500 uppercase flex items-center gap-1.5"><DollarSign className="w-3 h-3" /> Commercials & P&L</h3>
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-emerald-500 uppercase">Sales Price (USD/MT)</label>
-                                    <input type="number" step="0.01" value={editForm.sales_price || 0} onChange={(e) => setEditForm({ ...editForm, sales_price: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-xs font-bold text-emerald-600" />
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={editForm.sales_price || 0}
+                                        onChange={(e) => {
+                                            const sales = Number(e.target.value);
+                                            const buying = safeNum(editForm.buying_price);
+                                            setEditForm({ ...editForm, sales_price: sales, margin_mt: buying ? sales - buying : editForm.margin_mt });
+                                        }}
+                                        className="w-full px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-xs font-bold text-emerald-600"
+                                    />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-amber-500 uppercase">Buying Price (USD/MT)</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={editForm.buying_price || 0}
+                                        onChange={(e) => {
+                                            const buying = Number(e.target.value);
+                                            const sales = safeNum(editForm.sales_price);
+                                            setEditForm({ ...editForm, buying_price: buying, margin_mt: sales ? sales - buying : editForm.margin_mt });
+                                        }}
+                                        className="w-full px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20 text-xs font-bold text-amber-600"
+                                    />
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-blue-500 uppercase">Margin (USD/MT)</label>

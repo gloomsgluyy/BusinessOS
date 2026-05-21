@@ -274,10 +274,19 @@ export interface ShipmentDetail {
     quantity_discharged?: number;
     eta?: string;
     sales_price?: number;
+    buying_price?: number;
     margin_mt?: number;
     pic_name?: string;
     product?: string;
     analysis_method?: string;
+    si_to?: string;
+    si_shipper?: string;
+    consignee?: string;
+    consignee_address?: string;
+    notify_party?: string;
+    notify_party_address?: string;
+    si_marked?: string;
+    quantity_tolerance?: string;
     type?: string;
     year?: number;
     region?: string;
@@ -298,6 +307,27 @@ export interface ShipmentDetail {
     demurrage_currency?: string;
     demurrage_source?: string;
     demurrage_updated_at?: string;
+}
+
+export type ShipmentDocumentGroup = "required" | "critical" | "additional";
+
+export interface ShipmentDocument {
+    id: string;
+    shipmentId: string;
+    documentGroup: ShipmentDocumentGroup;
+    requirementCode?: string | null;
+    requirementLabel?: string | null;
+    title: string;
+    status: string;
+    notes?: string | null;
+    fileName: string;
+    mimeType?: string | null;
+    sizeBytes: number;
+    uploadedBy?: string | null;
+    uploadedByName?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    url?: string;
 }
 
 // ── Daily Delivery ────────────────────────────────────────────────
