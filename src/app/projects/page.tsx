@@ -263,6 +263,25 @@ const qtyText = (value: number, tolerance?: string | null) => {
   return `${fmtInt(value)} MT ${pickText(tolerance, "+/- 5% (TIDAK BOLEH LEBIH)")}`;
 };
 
+const formatSummaryDate = (value: Date) =>
+  value.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).replace(",", "");
+
+const fmtReportMoney = (value: number) => `$${safeNum(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+
+const avgNonZero = (values: Array<number | null | undefined>) => {
+  const numbers = values.map(safeNum).filter((value) => value > 0);
+  if (!numbers.length) return 0;
+  return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+};
+
 const buildSiNumber = (project: ProjectCard, row?: ShipmentDetail) => {
   const raw = pickText(row?.no_si, row?.shipment_number);
   if (raw !== "-") return raw;
@@ -671,6 +690,209 @@ export default function ProjectsPage() {
     doc.save(`shipping-instruction-${slugFile(projectName)}-${slugFile(nomination)}.pdf`);
   };
 
+  const downloadProjectSummaryReport = (project: ProjectCard) => {
+    const rows = project.rows;
+    const first = rows[0];
+    const now = new Date();
+    const reportTime = formatSummaryDate(now);
+    const quantity = project.volume || rows.reduce((sum, row) => sum + rowQty(row), 0);
+    const bargeCount = (() => {
+      const names = new Set(rows.map((row) => pickText(row.nomination, row.barge_name)).filter((value) => value !== "-"));
+      return names.size || rows.length || 0;
+    })();
+    const loadedValues = rows.map((row) => safeNum(row.quantity_loaded || row.qty_cob));
+    const dischargedValues = rows.map((row) => safeNum(row.quantity_discharged));
+    const timbangValues = rows.map((row) => safeNum(row.qty_cob));
+    const totalLoaded = loadedValues.reduce((sum, value) => sum + value, 0);
+    const totalDischarged = dischargedValues.reduce((sum, value) => sum + value, 0);
+    const totalTimbang = timbangValues.reduce((sum, value) => sum + value, 0);
+    const manualOverLoss = rows.reduce((sum, row) => sum + safeNum(row.loss_gain_cargo), 0);
+    const overLoss = manualOverLoss || (totalLoaded && totalDischarged ? totalLoaded - totalDischarged : 0);
+    const actualRevenue = rows.reduce((sum, row) => sum + safeNum(row.quantity_loaded || row.qty_cob || row.qty_plan) * rowSellPrice(row), 0) || project.revenue;
+    const actualCost = rows.reduce((sum, row) => sum + safeNum(row.quantity_loaded || row.qty_cob || row.qty_plan) * rowBuyPrice(row), 0);
+    const actualProfit = actualRevenue - actualCost || project.grossProfit;
+    const budgetRevenue = rows.reduce((sum, row) => sum + safeNum(row.qty_plan || row.quantity_loaded || row.qty_cob) * rowSellPrice(row), 0) || actualRevenue;
+    const budgetCost = rows.reduce((sum, row) => sum + safeNum(row.qty_plan || row.quantity_loaded || row.qty_cob) * rowBuyPrice(row), 0) || actualCost;
+    const budgetProfit = budgetRevenue - budgetCost;
+    const specs = {
+      tm: avgNonZero(rows.map((row) => row.spec_actual?.tm)),
+      im: avgNonZero(rows.map((row) => row.spec_actual?.im)),
+      ash: avgNonZero(rows.map((row) => row.spec_actual?.ash)),
+      vm: 0,
+      fc: avgNonZero(rows.map((row) => row.spec_actual?.fc)),
+      ts: avgNonZero(rows.map((row) => row.spec_actual?.ts)),
+      adb: avgNonZero(rows.map((row) => row.spec_actual?.adb)),
+      gar: avgNonZero(rows.map((row) => row.result_gar || row.spec_actual?.gar)),
+      hgi: avgNonZero(rows.map((row) => row.spec_actual?.hgi)),
+      size: 0,
+    };
+    const fmtSpec = (value: number) => safeNum(value).toLocaleString("en-US", { maximumFractionDigits: 2 });
+    const approvalStatus = project.projectRecord ? mapMasterStatus(project.projectRecord.status) : project.status;
+    const approvedText = approvalStatus === "approved"
+      ? `Approved${project.projectRecord?.approved_by_name ? ` by ${project.projectRecord.approved_by_name}` : ""}`
+      : "n/a";
+    const transhipmentRows = rows.filter((row) => {
+      const text = normalizeKey(`${row.shipment_flow || ""} ${row.shipping_term || ""} ${row.status || ""} ${row.shipment_status || ""}`);
+      return text.includes("TRANS");
+    });
+    const transhipmentText = transhipmentRows.length
+      ? transhipmentRows.map((row) => `${pickText(row.nomination, row.barge_name)} - ${pickText(row.shipment_status, row.status)}`).join("; ")
+      : "No data shipment.";
+    const loadNote = pickText(first?.remarks, project.projectRecord?.notes);
+    const sailingNote = pickText(first?.operational_info, first?.sent_to_supplier, first?.sent_to_barge_owner);
+    const dischargeNote = pickText(first?.issue_notes, first?.status_reason);
+
+    const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const left = 36;
+    const right = pageWidth - 36;
+    const subjectW = 164;
+    const detailX = left + subjectW + 44;
+    const detailRightX = left + subjectW + 250;
+    const detailW = right - detailX;
+
+    doc.setProperties({ title: `Summary Report - ${project.projectName}` });
+    doc.setFont("helvetica");
+    doc.setTextColor(0, 0, 0);
+
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "bold");
+    doc.text("PT Borneo Pasifik Global", left, 62);
+    doc.setFont("helvetica", "normal");
+    doc.text("Jl. Pluit Selatan Raya no. 106-107", left, 72);
+    doc.text("Jakarta 14440, Indonesia", left, 82);
+    doc.text("Telp. 021 22664955, 021 22664746", left, 92);
+    doc.setFontSize(14);
+    doc.text("SUMMARY", pageWidth / 2, 78, { align: "center" });
+    doc.setFont("times", "italic");
+    doc.setFontSize(26);
+    doc.setTextColor(27, 82, 156);
+    doc.text("B", right - 70, 86);
+    doc.setTextColor(30, 145, 77);
+    doc.text("PG", right - 51, 86);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Subjek", left + subjectW / 2, 150, { align: "center" });
+    doc.text("Detail", left + subjectW + (right - left - subjectW) / 2, 150, { align: "center" });
+    doc.setDrawColor(190, 190, 190);
+    doc.setLineWidth(0.8);
+    doc.line(left, 164, right, 164);
+
+    const writeLines = (text: string, x: number, y: number, width = detailW, lineHeight = 8.5) => {
+      const lines = doc.splitTextToSize(text, width);
+      doc.text(lines, x, y);
+      return y + Math.max(lineHeight, lines.length * lineHeight);
+    };
+    const drawSection = (y: number, height: number, subject: string, drawDetail: (startY: number) => void) => {
+      doc.setDrawColor(205, 205, 205);
+      doc.setLineWidth(0.6);
+      doc.line(left, y, right, y);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.3);
+      doc.text(subject, left + subjectW / 2, y + 20, { align: "center" });
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      drawDetail(y + 20);
+      return y + height;
+    };
+    const drawBudgetChart = (x: number, y: number, width: number, height: number) => {
+      const categories = [
+        { label: "Revenue", actual: actualRevenue, budget: budgetRevenue },
+        { label: "Cost", actual: actualCost, budget: budgetCost },
+        { label: "Profit/Loss", actual: actualProfit, budget: budgetProfit },
+      ];
+      const maxValue = Math.max(1, ...categories.flatMap((item) => [Math.abs(item.actual), Math.abs(item.budget)]));
+      const chartBottom = y + height - 18;
+      const chartTop = y + 18;
+      const chartH = chartBottom - chartTop;
+      doc.setFontSize(5.2);
+      doc.text("dalam USD", x + 5, y + 9);
+      doc.setFillColor(68, 140, 205);
+      doc.rect(x + 55, y + 4, 5, 5, "F");
+      doc.text("Aktual", x + 63, y + 9);
+      doc.setFillColor(220, 220, 220);
+      doc.rect(x + 91, y + 4, 5, 5, "F");
+      doc.text("Budget", x + 99, y + 9);
+      doc.setDrawColor(225, 225, 225);
+      for (let i = 0; i <= 5; i += 1) {
+        const gy = chartBottom - (chartH / 5) * i;
+        doc.line(x + 24, gy, x + width - 6, gy);
+      }
+      doc.setDrawColor(110, 110, 110);
+      doc.line(x + 24, chartTop, x + 24, chartBottom);
+      doc.line(x + 24, chartBottom, x + width - 6, chartBottom);
+      const groupW = (width - 38) / categories.length;
+      categories.forEach((item, index) => {
+        const baseX = x + 32 + index * groupW;
+        const actualH = (Math.abs(item.actual) / maxValue) * chartH;
+        const budgetH = (Math.abs(item.budget) / maxValue) * chartH;
+        doc.setFillColor(120, 180, 225);
+        doc.rect(baseX, chartBottom - actualH, 18, Math.max(1, actualH), "F");
+        doc.setFillColor(220, 220, 220);
+        doc.rect(baseX + 21, chartBottom - budgetH, 18, Math.max(1, budgetH), "F");
+        doc.setTextColor(32, 72, 180);
+        doc.text(String(Math.round(item.actual)), baseX - 1, chartBottom - actualH - 3);
+        doc.setTextColor(0, 0, 0);
+        doc.text(item.label, baseX - 2, chartBottom + 9);
+      });
+    };
+
+    let y = 164;
+    y = drawSection(y, 76, "Deskripsi Proyek", (startY) => {
+      doc.setFont("helvetica", "normal");
+      writeLines(`Nama Proyek: ${project.projectName}`, detailX, startY, 175);
+      writeLines(`Nama Klien: ${pickText(project.buyer, first?.buyer)}`, detailX, startY + 10, 175);
+      writeLines(`Quantity: ${quantity ? `${fmtInt(quantity)} MT` : "n/a"}`, detailX, startY + 20, 175);
+      writeLines(`Kalori: ${specs.gar ? fmtSpec(specs.gar) : "n/a"}`, detailX, startY + 30, 175);
+      writeLines(`Contract Term: ${pickText(project.shippingTerm, first?.shipping_term, "n/a")}`, detailRightX, startY, 160);
+      writeLines(`Destinasi: ${pickText(first?.vessel_name, first?.mv_project_name, first?.discharge_port, "n/a")}`, detailRightX, startY + 10, 160);
+      writeLines(`Jumlah Barge: ${bargeCount || "n/a"}`, detailRightX, startY + 20, 160);
+    });
+    y = drawSection(y, 54, "Spesifikasi", (startY) => {
+      writeLines(`TM: ${fmtSpec(specs.tm)} , IM: ${fmtSpec(specs.im)} , ASH: ${fmtSpec(specs.ash)} , VM: ${fmtSpec(specs.vm)} , FC: ${fmtSpec(specs.fc)} , TS: ${fmtSpec(specs.ts)} ,`, detailX, startY, 360);
+      writeLines(`ADB: ${fmtSpec(specs.adb)} , GAR: ${fmtSpec(specs.gar)} , HGI: ${fmtSpec(specs.hgi)} , SIZE: ${fmtSpec(specs.size)}`, detailX, startY + 11, 360);
+    });
+    y = drawSection(y, 170, "Grafik Budget vs Aktual", (startY) => {
+      drawBudgetChart(detailX, startY - 8, 175, 130);
+      doc.setFont("helvetica", "italic");
+      writeLines(`Aktual sampai ${reportTime}`, detailRightX, startY, 160);
+      doc.setFont("helvetica", "normal");
+      writeLines(`Pemasukan: ${fmtReportMoney(actualRevenue)}`, detailRightX, startY + 14, 160);
+      writeLines(`Pengeluaran: ${fmtReportMoney(actualCost)}`, detailRightX, startY + 24, 160);
+      writeLines(`P/L: ${fmtReportMoney(actualProfit)}`, detailRightX, startY + 34, 160);
+    });
+    y = drawSection(y, 54, "CA Approved", (startY) => {
+      writeLines(`Sales Analysis Approved: ${approvedText}`, detailX, startY, 185);
+      writeLines("Ops Analysis Approved: n/a", detailX, startY + 11, 185);
+      writeLines("Finance Verified: n/a", detailRightX, startY, 160);
+      writeLines(`BOD Approved: ${project.projectRecord?.approved_by_name || "n/a"}`, detailRightX, startY + 11, 160);
+    });
+    y = drawSection(y, 42, "Transhipment", (startY) => {
+      writeLines(transhipmentText, detailX, startY, 340);
+    });
+    y = drawSection(y, 62, "Cargo Over/Loss", (startY) => {
+      doc.setFont("helvetica", "bold");
+      writeLines(`${overLoss.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MT`, detailX, startY, 120);
+      doc.setFont("helvetica", "normal");
+      writeLines(`Total cargo loaded: ${totalLoaded ? `${fmtInt(totalLoaded)} MT` : "n/a MT"}`, detailRightX, startY, 170);
+      writeLines(`Total cargo discharged: ${totalDischarged ? `${fmtInt(totalDischarged)} MT` : "n/a MT"}`, detailRightX, startY + 11, 170);
+      writeLines(`Total cargo timbang: ${totalTimbang ? `${fmtInt(totalTimbang)} MT` : "n/a MT"}`, detailRightX, startY + 22, 170);
+    });
+    y = drawSection(y, 38, "", (startY) => {
+      writeLines(`Catatan Muat: ${loadNote === "-" ? "" : loadNote}`, left + 64, startY, 150);
+      writeLines(`Catatan Sailing: ${sailingNote === "-" ? "" : sailingNote}`, detailX, startY, 150);
+      writeLines(`Catatan Bongkar: ${dischargeNote === "-" ? "" : dischargeNote}`, detailRightX, startY, 150);
+    });
+    doc.line(left, y, right, y);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    const reportBy = currentUser?.name || currentUser?.email || "System";
+    writeLines(`Report dibuat oleh\n${reportBy}\non ${reportTime}`, detailRightX, y + 18, 160, 9);
+
+    doc.save(`summary-report-${slugFile(project.projectName)}.pdf`);
+  };
+
   const uploadProjectDocument = async (project: ProjectItem, index: number, file: File | null) => {
     if (!file) return;
     const key = `${project.id}:${index}`;
@@ -913,12 +1135,20 @@ export default function ProjectsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button
+                    onClick={() => downloadProjectSummaryReport(selectedProject)}
+                    className="px-3 py-2 rounded-lg text-xs font-semibold bg-emerald-500 text-white hover:shadow-md"
+                    title="Download Project Summary PDF"
+                  >
+                    <Download className="w-3.5 h-3.5 inline mr-1.5" />
+                    Summary
+                  </button>
+                  <button
                     onClick={() => downloadProjectShippingInstruction(selectedProject)}
                     className="px-3 py-2 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:shadow-md"
                     title="Download Shipping Instruction PDF"
                   >
                     <Download className="w-3.5 h-3.5 inline mr-1.5" />
-                    Download PDF
+                    SI
                   </button>
                   <button onClick={() => setSelectedProject(null)} className="p-2 rounded-lg hover:bg-accent"><X className="w-4 h-4 text-muted-foreground" /></button>
                 </div>
