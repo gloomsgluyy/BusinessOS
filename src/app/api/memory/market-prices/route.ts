@@ -152,6 +152,7 @@ export async function POST(req: Request) {
         const todayStr = marketDateKey();
         const requestedSource = String(data.source || "Manual Entry");
         const isManual = requestedSource.toLowerCase().includes("manual");
+        const actorName = isManual ? (session.user.name || session.user.email || "Unknown") : "Auto Scrape";
         if (isManual && dateStr !== todayStr) {
             return NextResponse.json({ error: "Manual price updates are only allowed for today" }, { status: 400 });
         }
@@ -182,7 +183,7 @@ export async function POST(req: Request) {
                 ...parseHistory((existing as any).history),
                 buildHistoryEntry({
                     userId: session.user.id,
-                    userName: session.user.name || session.user.email || "Unknown",
+                    userName: actorName,
                     source: priceFields.source,
                     prices: priceFields,
                     action: isManual ? "manual_update" : "auto_scrape",
@@ -193,7 +194,7 @@ export async function POST(req: Request) {
                 data: {
                     ...priceFields,
                     updatedBy: session.user.id,
-                    updatedByName: session.user.name || session.user.email || "Unknown",
+                    updatedByName: actorName,
                     history: JSON.stringify(history),
                 },
             });
@@ -202,10 +203,10 @@ export async function POST(req: Request) {
             const history = [
                 buildHistoryEntry({
                     userId: session.user.id,
-                    userName: session.user.name || session.user.email || "Unknown",
+                    userName: actorName,
                     source: priceFields.source,
                     prices: priceFields,
-                    action: isManual ? "manual_update" : "create",
+                    action: isManual ? "manual_update" : "auto_scrape",
                 }),
             ];
             result = await prisma.marketPrice.create({
@@ -214,7 +215,7 @@ export async function POST(req: Request) {
                     date: dayStart,
                     ...priceFields,
                     updatedBy: session.user.id,
-                    updatedByName: session.user.name || session.user.email || "Unknown",
+                    updatedByName: actorName,
                     history: JSON.stringify(history),
                 },
             });

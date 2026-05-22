@@ -72,6 +72,19 @@ function historyActionLabel(action?: MarketPriceHistoryEntry["action"]) {
     return "Update";
 }
 
+function isAutoScrapeSource(source?: string | null, action?: MarketPriceHistoryEntry["action"]) {
+    if (action === "auto_scrape") return true;
+    const text = String(source || "").toLowerCase();
+    return ["ai market", "argus", "coalindo", "globalcoal", "mccloskey", "ice futures", "scrape"].some((token) => text.includes(token));
+}
+
+function marketActorLabel(params: { name?: string | null; source?: string | null; action?: MarketPriceHistoryEntry["action"] }) {
+    const name = params.name?.trim();
+    if (name && name.toLowerCase() !== "unknown") return name;
+    if (isAutoScrapeSource(params.source, params.action)) return "Auto Scrape";
+    return "Unknown";
+}
+
 export default function MarketPricePage() {
     const [, setIsInitializing] = React.useState(false);
 
@@ -189,7 +202,7 @@ export default function MarketPricePage() {
             id: `${price.id}-fallback`,
             at: price.updated_at || price.date,
             by: price.updated_by || "",
-            byName: price.updated_by_name || "Unknown",
+            byName: price.updated_by_name || "",
             source: price.source || "-",
             action: "update",
             prices: {
@@ -682,7 +695,11 @@ export default function MarketPricePage() {
                         <div>
                             <p className="text-sm font-bold">Input Price Hari Ini</p>
                             <p className="text-[11px] text-muted-foreground">
-                                {todayPrice ? `Update terakhir: ${formatUpdateDateTime(todayPrice.updated_at)} oleh ${todayPrice.updated_by_name || "Unknown"}` : "Belum ada harga untuk hari ini."}
+                                {todayPrice ? `Update terakhir: ${formatUpdateDateTime(todayPrice.updated_at)} oleh ${marketActorLabel({
+                                    name: todayPrice.updated_by_name,
+                                    source: todayPrice.source,
+                                    action: historyForPrice(todayPrice)[0]?.action,
+                                })}` : "Belum ada harga untuk hari ini."}
                             </p>
                         </div>
                         <button onClick={openInputPrice} className="btn-primary w-full sm:w-fit">
@@ -745,6 +762,11 @@ export default function MarketPricePage() {
                                     const history = historyForPrice(p);
                                     const latestHistory = history[0];
                                     const isOpen = Boolean(expandedHistory[p.id]);
+                                    const actorLabel = marketActorLabel({
+                                        name: p.updated_by_name || latestHistory?.byName,
+                                        source: p.source || latestHistory?.source,
+                                        action: latestHistory?.action,
+                                    });
                                     return (
                                         <React.Fragment key={p.id}>
                                             <tr className="border-b border-border/50 hover:bg-accent/20">
@@ -753,7 +775,7 @@ export default function MarketPricePage() {
                                                     <span className="inline-flex items-center justify-end gap-1 text-muted-foreground"><Clock3 className="w-3 h-3" />{formatUpdateDateTime(p.updated_at || latestHistory?.at)}</span>
                                                 </td>
                                                 <td className="px-3 py-2.5 text-xs text-right max-w-[130px]">
-                                                    <span className="inline-flex items-center justify-end gap-1 max-w-[130px]"><UserRound className="w-3 h-3 shrink-0 text-muted-foreground" /><span className="truncate">{p.updated_by_name || latestHistory?.byName || "Unknown"}</span></span>
+                                                    <span className="inline-flex items-center justify-end gap-1 max-w-[130px]"><UserRound className="w-3 h-3 shrink-0 text-muted-foreground" /><span className="truncate">{actorLabel}</span></span>
                                                 </td>
                                                 <td className="px-3 py-2.5 text-xs text-right max-w-[160px] truncate" title={p.source || latestHistory?.source || "-"}>{p.source || latestHistory?.source || "-"}</td>
                                                 <td className="px-3 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_1)}</td>
@@ -786,7 +808,7 @@ export default function MarketPricePage() {
                                                                     <div className="flex items-start justify-between gap-2">
                                                                         <div className="min-w-0">
                                                                             <p className="font-bold truncate">{item.source || "-"}</p>
-                                                                            <p className="text-[10px] text-muted-foreground">{formatUpdateDateTime(item.at)} by {item.byName || "Unknown"}</p>
+                                                                            <p className="text-[10px] text-muted-foreground">{formatUpdateDateTime(item.at)} by {marketActorLabel({ name: item.byName, source: item.source, action: item.action })}</p>
                                                                         </div>
                                                                         <span className="shrink-0 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary uppercase">{historyActionLabel(item.action)}</span>
                                                                     </div>
