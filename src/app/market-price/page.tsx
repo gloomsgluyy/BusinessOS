@@ -5,9 +5,10 @@ import { AppShell } from "@/components/layout/app-shell";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
-import { Plus, TrendingUp, TrendingDown, Settings2, X, Calculator, Loader2 } from "lucide-react";
+import { Plus, TrendingUp, TrendingDown, Settings2, X, Calculator, Loader2, History, UserRound, Clock3, ChevronDown } from "lucide-react";
 import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { Toast } from "@/components/shared/toast";
+import type { MarketPriceEntry, MarketPriceHistoryEntry } from "@/types";
 
 interface Formula {
     name: string;
@@ -26,6 +27,50 @@ const DEFAULT_FORMULAS: Formula[] = [
 // Safe number helper to prevent toFixed crash on null values from Memory B
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
+const marketFormDefaults = (date = localDateInput()) => ({ date, ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0, hba_1: 0, hba_2: 0, hba_3: 0 });
+const marketInputFields = [["ICI 1", "ici_1"], ["ICI 2", "ici_2"], ["ICI 3", "ici_3"], ["ICI 4", "ici_4"], ["ICI 5", "ici_5"], ["Newcastle", "newcastle"], ["HBA", "hba"], ["HBA I", "hba_1"], ["HBA II", "hba_2"], ["HBA III", "hba_3"]] as const;
+const MARKET_PRICE_TIME_ZONE = "Asia/Jakarta";
+
+function localDateInput(value = new Date()) {
+    const parts = new Intl.DateTimeFormat("en", {
+        timeZone: MARKET_PRICE_TIME_ZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).formatToParts(value);
+    const year = parts.find((part) => part.type === "year")?.value || "1970";
+    const month = parts.find((part) => part.type === "month")?.value || "01";
+    const day = parts.find((part) => part.type === "day")?.value || "01";
+    return `${year}-${month}-${day}`;
+}
+
+function sameInputDate(value: string | Date | undefined, inputDate: string) {
+    if (!value) return false;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return false;
+    return localDateInput(date) === inputDate;
+}
+
+function formatUpdateDateTime(value?: string | Date | null) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleString("id-ID", { timeZone: MARKET_PRICE_TIME_ZONE, day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatPriceDate(value?: string | Date | null) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleDateString("id-ID", { timeZone: MARKET_PRICE_TIME_ZONE, day: "2-digit", month: "short", year: "2-digit" });
+}
+
+function historyActionLabel(action?: MarketPriceHistoryEntry["action"]) {
+    if (action === "manual_update") return "Manual Update";
+    if (action === "auto_scrape") return "Auto Scrape";
+    if (action === "create") return "Created";
+    return "Update";
+}
 
 export default function MarketPricePage() {
     const [, setIsInitializing] = React.useState(false);
@@ -44,7 +89,8 @@ export default function MarketPricePage() {
     const [showScrapeSettings, setShowScrapeSettings] = React.useState(false);
     const [calc, setCalc] = React.useState({ index: "ici_4", baseAdjust: 0, freight: 0 });
     const [hpbCalc, setHpbCalc] = React.useState({ gar: 4200, tm: 35, ts: 0.2, ash: 8 });
-    const [form, setForm] = React.useState({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0, hba_1: 0, hba_2: 0, hba_3: 0 });
+    const [form, setForm] = React.useState(marketFormDefaults());
+    const [expandedHistory, setExpandedHistory] = React.useState<Record<string, boolean>>({});
     const [isScraping, setIsScraping] = React.useState(false);
     const [scrapeLogs, setScrapeLogs] = React.useState<string[]>([]);
     const [scrapeInterval, setScrapeInterval] = React.useState("21600000");
@@ -131,9 +177,35 @@ export default function MarketPricePage() {
     });
 
     const chartData = chartRange === "2W" ? data.slice(-14) : chartRange === "4W" ? data.slice(-28) : data;
-    const latest = marketPrices.length > 0 ? marketPrices[marketPrices.length - 1] : null;
-    const prev = marketPrices.length > 1 ? marketPrices[marketPrices.length - 2] : null;
+    const latest = marketPrices.length > 0 ? marketPrices[0] : null;
+    const prev = marketPrices.length > 1 ? marketPrices[1] : null;
+    const todayInput = localDateInput();
+    const todayPrice = marketPrices.find((price) => sameInputDate(price.date, todayInput));
     const selectedMarketPrice = safeNum((latest as any)?.[comparisonIndex]);
+    const historyForPrice = (price: MarketPriceEntry | null): MarketPriceHistoryEntry[] => {
+        if (!price) return [];
+        if (Array.isArray(price.history) && price.history.length) return [...price.history].reverse();
+        return [{
+            id: `${price.id}-fallback`,
+            at: price.updated_at || price.date,
+            by: price.updated_by || "",
+            byName: price.updated_by_name || "Unknown",
+            source: price.source || "-",
+            action: "update",
+            prices: {
+                ici_1: safeNum(price.ici_1),
+                ici_2: safeNum(price.ici_2),
+                ici_3: safeNum(price.ici_3),
+                ici_4: safeNum(price.ici_4),
+                ici_5: safeNum(price.ici_5),
+                newcastle: safeNum(price.newcastle),
+                hba: safeNum(price.hba),
+                hba_1: safeNum(price.hba_1),
+                hba_2: safeNum(price.hba_2),
+                hba_3: safeNum(price.hba_3),
+            },
+        }];
+    };
     const comparisonRows = React.useMemo(() => {
         const rows: Array<{ type: string; name: string; price: number; qty: number; spread: number; note: string }> = [];
         deals.slice(0, 80).forEach((d) => {
@@ -255,15 +327,29 @@ export default function MarketPricePage() {
         { label: "HBA III (3400)", val: safeNum(latest.hba_3), diff: safeNum(latest.hba_3) - safeNum(prev.hba_3), color: "#0ea5e9" },
     ] : [];
 
+    const openInputPrice = () => {
+        const defaults = todayPrice ? {
+            date: todayInput,
+            ici_1: safeNum(todayPrice.ici_1),
+            ici_2: safeNum(todayPrice.ici_2),
+            ici_3: safeNum(todayPrice.ici_3),
+            ici_4: safeNum(todayPrice.ici_4),
+            ici_5: safeNum(todayPrice.ici_5),
+            newcastle: safeNum(todayPrice.newcastle),
+            hba: safeNum(todayPrice.hba),
+            hba_1: safeNum(todayPrice.hba_1),
+            hba_2: safeNum(todayPrice.hba_2),
+            hba_3: safeNum(todayPrice.hba_3),
+        } : marketFormDefaults(todayInput);
+        setForm(defaults);
+        setShowForm(true);
+    };
+
     const handleSubmit = async () => {
-        if (!form.date) {
-            setToast({ message: "Please select a date first", type: "error" });
-            return;
-        }
         setIsSaving(true);
         try {
             await addMarketPrice({
-                date: form.date,
+                date: todayInput,
                 ici_1: form.ici_1 || 0,
                 ici_2: form.ici_2 || 0,
                 ici_3: form.ici_3 || 0,
@@ -278,7 +364,7 @@ export default function MarketPricePage() {
             });
             setToast({ message: "Market prices saved successfully!", type: "success" });
             setShowForm(false);
-            setForm({ date: "", ici_1: 0, ici_2: 0, ici_3: 0, ici_4: 0, ici_5: 0, newcastle: 0, hba: 0, hba_1: 0, hba_2: 0, hba_3: 0 });
+            setForm(marketFormDefaults(todayInput));
         } catch (error) {
             setToast({ message: "Failed to save market prices", type: "error" });
         } finally {
@@ -299,7 +385,7 @@ export default function MarketPricePage() {
             <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto space-y-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fade-in">
                     <div>
-                        <h1 className="text-xl md:text-2xl font-bold flex items-center gap-3">
+                        <h1 className="text-xl md:text-2xl font-bold flex flex-wrap items-center gap-3">
                             Market Price Index
                             <span className="inline-flex items-center gap-1.5 text-[10px] bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded border border-emerald-500/20 font-bold uppercase tracking-wider">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Global Scraping Active
@@ -311,10 +397,6 @@ export default function MarketPricePage() {
                         {canEdit && <button onClick={() => setShowScrapeSettings(true)} className="btn-outline w-fit">
                             <Settings2 className="w-4 h-4 md:mr-1.5" />
                             <span className="hidden md:inline">Scraping Settings</span>
-                        </button>}
-                        {canEdit && <button onClick={() => setShowForm(!showForm)} className="btn-primary w-fit">
-                            <Plus className="w-4 h-4 md:mr-1.5" />
-                            <span className="hidden md:inline">Input Price</span>
                         </button>}
                     </div>
                 </div>
@@ -410,18 +492,18 @@ export default function MarketPricePage() {
                 {/* Formula Calculator Section */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
                     {/* Standard Formula Calculator */}
-                    <div className="card-elevated p-5 md:p-6 border border-border/50">
-                        <div className="flex items-start justify-between mb-4">
+                    <div className="card-elevated p-4 md:p-5 border border-border/50">
+                        <div className="flex items-start justify-between mb-4 min-w-0">
                             <div>
                                 <h3 className="text-base font-bold flex items-center gap-2 text-violet-500"><Calculator className="w-5 h-5" /> Standard Index Calculator</h3>
                                 <p className="text-xs text-muted-foreground mt-1">Determine buying/selling price based on real-time market indices.</p>
                             </div>
                         </div>
-                        <div className="space-y-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="min-w-0">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Base Index</label>
-                                    <select value={calc.index} onChange={(e) => setCalc({ ...calc, index: e.target.value })} className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-background border border-border text-sm font-medium outline-none focus:border-violet-500/50 pr-8">
+                                    <select value={calc.index} onChange={(e) => setCalc({ ...calc, index: e.target.value })} className="w-full mt-1.5 px-3 py-2 rounded-lg bg-background border border-border text-sm font-medium outline-none focus:border-violet-500/50 pr-8">
                                         <option value="ici_1">ICI 1 (6500) - ${safeFmt(latest?.ici_1)}</option>
                                         <option value="ici_2">ICI 2 (5800) - ${safeFmt(latest?.ici_2)}</option>
                                         <option value="ici_3">ICI 3 (5000) - ${safeFmt(latest?.ici_3)}</option>
@@ -434,10 +516,10 @@ export default function MarketPricePage() {
                                         <option value="hba_3">HBA III (3400) - ${safeFmt(latest?.hba_3)}</option>
                                     </select>
                                 </div>
-                                <div>
+                                <div className="min-w-0">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Premium / Discount (USD)</label>
                                     <div className="relative mt-1.5">
-                                        <input type="number" step="0.5" value={calc.baseAdjust || ""} onChange={(e) => setCalc({ ...calc, baseAdjust: +e.target.value })} placeholder="e.g. -2.5" className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-sm outline-none focus:border-violet-500/50 pl-8" />
+                                        <input type="number" step="0.5" value={calc.baseAdjust || ""} onChange={(e) => setCalc({ ...calc, baseAdjust: +e.target.value })} placeholder="e.g. -2.5" className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-violet-500/50 pl-8" />
                                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-mono">$</span>
                                     </div>
                                 </div>
@@ -452,29 +534,29 @@ export default function MarketPricePage() {
                     </div>
 
                     {/* HPB Estimation Calculator */}
-                    <div className="card-elevated p-5 md:p-6 border border-border/50">
+                    <div className="card-elevated p-4 md:p-5 border border-border/50">
                         <div className="flex items-start justify-between mb-4">
                             <div>
                                 <h3 className="text-base font-bold flex items-center gap-2 text-rose-500"><Calculator className="w-5 h-5" /> HPB Estimation</h3>
                                 <p className="text-xs text-muted-foreground mt-1">Estimate HPB price based on actual coal spec quality.</p>
                             </div>
                         </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                            <div className="min-w-0">
                                 <label className="text-[10px] font-semibold text-muted-foreground uppercase">GAR</label>
-                                <input type="number" value={hpbCalc.gar} onChange={(e) => setHpbCalc({ ...hpbCalc, gar: +e.target.value })} className="w-full mt-1.5 px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-rose-500/50" />
+                                <input type="number" value={hpbCalc.gar} onChange={(e) => setHpbCalc({ ...hpbCalc, gar: +e.target.value })} className="w-full mt-1.5 px-2.5 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-rose-500/50" />
                             </div>
-                            <div>
+                            <div className="min-w-0">
                                 <label className="text-[10px] font-semibold text-muted-foreground uppercase">TM (%)</label>
-                                <input type="number" step="0.1" value={hpbCalc.tm} onChange={(e) => setHpbCalc({ ...hpbCalc, tm: +e.target.value })} className="w-full mt-1.5 px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-rose-500/50" />
+                                <input type="number" step="0.1" value={hpbCalc.tm} onChange={(e) => setHpbCalc({ ...hpbCalc, tm: +e.target.value })} className="w-full mt-1.5 px-2.5 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-rose-500/50" />
                             </div>
-                            <div>
+                            <div className="min-w-0">
                                 <label className="text-[10px] font-semibold text-muted-foreground uppercase">TS (%)</label>
-                                <input type="number" step="0.01" value={hpbCalc.ts} onChange={(e) => setHpbCalc({ ...hpbCalc, ts: +e.target.value })} className="w-full mt-1.5 px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-rose-500/50" />
+                                <input type="number" step="0.01" value={hpbCalc.ts} onChange={(e) => setHpbCalc({ ...hpbCalc, ts: +e.target.value })} className="w-full mt-1.5 px-2.5 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-rose-500/50" />
                             </div>
-                            <div>
+                            <div className="min-w-0">
                                 <label className="text-[10px] font-semibold text-muted-foreground uppercase">ASH (%)</label>
-                                <input type="number" step="0.1" value={hpbCalc.ash} onChange={(e) => setHpbCalc({ ...hpbCalc, ash: +e.target.value })} className="w-full mt-1.5 px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-rose-500/50" />
+                                <input type="number" step="0.1" value={hpbCalc.ash} onChange={(e) => setHpbCalc({ ...hpbCalc, ash: +e.target.value })} className="w-full mt-1.5 px-2.5 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-rose-500/50" />
                             </div>
                         </div>
                         <div className="pt-4 mt-4 border-t border-border/50">
@@ -493,7 +575,7 @@ export default function MarketPricePage() {
                             <h3 className="text-base font-bold flex items-center gap-2 text-emerald-500"><TrendingUp className="w-5 h-5" /> Market vs Sales & Purchase</h3>
                             <p className="text-xs text-muted-foreground mt-1">Compare selected market index against deal selling price, shipment purchase price, supplier FOB, and P&L assumptions.</p>
                         </div>
-                        <select value={comparisonIndex} onChange={(e) => setComparisonIndex(e.target.value as any)} className="px-3 py-2 rounded-xl bg-background border border-border text-sm outline-none focus:border-emerald-500/50">
+                        <select value={comparisonIndex} onChange={(e) => setComparisonIndex(e.target.value as any)} className="w-full md:w-auto px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-emerald-500/50">
                             <option value="ici_1">ICI 1 (6500)</option>
                             <option value="ici_2">ICI 2 (5800)</option>
                             <option value="ici_3">ICI 3 (5000)</option>
@@ -576,7 +658,7 @@ export default function MarketPricePage() {
                     <div className="h-[280px] md:h-[350px]">
                         {mounted && (
                             <ResponsiveContainer width="100%" height="100%">
-                                <ComposedChart data={chartRange === "2W" ? data.slice(-14) : chartRange === "4W" ? data.slice(-28) : data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                                <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(128,128,128,0.1)" />
                                     <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
                                     <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
@@ -595,20 +677,44 @@ export default function MarketPricePage() {
                     </div>
                 </div>
 
+                {canEdit && (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-border/50 bg-accent/20 px-4 py-3">
+                        <div>
+                            <p className="text-sm font-bold">Input Price Hari Ini</p>
+                            <p className="text-[11px] text-muted-foreground">
+                                {todayPrice ? `Update terakhir: ${formatUpdateDateTime(todayPrice.updated_at)} oleh ${todayPrice.updated_by_name || "Unknown"}` : "Belum ada harga untuk hari ini."}
+                            </p>
+                        </div>
+                        <button onClick={openInputPrice} className="btn-primary w-full sm:w-fit">
+                            <Plus className="w-4 h-4 mr-1.5" />
+                            Input Price
+                        </button>
+                    </div>
+                )}
+
                 {/* Input form */}
                 {showForm && (
-                    <div className="card-elevated p-5 space-y-4 animate-scale-in">
-                        <h3 className="text-sm font-semibold">Input New Price Data</h3>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                            <div><label className="text-[10px] font-semibold text-muted-foreground uppercase">Date</label>
-                                <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-accent/50 border border-border text-sm outline-none focus:border-primary/50" /></div>
-                            {[["ICI 1", "ici_1"], ["ICI 2", "ici_2"], ["ICI 3", "ici_3"], ["ICI 4", "ici_4"], ["ICI 5", "ici_5"], ["Newcastle", "newcastle"], ["HBA", "hba"], ["HBA I", "hba_1"], ["HBA II", "hba_2"], ["HBA III", "hba_3"]].map(([label, key]) => (
-                                <div key={key}><label className="text-[10px] font-semibold text-muted-foreground uppercase">{label} (USD)</label>
-                                    <input type="number" step="0.01" value={(form as any)[key] || ""} onChange={(e) => setForm({ ...form, [key]: +e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg bg-accent/50 border border-border text-sm outline-none focus:border-primary/50" /></div>
+                    <div className="card-elevated p-4 space-y-4 animate-scale-in border border-primary/20">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div>
+                                <h3 className="text-sm font-semibold">Update Price Hari Ini</h3>
+                                <p className="text-[11px] text-muted-foreground">Manual input hanya mengubah record tanggal {todayInput}.</p>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 2xl:grid-cols-11 gap-2.5">
+                            <div className="min-w-0">
+                                <label className="text-[9px] font-semibold text-muted-foreground uppercase">Date</label>
+                                <input type="date" value={todayInput} readOnly className="w-full mt-1 px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs outline-none cursor-not-allowed" />
+                            </div>
+                            {marketInputFields.map(([label, key]) => (
+                                <div key={key} className="min-w-0">
+                                    <label className="text-[9px] font-semibold text-muted-foreground uppercase">{label}</label>
+                                    <input type="number" inputMode="decimal" step="0.01" value={(form as any)[key] || ""} onChange={(e) => setForm({ ...form, [key]: +e.target.value })} className="w-full mt-1 px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs outline-none focus:border-primary/50" />
+                                </div>
                             ))}
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={handleSubmit} className="btn-primary" disabled={isSaving}>
+                            <button onClick={handleSubmit} className="btn-primary min-w-[110px]" disabled={isSaving}>
                                 {isSaving ? (
                                     <>
                                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -617,7 +723,7 @@ export default function MarketPricePage() {
                                 ) : (
                                     <>
                                         <Plus className="w-4 h-4 mr-1" /> Save
-                                    </     >
+                                    </>
                                 )}
                             </button>
                             <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent transition-colors" disabled={isSaving}>Cancel</button>
@@ -628,28 +734,78 @@ export default function MarketPricePage() {
                 {/* Price Table */}
                 <div className="card-elevated overflow-hidden animate-slide-up delay-3">
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm min-w-[700px]">
+                        <table className="w-full text-sm min-w-[1120px]">
                             <thead><tr className="border-b border-border bg-accent/30">
-                                {["Date", "ICI 1", "ICI 2", "ICI 3", "ICI 4", "ICI 5", "Newcastle", "HBA", "HBA I", "HBA II", "HBA III"].map((h) => (
-                                    <th key={h} className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase first:text-left">{h}</th>
+                                {["Date", "Updated", "By", "Source", "ICI 1", "ICI 2", "ICI 3", "ICI 4", "ICI 5", "Newcastle", "HBA", "HBA I", "HBA II", "HBA III", "History"].map((h) => (
+                                    <th key={h} className="text-right px-3 py-3 text-[10px] font-semibold text-muted-foreground uppercase first:text-left">{h}</th>
                                 ))}
                             </tr></thead>
                             <tbody>
-                                {marketPrices.map((p) => (
-                                    <tr key={p.id} className="border-b border-border/50 hover:bg-accent/20">
-                                        <td className="px-4 py-2.5 text-xs">{new Date(p.date).toLocaleDateString("en", { day: "2-digit", month: "short", year: "2-digit" })}</td>
-                                        <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_1)}</td>
-                                        <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_2)}</td>
-                                        <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_3)}</td>
-                                        <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_4)}</td>
-                                        <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_5)}</td>
-                                        <td className="px-4 py-2.5 text-xs text-right font-mono">${safeFmt(p.newcastle)}</td>
-                                        <td className="px-4 py-2.5 text-xs text-right font-mono font-bold text-emerald-500">${safeFmt(p.hba)}</td>
-                                        <td className="px-4 py-2.5 text-xs text-right font-mono text-teal-500">${safeFmt(p.hba_1)}</td>
-                                        <td className="px-4 py-2.5 text-xs text-right font-mono text-cyan-500">${safeFmt(p.hba_2)}</td>
-                                        <td className="px-4 py-2.5 text-xs text-right font-mono text-sky-500">${safeFmt(p.hba_3)}</td>
-                                    </tr>
-                                ))}
+                                {marketPrices.map((p) => {
+                                    const history = historyForPrice(p);
+                                    const latestHistory = history[0];
+                                    const isOpen = Boolean(expandedHistory[p.id]);
+                                    return (
+                                        <React.Fragment key={p.id}>
+                                            <tr className="border-b border-border/50 hover:bg-accent/20">
+                                                <td className="px-3 py-2.5 text-xs font-semibold">{formatPriceDate(p.date)}</td>
+                                                <td className="px-3 py-2.5 text-xs text-right whitespace-nowrap">
+                                                    <span className="inline-flex items-center justify-end gap-1 text-muted-foreground"><Clock3 className="w-3 h-3" />{formatUpdateDateTime(p.updated_at || latestHistory?.at)}</span>
+                                                </td>
+                                                <td className="px-3 py-2.5 text-xs text-right max-w-[130px]">
+                                                    <span className="inline-flex items-center justify-end gap-1 max-w-[130px]"><UserRound className="w-3 h-3 shrink-0 text-muted-foreground" /><span className="truncate">{p.updated_by_name || latestHistory?.byName || "Unknown"}</span></span>
+                                                </td>
+                                                <td className="px-3 py-2.5 text-xs text-right max-w-[160px] truncate" title={p.source || latestHistory?.source || "-"}>{p.source || latestHistory?.source || "-"}</td>
+                                                <td className="px-3 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_1)}</td>
+                                                <td className="px-3 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_2)}</td>
+                                                <td className="px-3 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_3)}</td>
+                                                <td className="px-3 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_4)}</td>
+                                                <td className="px-3 py-2.5 text-xs text-right font-mono">${safeFmt(p.ici_5)}</td>
+                                                <td className="px-3 py-2.5 text-xs text-right font-mono">${safeFmt(p.newcastle)}</td>
+                                                <td className="px-3 py-2.5 text-xs text-right font-mono font-bold text-emerald-500">${safeFmt(p.hba)}</td>
+                                                <td className="px-3 py-2.5 text-xs text-right font-mono text-teal-500">${safeFmt(p.hba_1)}</td>
+                                                <td className="px-3 py-2.5 text-xs text-right font-mono text-cyan-500">${safeFmt(p.hba_2)}</td>
+                                                <td className="px-3 py-2.5 text-xs text-right font-mono text-sky-500">${safeFmt(p.hba_3)}</td>
+                                                <td className="px-3 py-2.5 text-xs text-right">
+                                                    <button
+                                                        onClick={() => setExpandedHistory((current) => ({ ...current, [p.id]: !current[p.id] }))}
+                                                        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-semibold hover:bg-accent"
+                                                    >
+                                                        <History className="w-3 h-3" />
+                                                        {history.length}
+                                                        <ChevronDown className={cn("w-3 h-3 transition-transform", isOpen && "rotate-180")} />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                            {isOpen && (
+                                                <tr className="border-b border-border/50 bg-accent/10">
+                                                    <td colSpan={15} className="px-4 py-3">
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                                                            {history.map((item) => (
+                                                                <div key={item.id} className="rounded-lg border border-border/50 bg-background/70 p-3 text-xs">
+                                                                    <div className="flex items-start justify-between gap-2">
+                                                                        <div className="min-w-0">
+                                                                            <p className="font-bold truncate">{item.source || "-"}</p>
+                                                                            <p className="text-[10px] text-muted-foreground">{formatUpdateDateTime(item.at)} by {item.byName || "Unknown"}</p>
+                                                                        </div>
+                                                                        <span className="shrink-0 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary uppercase">{historyActionLabel(item.action)}</span>
+                                                                    </div>
+                                                                    <div className="mt-2 grid grid-cols-5 gap-1 text-[10px] font-mono text-muted-foreground">
+                                                                        <span>ICI1 ${safeFmt(item.prices?.ici_1)}</span>
+                                                                        <span>ICI2 ${safeFmt(item.prices?.ici_2)}</span>
+                                                                        <span>ICI3 ${safeFmt(item.prices?.ici_3)}</span>
+                                                                        <span>ICI4 ${safeFmt(item.prices?.ici_4)}</span>
+                                                                        <span>HBA ${safeFmt(item.prices?.hba)}</span>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </React.Fragment>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

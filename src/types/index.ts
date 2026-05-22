@@ -515,7 +515,32 @@ export interface MarketPriceEntry {
     source?: string;
     notes?: string;
     created_by?: string;
+    updated_by?: string;
+    updated_by_name?: string;
+    history?: MarketPriceHistoryEntry[];
+    created_at?: string;
     updated_at?: string;
+}
+
+export interface MarketPriceHistoryEntry {
+    id: string;
+    at: string;
+    by: string;
+    byName: string;
+    source: string;
+    action: "manual_update" | "auto_scrape" | "create" | "update";
+    prices: {
+        ici_1: number;
+        ici_2: number;
+        ici_3: number;
+        ici_4: number;
+        ici_5: number;
+        newcastle: number;
+        hba: number;
+        hba_1: number;
+        hba_2: number;
+        hba_3: number;
+    };
 }
 
 // ── Meeting / MOM ─────────────────────────────────────────────

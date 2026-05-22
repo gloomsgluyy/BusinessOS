@@ -341,6 +341,9 @@ model MarketPrice {
   newcastle      Float?
   hba            Float?
   source         String?
+  updatedBy      String?
+  updatedByName  String?
+  history        String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   isDeleted      Boolean  @default(false)

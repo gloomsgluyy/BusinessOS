@@ -33,6 +33,18 @@ function parseSourceStockLocations(value: unknown): SourceSupplier["stock_locati
     return locations.length ? locations : undefined;
 }
 
+function parseMarketPriceHistory(value: unknown): MarketPriceEntry["history"] {
+    let raw = value;
+    if (typeof raw === "string") {
+        try {
+            raw = JSON.parse(raw);
+        } catch {
+            raw = [];
+        }
+    }
+    return Array.isArray(raw) ? raw as MarketPriceEntry["history"] : undefined;
+}
+
 type CommercialSyncOptions = {
     mode?: "full" | "dashboard_fast";
     force?: boolean;
@@ -779,7 +791,12 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 hba_1: mp.hbaI !== undefined && mp.hbaI !== null ? mp.hbaI : (mp.hba_1 || 0),
                 hba_2: mp.hbaII !== undefined && mp.hbaII !== null ? mp.hbaII : (mp.hba_2 || 0),
                 hba_3: mp.hbaIII !== undefined && mp.hbaIII !== null ? mp.hbaIII : (mp.hba_3 || 0),
-                source: mp.source
+                source: mp.source,
+                updated_by: mp.updatedBy,
+                updated_by_name: mp.updatedByName,
+                history: parseMarketPriceHistory(mp.history),
+                created_at: mp.createdAt,
+                updated_at: mp.updatedAt,
             };
             set((s) => {
                 // Remove existing if date matches (upsert behavior)
@@ -1291,6 +1308,10 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                                 hba_2: m.hbaII !== undefined ? m.hbaII : (m.hba_2 || 0),
                                 hba_3: m.hbaIII !== undefined ? m.hbaIII : (m.hba_3 || 0),
                                 source: m.source || "-",
+                                updated_by: m.updatedBy,
+                                updated_by_name: m.updatedByName,
+                                history: parseMarketPriceHistory(m.history),
+                                created_at: m.createdAt,
                                 updated_at: m.updatedAt || new Date().toISOString(),
                                 is_deleted: m.isDeleted
                             }));
