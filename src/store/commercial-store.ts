@@ -526,6 +526,8 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
     updateShipment: async (id, u) => {
         const body: any = { id };
         // Map snake_case to camelCase for API
+        if (u.no !== undefined) body.no = u.no;
+        if (u.export_dmo !== undefined) body.exportDmo = u.export_dmo;
         if (u.status !== undefined) body.status = u.status;
         if (u.origin !== undefined) body.origin = u.origin;
         if (u.mv_project_name !== undefined) body.mvProjectName = u.mv_project_name;
@@ -546,7 +548,23 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.issue_notes !== undefined) body.issueNotes = u.issue_notes;
         if (u.bl_date !== undefined) body.blDate = u.bl_date;
         if (u.pic !== undefined) body.pic = u.pic;
+        if (u.kuota_export !== undefined) body.kuotaExport = u.kuota_export;
+        if (u.surveyor_lhv !== undefined) body.surveyorLhv = u.surveyor_lhv;
+        if (u.completely_loaded !== undefined) body.completelyLoaded = u.completely_loaded;
+        if (u.lhv_terbit !== undefined) body.lhvTerbit = u.lhv_terbit;
+        if (u.loss_gain_cargo !== undefined) body.lossGainCargo = u.loss_gain_cargo;
+        if (u.sp !== undefined) body.sp = u.sp;
+        if (u.deadfreight !== undefined) body.deadfreight = u.deadfreight;
+        if (u.jarak !== undefined) body.jarak = u.jarak;
         if (u.shipping_term !== undefined) body.shippingTerm = u.shipping_term;
+        if (u.shipping_rate !== undefined) body.shippingRate = u.shipping_rate;
+        if (u.price_freight !== undefined) body.priceFreight = u.price_freight;
+        if (u.allowance !== undefined) body.allowance = u.allowance;
+        if (u.demm !== undefined) body.demm = u.demm;
+        if (u.no_spal !== undefined) body.noSpal = u.no_spal;
+        if (u.no_si !== undefined) body.noSi = u.no_si;
+        if (u.coa_date !== undefined) body.coaDate = u.coa_date;
+        if (u.result_gar !== undefined) body.resultGar = u.result_gar;
         if (u.buyer !== undefined) body.buyer = u.buyer;
         if (u.supplier !== undefined) body.supplier = u.supplier;
         if (u.vessel_name !== undefined) body.vessel_name = u.vessel_name;
@@ -579,9 +597,13 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.demurrage_source !== undefined) body.demurrageSource = u.demurrage_source;
         if (u.demurrage_updated_at !== undefined) body.demurrageUpdatedAt = u.demurrage_updated_at;
 
-        await fetch("/api/memory/shipments", {
+        const res = await fetch("/api/memory/shipments", {
             method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
         });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || err.details || "Failed to update shipment");
+        }
         set((s) => {
             const raw = s._rawShipments.map((ship) => ship.id === id ? { ...ship, ...u, updated_at: new Date().toISOString() } : ship);
             return { _rawShipments: raw, shipments: raw.filter(x => !x.is_deleted) };

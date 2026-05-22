@@ -811,6 +811,7 @@ export default function ShipmentMonitorPage() {
             status: "upcoming",
             year: new Date().getFullYear(),
             type: "export",
+            export_dmo: "EXPORT",
         });
     };
 
