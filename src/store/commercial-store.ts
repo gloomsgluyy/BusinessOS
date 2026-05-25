@@ -1775,17 +1775,16 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
 
                 const remainingEndpoints = endpoints.filter((e) => e.key !== "shipments");
                 if (remainingEndpoints.length) {
-                    const remainingPayloads: Partial<Record<EndpointKey, any>> = {};
                     await Promise.allSettled(
                         remainingEndpoints.map(async (e) => {
                             try {
-                                remainingPayloads[e.key] = await fetchEndpoint(e);
+                                const payload = await fetchEndpoint(e);
+                                applyPayloads({ [e.key]: payload } as Partial<Record<EndpointKey, any>>);
                             } catch (err: any) {
-                                remainingPayloads[e.key] = { success: false, error: err?.message || "request failed" };
+                                applyPayloads({ [e.key]: { success: false, error: err?.message || "request failed" } } as Partial<Record<EndpointKey, any>>);
                             }
                         })
                     );
-                    applyPayloads(remainingPayloads);
                 }
                 commercialLastSyncSucceededAt = Date.now();
             } catch (error) {

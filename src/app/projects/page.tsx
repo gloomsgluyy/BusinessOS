@@ -568,7 +568,7 @@ export default function ProjectsPage() {
   React.useEffect(() => {
     let active = true;
     setIsInitializing(true);
-    syncFromMemory({ force: true }).finally(() => {
+    syncFromMemory().finally(() => {
       if (active) setIsInitializing(false);
     });
     return () => {
@@ -2121,6 +2121,32 @@ export default function ProjectsPage() {
           </div>
         </div>
 
+        {isInitialForecastLoading && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="rounded-xl border border-border/60 bg-card p-5 space-y-4 animate-pulse">
+                  <div className="flex justify-between gap-3">
+                    <div className="space-y-2 flex-1">
+                      <div className="h-4 w-2/3 rounded bg-accent" />
+                      <div className="h-3 w-1/2 rounded bg-accent/70" />
+                    </div>
+                    <div className="h-6 w-20 rounded bg-accent" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="h-12 rounded bg-accent/70" />
+                    <div className="h-12 rounded bg-accent/70" />
+                    <div className="h-12 rounded bg-accent/70" />
+                    <div className="h-12 rounded bg-accent/70" />
+                  </div>
+                  <div className="h-16 rounded bg-accent/50" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!isInitialForecastLoading && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filtered.map((p) => (
             <div key={p.id} onClick={() => setSelectedProject(p)} className="card-interactive cursor-pointer p-5 space-y-3">
@@ -2175,18 +2201,13 @@ export default function ProjectsPage() {
             </div>
           ))}
         </div>
+        )}
 
-        {filtered.length === 0 && (
+        {!isInitialForecastLoading && filtered.length === 0 && (
           <div className="text-center py-16 px-8 card-elevated border-dashed border-2">
-            {isInitialForecastLoading ? (
-              <Loader2 className="w-12 h-12 text-emerald-500 mx-auto mb-4 animate-spin" />
-            ) : (
-              <FolderKanban className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4" />
-            )}
-            <h3 className="text-lg font-bold mb-1">{isInitialForecastLoading ? "Syncing Forecast Sales" : "No Forecast Sales Data"}</h3>
-            <p className="text-sm text-muted-foreground">
-              {isInitialForecastLoading ? "Mengambil data terbaru dari server production." : "Tidak ada Forecast Sales yang cocok dengan filter saat ini."}
-            </p>
+            <FolderKanban className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4" />
+            <h3 className="text-lg font-bold mb-1">No Forecast Sales Data</h3>
+            <p className="text-sm text-muted-foreground">Tidak ada Forecast Sales yang cocok dengan filter saat ini.</p>
           </div>
         )}
 
