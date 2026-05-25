@@ -58,6 +58,22 @@ async function ensureShipmentDetailExtendedColumns() {
     await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "surveyCost" DOUBLE PRECISION;`);
 }
 
+let shipmentDetailColumnsReady = false;
+let shipmentDetailColumnsPromise: Promise<void> | null = null;
+
+function ensureShipmentDetailExtendedColumnsCached() {
+    if (shipmentDetailColumnsReady) return Promise.resolve();
+    if (shipmentDetailColumnsPromise) return shipmentDetailColumnsPromise;
+    shipmentDetailColumnsPromise = ensureShipmentDetailExtendedColumns()
+        .then(() => {
+            shipmentDetailColumnsReady = true;
+        })
+        .finally(() => {
+            shipmentDetailColumnsPromise = null;
+        });
+    return shipmentDetailColumnsPromise;
+}
+
 async function ensureShipmentDocumentChecklistTable() {
     await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "ShipmentDocumentChecklistItem" (
@@ -676,7 +692,7 @@ export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        await ensureShipmentDetailExtendedColumns();
+        await ensureShipmentDetailExtendedColumnsCached();
         const { searchParams } = new URL(req.url);
         const lite = ["1", "true", "yes"].includes((searchParams.get("lite") || "").toLowerCase());
         const includeTimeline = ["1", "true", "yes"].includes((searchParams.get("timeline") || "").toLowerCase());
@@ -853,7 +869,7 @@ export async function POST(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        await ensureShipmentDetailExtendedColumns();
+        await ensureShipmentDetailExtendedColumnsCached();
 
         const data = await req.json();
 
@@ -989,7 +1005,7 @@ export async function PUT(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        await ensureShipmentDetailExtendedColumns();
+        await ensureShipmentDetailExtendedColumnsCached();
 
         const data = await req.json();
         if (!data.id) return NextResponse.json({ error: "ID missing" }, { status: 400 });

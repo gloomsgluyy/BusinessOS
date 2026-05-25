@@ -15,11 +15,18 @@ export const fetchCache = "force-no-store";
 export const revalidate = 0;
 
 let sourceSupplierColumnsReady = false;
+let sourceSupplierColumnsPromise: Promise<void> | null = null;
 
 async function ensureSourceSupplierColumns() {
     if (sourceSupplierColumnsReady) return;
+    if (sourceSupplierColumnsPromise) return sourceSupplierColumnsPromise;
+    sourceSupplierColumnsPromise = (async () => {
     await prisma.$executeRawUnsafe(`ALTER TABLE "SourceSupplier" ADD COLUMN IF NOT EXISTS "stockLocations" TEXT;`);
     sourceSupplierColumnsReady = true;
+    })().finally(() => {
+        sourceSupplierColumnsPromise = null;
+    });
+    return sourceSupplierColumnsPromise;
 }
 
 function safeNum(value: unknown): number {

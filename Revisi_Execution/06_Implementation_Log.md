@@ -2611,3 +2611,38 @@ Verification:
 Remaining risk:
 
 - Production readiness must pass on Vercel/Supabase after deployment to prove remote migrations and env are applied.
+
+## 2026-05-25 - Supabase Query Storm Mitigation
+
+Type:
+
+- Code
+- Performance
+- Production Stability
+
+Changed:
+
+- `src/store/commercial-store.ts`
+- `src/components/global-market-scraper.tsx`
+- `src/app/api/memory/shipments/route.ts`
+- `src/app/api/memory/projects/route.ts`
+- `src/app/api/memory/sources/route.ts`
+- `src/app/api/memory/quality/route.ts`
+- `src/app/api/memory/market-prices/route.ts`
+- `src/app/api/memory/pl-forecasts/route.ts`
+
+What changed:
+
+- Normal commercial boot sync now requests shipment data with `lite=1` to reduce rows/columns processed by Supabase.
+- Global market scraper no longer triggers an extra full commercial sync on app boot.
+- Runtime schema guard calls are cached per server instance for shipment, project, source, quality, and market price APIs to reduce repeated `ALTER TABLE IF NOT EXISTS` pressure.
+- `GET /api/memory/pl-forecasts` no longer performs auto-heal writes or mass `updateMany` restore during normal reads; Sheet sync remains explicit through `?sync=1`.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `git diff --check` passed with only existing Windows CRLF warnings.
+
+Reason:
+
+- Supabase Query Performance showed query storm symptoms: thousands of shipment reads, repeated runtime schema operations, and thousands of P&L forecast updates. Read endpoints must stay read-only in production.

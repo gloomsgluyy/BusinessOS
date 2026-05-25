@@ -1456,7 +1456,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                         { key: "sales-deals", url: `/api/memory/sales-deals?t=${ts}` },
                     ]
                     : [
-                        { key: "shipments", url: `/api/memory/shipments?t=${ts}` },
+                        { key: "shipments", url: `/api/memory/shipments?t=${ts}&lite=1` },
                         { key: "sources", url: `/api/memory/sources?t=${ts}` },
                         { key: "quality", url: `/api/memory/quality?t=${ts}` },
                         { key: "market-prices", url: `/api/memory/market-prices?t=${ts}` },

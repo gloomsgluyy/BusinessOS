@@ -691,3 +691,13 @@ For critical fields:
 - [x] Existing create/update/delete P&L actions remain unchanged.
 - [x] Ran `npx tsc --noEmit`.
 - [x] Ran `git diff --check -- src/app/pl-forecast/client.tsx`; only existing Windows CRLF warning was reported.
+
+## 62. 2026-05-25 Supabase Query Storm Mitigation Safety Record
+
+- [x] GET `/api/memory/pl-forecasts` no longer performs auto-heal Sheet sync or mass DB update during normal reads.
+- [x] Explicit P&L Sheet sync remains available via `?sync=1`.
+- [x] Shipment boot sync now uses lite rows; full shipment endpoint remains available for direct module calls.
+- [x] Runtime schema guards remain compatibility-safe but are cached per server instance.
+- [x] Global market scraper no longer duplicates the normal app boot commercial sync.
+- [x] Ran `npx tsc --noEmit`.
+- [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.

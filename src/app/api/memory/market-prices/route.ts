@@ -27,14 +27,21 @@ export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
 let marketPriceColumnsReady = false;
+let marketPriceColumnsPromise: Promise<void> | null = null;
 const MARKET_PRICE_TIME_ZONE = "Asia/Jakarta";
 
 async function ensureMarketPriceColumns() {
     if (marketPriceColumnsReady) return;
+    if (marketPriceColumnsPromise) return marketPriceColumnsPromise;
+    marketPriceColumnsPromise = (async () => {
     await prisma.$executeRawUnsafe(`ALTER TABLE "MarketPrice" ADD COLUMN IF NOT EXISTS "updatedBy" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "MarketPrice" ADD COLUMN IF NOT EXISTS "updatedByName" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "MarketPrice" ADD COLUMN IF NOT EXISTS "history" TEXT;`);
     marketPriceColumnsReady = true;
+    })().finally(() => {
+        marketPriceColumnsPromise = null;
+    });
+    return marketPriceColumnsPromise;
 }
 
 function parseHistory(value: unknown) {

@@ -40,28 +40,6 @@ export async function GET(req: Request) {
         // Read from DB cache (fast read path)
         let forecasts = await SheetsFirstService.listPLForecasts();
 
-        // Auto-heal once when cache is empty (common after accidental soft-delete sync)
-        if (!shouldSync && forecasts.length === 0) {
-            try {
-                await SheetsFirstService.syncPLForecastsFromSheet();
-                forecasts = await SheetsFirstService.listPLForecasts();
-            } catch (healError) {
-                console.error("Auto-heal sync failed (non-critical):", healError);
-            }
-        }
-
-        // Safety net: if everything was accidentally soft-deleted, restore visibility.
-        if (forecasts.length === 0) {
-            const deletedCount = await prisma.pLForecast.count({ where: { isDeleted: true } });
-            if (deletedCount > 0) {
-                await prisma.pLForecast.updateMany({
-                    where: { isDeleted: true },
-                    data: { isDeleted: false },
-                });
-                forecasts = await SheetsFirstService.listPLForecasts();
-            }
-        }
-
         // Apply pagination after all sync/heal operations
         const pagination = parsePaginationParams(url.searchParams);
         if (pagination) {

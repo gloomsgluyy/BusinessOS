@@ -209,6 +209,22 @@ async function ensureProjectTable() {
   }
 }
 
+let projectTableReady = false;
+let projectTablePromise: Promise<void> | null = null;
+
+function ensureProjectTableCached() {
+  if (projectTableReady) return Promise.resolve();
+  if (projectTablePromise) return projectTablePromise;
+  projectTablePromise = ensureProjectTable()
+    .then(() => {
+      projectTableReady = true;
+    })
+    .finally(() => {
+      projectTablePromise = null;
+    });
+  return projectTablePromise;
+}
+
 async function tryAuditLog(userId: string, userName: string, action: string, entityId: string, details: string) {
   try {
     await prisma.auditLog.create({
@@ -247,7 +263,7 @@ export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    await ensureProjectTable();
+    await ensureProjectTableCached();
 
     const url = new URL(req.url);
     const pagination = parsePaginationParams(url.searchParams);
@@ -283,7 +299,7 @@ export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    await ensureProjectTable();
+    await ensureProjectTableCached();
 
     const data = await req.json();
     const name = cleanText(data.name);
@@ -396,7 +412,7 @@ export async function PUT(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    await ensureProjectTable();
+    await ensureProjectTableCached();
 
     const data = await req.json();
     if (!data.id) return NextResponse.json({ error: "Forecast Sales ID missing" }, { status: 400 });
@@ -684,7 +700,7 @@ export async function DELETE(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    await ensureProjectTable();
+    await ensureProjectTableCached();
 
     const url = new URL(req.url);
     const id = url.searchParams.get("id");

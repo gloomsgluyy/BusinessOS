@@ -22,7 +22,13 @@ type QualitySpecPayload = {
     tm?: number | null;
 };
 
+let qualityWorkflowColumnsReady = false;
+let qualityWorkflowColumnsPromise: Promise<void> | null = null;
+
 async function ensureQualityWorkflowColumns() {
+    if (qualityWorkflowColumnsReady) return;
+    if (qualityWorkflowColumnsPromise) return qualityWorkflowColumnsPromise;
+    qualityWorkflowColumnsPromise = (async () => {
     await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "contractSpec" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "sourceEstimate" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "qcResult" TEXT;`);
@@ -38,6 +44,11 @@ async function ensureQualityWorkflowColumns() {
     await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "reviewedBy" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "reviewedByName" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "reviewedAt" TIMESTAMP(3);`);
+    qualityWorkflowColumnsReady = true;
+    })().finally(() => {
+        qualityWorkflowColumnsPromise = null;
+    });
+    return qualityWorkflowColumnsPromise;
 }
 
 function toNum(value: unknown) {

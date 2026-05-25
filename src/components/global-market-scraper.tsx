@@ -20,15 +20,11 @@ export function GlobalMarketScraper() {
     const currentUser = useAuthStore((s) => s.currentUser);
     const hasPermission = useAuthStore((s) => s.hasPermission);
     const addMarketPrice = useCommercialStore((s) => s.addMarketPrice);
-    const syncFromMemory = useCommercialStore((s) => s.syncFromMemory);
     const scrapingRef = useRef(false);
     const [intervalMs, setIntervalMs] = useState(DEFAULT_INTERVAL_MS);
 
     useEffect(() => {
         if (status !== "authenticated") return;
-
-        // Ensure latest data is loaded into the store on app boot
-        syncFromMemory();
 
         // Load correct interval from localStorage
         const storedInterval = localStorage.getItem(LS_INTERVAL_KEY);
@@ -43,7 +39,7 @@ export function GlobalMarketScraper() {
         };
         window.addEventListener("marketScrapeIntervalChanged", handleReload);
         return () => window.removeEventListener("marketScrapeIntervalChanged", handleReload);
-    }, [status, syncFromMemory]);
+    }, [status]);
 
     useEffect(() => {
         let timeoutId: ReturnType<typeof setTimeout> | null = null;
