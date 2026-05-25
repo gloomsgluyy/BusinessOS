@@ -9,7 +9,7 @@ export const revalidate = 0;
 
 type DriveDocument = {
   id: string;
-  sourceType: "forecast" | "shipment" | "daily_delivery";
+  sourceType: "forecast" | "shipment" | "daily_delivery" | "shipping_instruction";
   ownerId: string;
   ownerName: string;
   buyer?: string | null;
@@ -52,16 +52,6 @@ function matchesGroup(doc: DriveDocument, group: string) {
   ].some((value) => String(value || "").toLowerCase() === group);
 }
 
-async function ensureStorageColumns() {
-  const tables = ["ProjectDocument", "ShipmentDocument", "DailyDeliveryDocument"];
-  for (const table of tables) {
-    if (!(await tableExists(table))) continue;
-    await prisma.$executeRawUnsafe(`ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "storageProvider" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "storageKey" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "storageUrl" TEXT;`);
-  }
-}
-
 async function tableExists(table: string) {
   const rows = await prisma.$queryRawUnsafe<Array<{ reg: string | null }>>(
     `SELECT to_regclass('public."${table.replace(/"/g, "")}"')::text AS reg`,
@@ -69,32 +59,44 @@ async function tableExists(table: string) {
   return Boolean(rows[0]?.reg);
 }
 
+function compactLabel(value: unknown, fallback = "Document") {
+  return cleanText(value, fallback)
+    .replace(/^COPY OF\s+/i, "")
+    .replace(/^1\s+ORIGINAL\s+/i, "")
+    .replace(/^3\/3\s+ORIGINAL\s+/i, "")
+    .replace(/\s+ISSUED BY .+$/i, "")
+    .trim() || fallback;
+}
+
+function driveTitle(parts: Array<string | null | undefined>) {
+  return parts.map((part) => cleanText(part)).filter(Boolean).join(" - ");
+}
+
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    await ensureStorageColumns();
 
     const url = new URL(req.url);
     const q = cleanText(url.searchParams.get("q")).toLowerCase();
     const source = cleanText(url.searchParams.get("source"), "all").toLowerCase();
     const group = cleanText(url.searchParams.get("group"), "all").toLowerCase();
-    const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 250), 1), 500);
-    const canReadCritical = isExecutiveRole(session.user.role);
+    const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 120), 1), 300);
+    const perSourceLimit = Math.min(limit, 100);
+    const canReadCritical = Boolean(session?.user && isExecutiveRole(session.user.role));
 
-    const [hasProjectDocumentTable, hasShipmentDocumentTable, hasDailyDocumentTable] = await Promise.all([
+    const [hasProjectDocumentTable, hasShipmentDocumentTable, hasDailyDocumentTable, hasSiTable] = await Promise.all([
       tableExists("ProjectDocument"),
       tableExists("ShipmentDocument"),
       tableExists("DailyDeliveryDocument"),
+      tableExists("ShippingInstructionRecord"),
     ]);
 
-    const [projectDocs, shipmentDocs, dailyDocs] = await Promise.all([
+    const [projectDocs, shipmentDocs, dailyDocs, siDocs] = await Promise.all([
       hasProjectDocumentTable && (source === "all" || source === "forecast")
         ? prisma.projectDocument.findMany({
           where: { isDeleted: false },
           orderBy: { createdAt: "desc" },
-          take: limit,
+          take: perSourceLimit,
           select: {
             id: true,
             projectId: true,
@@ -116,7 +118,7 @@ export async function GET(req: Request) {
             ...(group !== "all" ? { documentGroup: group } : {}),
           },
           orderBy: { createdAt: "desc" },
-          take: limit,
+          take: perSourceLimit,
           select: {
             id: true,
             shipmentId: true,
@@ -136,7 +138,7 @@ export async function GET(req: Request) {
         ? prisma.dailyDeliveryDocument.findMany({
           where: { isDeleted: false },
           orderBy: { createdAt: "desc" },
-          take: limit,
+          take: perSourceLimit,
           select: {
             id: true,
             dailyDeliveryId: true,
@@ -150,10 +152,30 @@ export async function GET(req: Request) {
           },
         })
         : Promise.resolve([]),
+      hasSiTable && (source === "all" || source === "shipping_instruction" || source === "shipment")
+        ? prisma.shippingInstructionRecord.findMany({
+          where: {
+            isDeleted: false,
+            status: { notIn: ["cancelled", "rejected"] },
+          },
+          orderBy: { createdAt: "desc" },
+          take: perSourceLimit,
+          select: {
+            id: true,
+            shipmentId: true,
+            siNumber: true,
+            version: true,
+            status: true,
+            pdfFileName: true,
+            generatedByName: true,
+            createdAt: true,
+          },
+        })
+        : Promise.resolve([]),
     ]);
 
     const projectIds = Array.from(new Set(projectDocs.map((doc) => doc.projectId)));
-    const shipmentIds = Array.from(new Set(shipmentDocs.map((doc) => doc.shipmentId)));
+    const shipmentIds = Array.from(new Set([...shipmentDocs.map((doc) => doc.shipmentId), ...siDocs.map((doc) => doc.shipmentId)]));
     const dailyIds = Array.from(new Set(dailyDocs.map((doc) => doc.dailyDeliveryId)));
 
     const [projects, shipments, dailyDeliveries] = await Promise.all([
@@ -192,7 +214,7 @@ export async function GET(req: Request) {
           buyer: project?.buyer || null,
           documentGroup: "forecast",
           documentType: doc.requirementCode || "forecast_document",
-          title: doc.requirementLabel,
+          title: driveTitle(["Forecast Sales", project?.name || doc.projectId, compactLabel(doc.requirementLabel), project?.buyer]),
           fileName: doc.fileName,
           mimeType: doc.mimeType,
           sizeBytes: doc.sizeBytes,
@@ -212,7 +234,12 @@ export async function GET(req: Request) {
           buyer: shipment?.buyer || null,
           documentGroup: doc.documentGroup,
           documentType: doc.requirementCode || doc.requirementLabel || doc.title,
-          title: doc.requirementLabel || doc.title,
+          title: driveTitle([
+            shipment?.forecastSalesName || shipment?.mvProjectName || shipment?.vesselName || shipment?.nomination || doc.shipmentId,
+            compactLabel(doc.requirementLabel || doc.title),
+            shipment?.buyer,
+            doc.documentGroup,
+          ]),
           fileName: doc.fileName,
           mimeType: doc.mimeType,
           sizeBytes: doc.sizeBytes,
@@ -232,13 +259,35 @@ export async function GET(req: Request) {
           buyer: daily?.buyer || null,
           documentGroup: "domestic_handover",
           documentType: doc.documentType,
-          title: doc.title,
+          title: driveTitle([daily?.project || daily?.mvBargeNomination || daily?.supplier || doc.dailyDeliveryId, compactLabel(doc.title), doc.documentType]),
           fileName: doc.fileName,
           mimeType: doc.mimeType,
           sizeBytes: doc.sizeBytes,
           uploadedByName: doc.uploadedByName,
           createdAt: doc.createdAt,
           url: `/api/document-drive/files/daily_delivery/${doc.dailyDeliveryId}/${doc.id}`,
+          isCritical: false,
+        };
+      }),
+      ...siDocs.map((doc) => {
+        const shipment = shipmentById.get(doc.shipmentId);
+        const ownerName = shipment?.forecastSalesName || shipment?.mvProjectName || shipment?.vesselName || shipment?.bargeName || shipment?.nomination || doc.shipmentId;
+        const fileName = doc.pdfFileName || `${doc.siNumber}-v${doc.version}.pdf`;
+        return {
+          id: doc.id,
+          sourceType: "shipping_instruction" as const,
+          ownerId: doc.shipmentId,
+          ownerName,
+          buyer: shipment?.buyer || null,
+          documentGroup: "shipping_instruction",
+          documentType: "shipping_instruction",
+          title: driveTitle([ownerName, `Shipping Instruction ${doc.siNumber}`, `v${doc.version}`, shipment?.buyer]),
+          fileName,
+          mimeType: "application/pdf",
+          sizeBytes: 0,
+          uploadedByName: doc.generatedByName || "System Generated",
+          createdAt: doc.createdAt,
+          url: `/api/document-drive/files/shipping_instruction/${doc.shipmentId}/${doc.id}`,
           isCritical: false,
         };
       }),
@@ -253,6 +302,7 @@ export async function GET(req: Request) {
       forecast: documents.filter((doc) => doc.sourceType === "forecast").length,
       shipment: documents.filter((doc) => doc.sourceType === "shipment").length,
       dailyDelivery: documents.filter((doc) => doc.sourceType === "daily_delivery").length,
+      shippingInstruction: documents.filter((doc) => doc.sourceType === "shipping_instruction").length,
       required: documents.filter((doc) => doc.documentGroup === "required").length,
       additional: documents.filter((doc) => doc.documentGroup === "additional").length,
       domestic: documents.filter((doc) => doc.documentGroup === "domestic_handover").length,

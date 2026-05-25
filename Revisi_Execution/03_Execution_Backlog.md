@@ -75,8 +75,9 @@ Priority values:
 | DOC-005 | P1 | FR-DOC-001 | Dashboard document aging alert | Done | Overdue/rejected/aging required shipment docs show in executive dashboard |
 | DOC-006 | P1 | UP-004 | Critical document replacement history | Done | Same-title critical upload creates version/history, marks prior critical document superseded, and keeps old file downloadable |
 | DOC-007 | P1 | Production document storage | Optional Supabase object storage | Done/Strong | Project, Shipment, and Daily Delivery document APIs can store files in Supabase Storage with DB fallback |
-| DOC-008 | P1 | Document public access | Document Drive aggregator | Done | `/document-drive` aggregates Forecast Sales, Shipment, and Domestic Handover documents with search/source/group filters and read-only download/open actions; `staff` can access only this module |
-| DOC-009 | P1 | Document public access | Drive-owned download proxy | Done | Document Drive file links use `/api/document-drive/files/...`, allowing document-only users to download visible non-critical files without accessing the source module routes |
+| DOC-008 | P1 | Document public access | Document Drive aggregator | Done/Strong | `/document-drive` is public read-only and aggregates Forecast Sales, Shipment, generated SI, and Domestic Handover documents with search/source/group filters and clear owner-based names; logged-out users can access only this module |
+| DOC-009 | P1 | Document public access | Drive-owned download proxy | Done/Strong | Document Drive file links use `/api/document-drive/files/...`, allowing public/document-only users to download visible non-critical files and generated SI PDFs without accessing source module routes |
+| DOC-010 | P1 | Document performance | Document Drive listing performance | Done | Listing uses metadata-only selects, bounded limits, and no schema mutation in the request path; file bytes/PDF are loaded only on open/download |
 
 ## Phase 5 - Traceability
 
