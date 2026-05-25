@@ -2725,3 +2725,29 @@ Verification:
 Root cause note:
 
 - The slow-feeling behavior was not the KPI dropdown layout itself. The heavier issue was the store sync barrier: a slow endpoint in the commercial sync batch could delay project/forecast data being applied, and the page had no proper client-side skeleton for that data phase.
+
+## 2026-05-25 - FCO Download Immediate Response
+
+Type:
+
+- Code
+- UX
+
+Changed:
+
+- `src/app/projects/page.tsx`
+
+SRS refs:
+
+- FS-005 / FCO generation and download
+
+What changed:
+
+- FCO PDF download now starts immediately after client-side PDF generation instead of waiting for the database history update and commercial sync first.
+- FCO button now shows a `Preparing...` state and disables duplicate clicks while the file is being prepared.
+- FCO number/generated-at is reflected optimistically in the open Forecast Sales modal; backend history update still runs after the download trigger.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `git diff --check` passed with only existing Windows CRLF warnings.

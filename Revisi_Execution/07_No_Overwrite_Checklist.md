@@ -720,3 +720,12 @@ For critical fields:
 - [x] Skeleton UI is presentation-only and does not mutate Forecast Sales, Shipment, Source, Market Price, or document data.
 - [x] Ran `npx tsc --noEmit`.
 - [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.
+
+## 65. 2026-05-25 FCO Download Immediate Response Safety Record
+
+- [x] Changed only the Forecast Sales FCO button/handler path.
+- [x] PDF content generation logic and FCO number format were not changed.
+- [x] Database FCO history update still runs, but no longer blocks the browser download trigger.
+- [x] Added duplicate-click guard/loading state for the FCO button.
+- [x] Ran `npx tsc --noEmit`.
+- [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.

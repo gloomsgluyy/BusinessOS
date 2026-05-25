@@ -545,6 +545,7 @@ export default function ProjectsPage() {
   const [shipmentDocDownloads, setShipmentDocDownloads] = React.useState<Record<string, ShipmentDocument[]>>({});
   const [loadingShipmentDocs, setLoadingShipmentDocs] = React.useState(false);
   const [downloadingRequiredZip, setDownloadingRequiredZip] = React.useState<Record<string, boolean>>({});
+  const [downloadingFco, setDownloadingFco] = React.useState<string | null>(null);
   const [approvalComment, setApprovalComment] = React.useState("");
   const [buyerFeedbackReason, setBuyerFeedbackReason] = React.useState("");
   const [convertingShipment, setConvertingShipment] = React.useState(false);
@@ -1509,6 +1510,7 @@ export default function ProjectsPage() {
   };
 
   const downloadForecastSalesFco = async (project: ProjectCard) => {
+    if (downloadingFco) return;
     if (!project.projectRecord) {
       window.alert("FCO hanya tersedia untuk Forecast Sales master record.");
       return;
@@ -1518,15 +1520,11 @@ export default function ProjectsPage() {
       return;
     }
 
+    setDownloadingFco(project.id);
     const fcoNumber = buildFcoNumber(project);
     const generatedAt = new Date().toISOString();
-    await updateProject(project.projectRecord.id, {
-      fco_number: fcoNumber,
-      fco_generated_at: generatedAt,
-    } as Partial<ProjectItem>);
-    await syncFromMemory({ force: true });
-
     const p = project.projectRecord;
+    try {
     const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -1722,6 +1720,33 @@ export default function ProjectsPage() {
     doc.text(`Generated from approved Forecast Sales by ${p.approved_by_name || "Executive"}`, left, y + 14);
 
     doc.save(`${slugFile(fcoNumber)}-${slugFile(project.projectName)}.pdf`);
+
+    const optimisticRecord = {
+      ...p,
+      fco_number: fcoNumber,
+      fco_generated_at: generatedAt,
+    };
+    setSelectedProject((current) =>
+      current?.id === project.id
+        ? { ...current, projectRecord: optimisticRecord }
+        : current,
+    );
+
+    void updateProject(project.projectRecord.id, {
+      fco_number: fcoNumber,
+      fco_generated_at: generatedAt,
+    } as Partial<ProjectItem>)
+      .then(() => syncFromMemory())
+      .catch((error: any) => {
+        console.error("[forecast-sales] FCO history update failed", error);
+        window.alert("PDF sudah ter-download, tapi history FCO gagal tersimpan. Coba refresh lalu cek FCO Control.");
+      })
+      .finally(() => setDownloadingFco(null));
+    } catch (error: any) {
+      console.error("[forecast-sales] FCO download failed", error);
+      setDownloadingFco(null);
+      window.alert(error?.message || "FCO gagal di-download.");
+    }
   };
 
   const uploadProjectDocument = async (project: ProjectItem, index: number, file: File | null) => {
@@ -2568,16 +2593,22 @@ export default function ProjectsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => downloadForecastSalesFco(selectedProject)}
+                    disabled={downloadingFco === selectedProject.id}
                     className={cn(
                       "px-3 py-2 rounded-lg text-xs font-semibold hover:shadow-md",
+                      downloadingFco === selectedProject.id && "opacity-70 cursor-wait",
                       selectedProject.projectRecord && mapMasterStatus(selectedProject.projectRecord.status) === "approved"
                         ? "bg-blue-600 text-white"
                         : "bg-accent text-muted-foreground",
                     )}
                     title="Download FCO PDF"
                   >
-                    <Download className="w-3.5 h-3.5 inline mr-1.5" />
-                    FCO
+                    {downloadingFco === selectedProject.id ? (
+                      <Loader2 className="w-3.5 h-3.5 inline mr-1.5 animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5 inline mr-1.5" />
+                    )}
+                    {downloadingFco === selectedProject.id ? "Preparing..." : "FCO"}
                   </button>
                   <button
                     onClick={() => downloadProjectSummaryReport(selectedProject)}
