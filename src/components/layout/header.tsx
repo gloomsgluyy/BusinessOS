@@ -84,7 +84,9 @@ export function Header() {
     const pageTitle = React.useMemo(() => {
         const map: Record<string, string> = {
             "/": "Dashboard",
+            "/document-drive": "Document Drive",
             "/users": "User Management",
+            "/production-readiness": "Production Readiness",
             "/approval-inbox": "Approval Inbox",
             "/my-tasks": "My Tasks",
             "/all-tasks": "All Tasks",
@@ -102,7 +104,8 @@ export function Header() {
             "/transshipment": "Transshipment / Freight",
             "/operations": "Operations Overview",
             "/directory": "Partners & Directory",
-            "/projects": "Sales Projects",
+            "/projects": "Forecast Sales",
+            "/forecast-sales": "Forecast Sales",
             "/compliance": "Compliance & Legal",
             "/ai-optimization": "AI Optimization",
             "/ai-agent": "AI Excel Agent",
@@ -209,15 +212,28 @@ export function Header() {
             notifs.push({ id: nid++, category: "Finance", type: "action", message: `[Deals] ${pendingDeals.length} deal(s) awaiting confirmation: ${pendingDeals.slice(0, 2).map(d => d.buyer).join(", ")}${pendingDeals.length > 2 ? " +more" : ""}.`, time: "Action needed", targetRoles: ["ceo", "director", "marketing"] });
         }
 
-        // 6. CEO/Dirut-only AI project urgency
+        // 6. CEO/Dirut-only AI Forecast Sales urgency
         const urgentProjects = projects.filter((p: any) => Number(p.urgency_score || 0) >= 70);
         urgentProjects.slice(0, 3).forEach((p: any) => {
             notifs.push({
                 id: nid++,
                 category: "System",
                 type: Number(p.urgency_score) >= 85 ? "warning" : "action",
-                message: `[Project Urgency] ${p.name} is ${p.urgency_level || "HIGH"} (${p.urgency_score}). Review on CEO dashboard.`,
+                message: `[Forecast Sales Urgency] ${p.name} is ${p.urgency_level || "HIGH"} (${p.urgency_score}). Review on CEO dashboard.`,
                 time: "AI analysis",
+                targetRoles: ["CEO", "DIRUT", "ASS_DIRUT", "ceo"],
+            });
+        });
+
+        // 7. CEO/Dirut-only failed Forecast Sales offers
+        const failedForecastOffers = projects.filter((p: any) => String(p.buyer_feedback_status || "").toLowerCase() === "failed");
+        failedForecastOffers.slice(0, 5).forEach((p: any) => {
+            notifs.push({
+                id: nid++,
+                category: "Finance",
+                type: "warning",
+                message: `[Forecast Failed] ${p.name} failed buyer feedback. Reason: ${p.buyer_feedback_reason || "No reason captured"}.`,
+                time: p.buyer_feedback_updated_at ? new Date(p.buyer_feedback_updated_at).toLocaleDateString("en-GB") : "Action needed",
                 targetRoles: ["CEO", "DIRUT", "ASS_DIRUT", "ceo"],
             });
         });

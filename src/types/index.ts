@@ -1,5 +1,5 @@
 // ── Roles & Permissions ───────────────────────────────────────
-export type Role = "ceo" | "director" | "marketing" | "purchasing" | "operation";
+export type Role = "ceo" | "director" | "marketing" | "purchasing" | "operation" | "staff";
 
 export type Permission =
     | "dashboard"
@@ -27,6 +27,7 @@ export type Permission =
     | "market_price_edit"
     | "meetings"
     | "transshipment"
+    | "document_drive"
     | "outstanding_payment";
 
 // ── Job Titles & Departments ────────────────────────────────────
@@ -197,11 +198,43 @@ export interface ProjectItem {
     buyer?: string;
     status?: string;
     notes?: string;
+    buyer_country?: string;
+    commodity?: string;
+    quantity?: number;
+    laycan_start?: string;
+    laycan_end?: string;
+    port_of_loading?: string;
+    sales_term?: string;
+    target_selling_price?: number;
+    price_basis?: string;
+    payment_terms?: string;
+    surveyor?: string;
+    gar?: number;
+    tm?: number;
+    ts?: number;
+    ash?: number;
+    vm?: number;
+    size?: string;
+    supplier_candidates?: string;
+    below_spec_reason?: string;
+    below_spec_acknowledged_at?: string;
+    below_spec_acknowledged_by_name?: string;
+    blending_scenario?: string;
+    rough_pnl?: string;
     created_by?: string;
     created_by_name?: string;
     approved_by?: string;
     approved_by_name?: string;
     approved_at?: string;
+    approval_history?: string;
+    revision_history?: string;
+    fco_number?: string;
+    fco_generated_at?: string;
+    fco_history?: string;
+    buyer_feedback_status?: string;
+    buyer_feedback_reason?: string;
+    buyer_feedback_updated_at?: string;
+    buyer_feedback_history?: string;
     template_type?: string;
     template_checklist?: string;
     urgency_score?: number;
@@ -215,15 +248,57 @@ export interface ProjectItem {
 // ── Shipment Monitor ──────────────────────────────────────────
 export type ShipmentStatus = "upcoming" | "done_shipment" | "loading" | "in_transit" | "completed" | "cancelled";
 
+export interface ProjectSupplierCandidate {
+    id: string;
+    projectId: string;
+    sourceId?: string | null;
+    supplierName: string;
+    sourceName?: string | null;
+    region?: string | null;
+    fitScore?: number | null;
+    warningText?: string | null;
+    stockAvailable?: number | null;
+    gar?: number | null;
+    tm?: number | null;
+    ts?: number | null;
+    ash?: number | null;
+    priceUsd?: number | null;
+    status: string;
+    selected: boolean;
+    version: number;
+    notes?: string | null;
+    createdBy?: string | null;
+    createdByName?: string | null;
+    selectedBy?: string | null;
+    selectedByName?: string | null;
+    selectedAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    isDeleted?: boolean;
+}
+
 export interface ShipmentDetail {
     id: string;
     is_deleted?: boolean;
     no?: number;
+    forecast_sales_id?: string;
+    forecast_sales_name?: string;
+    fco_number?: string;
+    commercial_mom_document_id?: string;
+    commercial_po_document_id?: string;
     export_dmo?: string;
     status: string;
     origin?: string;
     mv_project_name?: string;
     source?: string;
+    source_confirmation_status?: string;
+    source_confirmation_document_id?: string;
+    source_confirmation_notes?: string;
+    source_confirmed_by?: string;
+    source_confirmed_by_name?: string;
+    source_confirmed_at?: string;
+    source_legal_readiness_status?: string;
+    source_cargo_readiness_status?: string;
     iup_op?: string;
     shipment_flow?: string;
     jetty_loading_port?: string;
@@ -250,8 +325,16 @@ export interface ShipmentDetail {
     deadfreight?: number;
     jarak?: number;
     shipping_term?: string;
+    payment_status?: string;
+    payment_due_date?: string;
+    quality_status?: string;
+    issue_status?: string;
     shipping_rate?: number;
     price_freight?: number;
+    royalty_cost?: number;
+    tax_export_cost?: number;
+    survey_cost?: number;
+    payment_finance_cost?: number;
     allowance?: string;
     demm?: string;
     no_spal?: string;
@@ -309,6 +392,23 @@ export interface ShipmentDetail {
     demurrage_updated_at?: string;
 }
 
+export interface ProjectDocument {
+    id: string;
+    projectId: string;
+    requirementCode?: string | null;
+    requirementLabel: string;
+    fileName: string;
+    mimeType?: string | null;
+    sizeBytes: number;
+    storageProvider?: string | null;
+    storageKey?: string | null;
+    storageUrl?: string | null;
+    uploadedBy?: string | null;
+    uploadedByName?: string | null;
+    createdAt: string;
+    url?: string;
+}
+
 export type ShipmentDocumentGroup = "required" | "critical" | "additional";
 
 export interface ShipmentDocument {
@@ -323,6 +423,16 @@ export interface ShipmentDocument {
     fileName: string;
     mimeType?: string | null;
     sizeBytes: number;
+    storageProvider?: string | null;
+    storageKey?: string | null;
+    storageUrl?: string | null;
+    version?: number;
+    parentDocumentId?: string | null;
+    replacedByDocumentId?: string | null;
+    replacementReason?: string | null;
+    replacedAt?: string | null;
+    replacedBy?: string | null;
+    replacedByName?: string | null;
     uploadedBy?: string | null;
     uploadedByName?: string | null;
     createdAt: string;
@@ -330,9 +440,128 @@ export interface ShipmentDocument {
     url?: string;
 }
 
+export interface ShipmentDocumentChecklistItem {
+    id: string;
+    shipmentId: string;
+    documentGroup: ShipmentDocumentGroup;
+    requirementCode?: string | null;
+    requirementLabel: string;
+    title: string;
+    required: boolean;
+    ownerRole?: string | null;
+    responsibleParty?: string | null;
+    status: string;
+    expectedDate?: string | null;
+    receivedDate?: string | null;
+    submittedDate?: string | null;
+    submittedTo?: string | null;
+    hardcopyStatus?: string | null;
+    notes?: string | null;
+    createdBy?: string | null;
+    createdByName?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    isDeleted?: boolean;
+    documentCount?: number;
+}
+
+export interface ShipmentIssueLog {
+    id: string;
+    shipmentId: string;
+    category: string;
+    impact?: string | null;
+    action?: string | null;
+    pic?: string | null;
+    targetDate?: string | null;
+    status: string;
+    evidence?: string | null;
+    notes?: string | null;
+    createdBy?: string | null;
+    createdByName?: string | null;
+    resolvedAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ShipmentSourceChangeRequest {
+    id: string;
+    shipmentId: string;
+    oldSource?: string | null;
+    newSource: string;
+    reason: string;
+    evidence?: string | null;
+    impact?: string | null;
+    status: string;
+    version: number;
+    active: boolean;
+    requestedBy?: string | null;
+    requestedByName?: string | null;
+    approvedBy?: string | null;
+    approvedByName?: string | null;
+    approvedAt?: string | null;
+    approvalComment?: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ShipmentBargeChangeLog {
+    id: string;
+    shipmentId: string;
+    oldMv?: string | null;
+    oldTb?: string | null;
+    oldBg?: string | null;
+    oldNomination?: string | null;
+    newMv?: string | null;
+    newTb?: string | null;
+    newBg?: string | null;
+    newNomination?: string | null;
+    reason: string;
+    evidence?: string | null;
+    impact?: string | null;
+    status: string;
+    version: number;
+    active: boolean;
+    requestedBy?: string | null;
+    requestedByName?: string | null;
+    approvedBy?: string | null;
+    approvedByName?: string | null;
+    approvedAt?: string | null;
+    approvalComment?: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ShippingInstructionRecord {
+    id: string;
+    shipmentId: string;
+    siNumber: string;
+    version: number;
+    status: string;
+    reason?: string | null;
+    earlyApprovalReason?: string | null;
+    approvedBy?: string | null;
+    approvedByName?: string | null;
+    approvedAt?: string | null;
+    approvalComment?: string | null;
+    cancellationReason?: string | null;
+    cancelledBy?: string | null;
+    cancelledByName?: string | null;
+    cancelledAt?: string | null;
+    pdfFileName?: string | null;
+    pdfGeneratedAt?: string | null;
+    pdfUrl?: string | null;
+    snapshot?: string | null;
+    generatedBy?: string | null;
+    generatedByName?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    isDeleted?: boolean;
+}
+
 // ── Daily Delivery ────────────────────────────────────────────────
 export interface DailyDelivery {
     id: string;
+    is_deleted?: boolean;
     report_type: string; // "domestic" | "export"
     year: number;
     shipment_status?: string;
@@ -381,6 +610,38 @@ export interface DailyDelivery {
     actual_ts?: number;
     actual_ash?: number;
     actual_tm?: number;
+    skab_supplier_sent_at?: string;
+    skab_operation_received_at?: string;
+    skab_operation_sent_at?: string;
+    skab_traffic_received_at?: string;
+    skab_traffic_sent_finance_at?: string;
+    skab_finance_received_at?: string;
+    skab_evidence_document_id?: string;
+    skab_notes?: string;
+    dsr_supplier_sent_at?: string;
+    dsr_operation_received_at?: string;
+    dsr_operation_sent_at?: string;
+    dsr_traffic_received_at?: string;
+    dsr_evidence_document_id?: string;
+    bl_cm_operation_sent_at?: string;
+    bl_cm_traffic_received_at?: string;
+    bl_cm_traffic_sent_finance_at?: string;
+    bl_cm_finance_received_at?: string;
+    bl_cm_evidence_document_id?: string;
+    coa_pol_date?: string;
+    coa_pol_surveyor_sent_at?: string;
+    coa_pol_traffic_received_at?: string;
+    coa_pol_finance_received_at?: string;
+    coa_pol_evidence_document_id?: string;
+    coa_pod_received_at?: string;
+    finance_submit_full_set_at?: string;
+    vendor_received_full_set_at?: string;
+    approval_dt_at?: string;
+    vendor_paid_at?: string;
+    coa_pod_evidence_document_id?: string;
+    full_set_document_status?: string;
+    hardcopy_status?: string;
+    softcopy_status?: string;
     created_at?: string;
     updated_at?: string;
 }
@@ -388,6 +649,11 @@ export interface DailyDelivery {
 // ── Outstanding Payment ──────────────────────────────────────────
 export interface OutstandingPayment {
     id: string;
+    shipment_id?: string;
+    shipment_name?: string;
+    invoice_number?: string;
+    invoice_document_id?: string;
+    payment_proof_document_id?: string;
     perusahaan: string;
     kode_batu?: string;
     price_incl_pph?: number;
@@ -395,6 +661,9 @@ export interface OutstandingPayment {
     total_dp?: number;
     calculation_date?: string;
     dp_to_shipment?: string;
+    due_date?: string;
+    dispute_status?: string;
+    notes?: string;
     timeframe_days?: string;
     status: string; // pending, partial, paid
     year: number;
@@ -473,10 +742,45 @@ export interface QualityResult {
     surveyor: string;
     sampling_date: string;
     spec_result: CoalSpec;
-    status: "pending" | "passed" | "rejected" | "on_hold";
+    contract_spec?: CoalSpec;
+    source_estimate?: CoalSpec;
+    qc_result?: CoalSpec;
+    qc_document_id?: string;
+    psi_result?: CoalSpec;
+    psi_document_id?: string;
+    coa_pol_result?: CoalSpec;
+    coa_pol_document_id?: string;
+    coa_pod_result?: CoalSpec;
+    coa_pod_document_id?: string;
+    comparison_status?: "pending" | "passed" | "warning" | "need_review" | "claim_potential" | "rejected" | string;
+    warning_notes?: string;
+    reviewed_by?: string;
+    reviewed_by_name?: string;
+    reviewed_at?: string;
+    status: "pending" | "passed" | "rejected" | "on_hold" | "warning" | "need_review" | "claim_potential" | string;
     certificate_url?: string;
     notes?: string;
     created_at: string;
+    updated_at?: string;
+}
+
+export interface DailyDeliveryDocument {
+    id: string;
+    dailyDeliveryId: string;
+    documentType: string;
+    title: string;
+    fileName: string;
+    mimeType?: string | null;
+    sizeBytes: number;
+    storageProvider?: string | null;
+    storageKey?: string | null;
+    storageUrl?: string | null;
+    uploadedBy?: string | null;
+    uploadedByName?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    isDeleted?: boolean;
+    url?: string;
 }
 
 // ── Blending Simulation ──────────────────────────────────────
@@ -601,6 +905,10 @@ export interface PLForecastItem {
     selling_price: number;     // USD/MT
     buying_price: number;      // USD/MT
     freight_cost: number;      // USD/MT
+    royalty_cost?: number;     // USD/MT
+    tax_cost?: number;         // USD/MT
+    survey_cost?: number;      // USD/MT
+    payment_cost?: number;     // USD/MT
     other_cost: number;        // USD/MT
     gross_profit_mt: number;
     total_gross_profit: number;

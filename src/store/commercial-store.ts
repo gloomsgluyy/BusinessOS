@@ -33,6 +33,32 @@ function parseSourceStockLocations(value: unknown): SourceSupplier["stock_locati
     return locations.length ? locations : undefined;
 }
 
+const commercialPersistStorage = createJSONStorage(() => ({
+    getItem: (name: string) => localStorage.getItem(name),
+    setItem: (name: string, value: string) => {
+        try {
+            localStorage.setItem(name, value);
+        } catch (error) {
+            console.warn("[commercial-store] Persist skipped because localStorage quota is full.", error);
+            try {
+                localStorage.removeItem(name);
+            } catch {
+                // Ignore cleanup failures; syncFromMemory can repopulate from the database.
+            }
+        }
+    },
+    removeItem: (name: string) => localStorage.removeItem(name),
+}));
+
+const plUnitCost = (p: Partial<PLForecastItem>) =>
+    (p.buying_price || 0) +
+    (p.freight_cost || 0) +
+    (p.royalty_cost || 0) +
+    (p.tax_cost || 0) +
+    (p.survey_cost || 0) +
+    (p.payment_cost || 0) +
+    (p.other_cost || 0);
+
 function parseMarketPriceHistory(value: unknown): MarketPriceEntry["history"] {
     let raw = value;
     if (typeof raw === "string") {
@@ -43,6 +69,62 @@ function parseMarketPriceHistory(value: unknown): MarketPriceEntry["history"] {
         }
     }
     return Array.isArray(raw) ? raw as MarketPriceEntry["history"] : undefined;
+}
+
+function parseQualitySpec(value: unknown): CoalSpec | undefined {
+    let raw = value;
+    if (typeof raw === "string") {
+        try {
+            raw = JSON.parse(raw);
+        } catch {
+            raw = undefined;
+        }
+    }
+    if (!raw || typeof raw !== "object") return undefined;
+    const row = raw as Record<string, unknown>;
+    const toNumber = (key: keyof CoalSpec) => {
+        const value = row[key];
+        if (value === null || value === undefined || value === "") return undefined;
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : undefined;
+    };
+    const spec: CoalSpec = {
+        gar: toNumber("gar") || 0,
+        ts: toNumber("ts") || 0,
+        ash: toNumber("ash") || 0,
+        tm: toNumber("tm"),
+    };
+    return Object.values(spec).some((item) => item !== undefined && item !== 0) ? spec : undefined;
+}
+
+function mapQualityResult(qr: any): QualityResult {
+    return {
+        id: qr.id,
+        cargo_id: qr.cargoId,
+        cargo_name: qr.cargoName,
+        surveyor: qr.surveyor,
+        sampling_date: qr.samplingDate,
+        spec_result: { gar: qr.gar, ts: qr.ts, ash: qr.ash, tm: qr.tm },
+        contract_spec: parseQualitySpec(qr.contractSpec),
+        source_estimate: parseQualitySpec(qr.sourceEstimate),
+        qc_result: parseQualitySpec(qr.qcResult),
+        qc_document_id: qr.qcDocumentId,
+        psi_result: parseQualitySpec(qr.psiResult),
+        psi_document_id: qr.psiDocumentId,
+        coa_pol_result: parseQualitySpec(qr.coaPolResult),
+        coa_pol_document_id: qr.coaPolDocumentId,
+        coa_pod_result: parseQualitySpec(qr.coaPodResult),
+        coa_pod_document_id: qr.coaPodDocumentId,
+        comparison_status: qr.comparisonStatus,
+        warning_notes: qr.warningNotes,
+        reviewed_by: qr.reviewedBy,
+        reviewed_by_name: qr.reviewedByName,
+        reviewed_at: qr.reviewedAt,
+        status: qr.status,
+        created_at: qr.createdAt,
+        updated_at: qr.updatedAt,
+        is_deleted: qr.isDeleted,
+    };
 }
 
 type CommercialSyncOptions = {
@@ -336,6 +418,27 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             buyer: p.buyer,
             status: p.status || "waiting_approval",
             notes: p.notes,
+            approvalComment: (p as any).approval_comment,
+            buyerCountry: p.buyer_country,
+            commodity: p.commodity,
+            quantity: p.quantity,
+            laycanStart: p.laycan_start,
+            laycanEnd: p.laycan_end,
+            portOfLoading: p.port_of_loading,
+            salesTerm: p.sales_term,
+            targetSellingPrice: p.target_selling_price,
+            priceBasis: p.price_basis,
+            paymentTerms: p.payment_terms,
+            surveyor: p.surveyor,
+            gar: p.gar,
+            tm: p.tm,
+            ts: p.ts,
+            ash: p.ash,
+            vm: p.vm,
+            size: p.size,
+            supplierCandidates: p.supplier_candidates,
+            belowSpecReason: p.below_spec_reason,
+            blendingScenario: p.blending_scenario,
             templateType: p.template_type,
             templateChecklist: p.template_checklist,
         };
@@ -354,11 +457,43 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 buyer: project.buyer,
                 status: project.status,
                 notes: project.notes,
+                buyer_country: project.buyerCountry,
+                commodity: project.commodity,
+                quantity: project.quantity,
+                laycan_start: project.laycanStart,
+                laycan_end: project.laycanEnd,
+                port_of_loading: project.portOfLoading,
+                sales_term: project.salesTerm,
+                target_selling_price: project.targetSellingPrice,
+                price_basis: project.priceBasis,
+                payment_terms: project.paymentTerms,
+                surveyor: project.surveyor,
+                gar: project.gar,
+                tm: project.tm,
+                ts: project.ts,
+                ash: project.ash,
+                vm: project.vm,
+                size: project.size,
+                supplier_candidates: project.supplierCandidates,
+                below_spec_reason: project.belowSpecReason,
+                below_spec_acknowledged_at: project.belowSpecAcknowledgedAt,
+                below_spec_acknowledged_by_name: project.belowSpecAcknowledgedByName,
+                blending_scenario: project.blendingScenario,
+                rough_pnl: project.roughPnl,
                 created_by: project.createdBy,
                 created_by_name: project.createdByName,
                 approved_by: project.approvedBy,
                 approved_by_name: project.approvedByName,
                 approved_at: project.approvedAt,
+                approval_history: project.approvalHistory,
+                revision_history: project.revisionHistory,
+                fco_number: project.fcoNumber,
+                fco_generated_at: project.fcoGeneratedAt,
+                fco_history: project.fcoHistory,
+                buyer_feedback_status: project.buyerFeedbackStatus,
+                buyer_feedback_reason: project.buyerFeedbackReason,
+                buyer_feedback_updated_at: project.buyerFeedbackUpdatedAt,
+                buyer_feedback_history: project.buyerFeedbackHistory,
                 template_type: project.templateType,
                 template_checklist: project.templateChecklist,
                 urgency_score: project.urgencyScore,
@@ -382,6 +517,36 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.buyer !== undefined) body.buyer = u.buyer;
         if (u.status !== undefined) body.status = u.status;
         if (u.notes !== undefined) body.notes = u.notes;
+        if ((u as any).approval_comment !== undefined) body.approvalComment = (u as any).approval_comment;
+        if ((u as any).revision_reason !== undefined) body.revisionReason = (u as any).revision_reason;
+        if (u.fco_number !== undefined) body.fcoNumber = u.fco_number;
+        if (u.fco_generated_at !== undefined) body.fcoGeneratedAt = u.fco_generated_at;
+        if (u.fco_history !== undefined) body.fcoHistory = u.fco_history;
+        if (u.buyer_feedback_status !== undefined) body.buyerFeedbackStatus = u.buyer_feedback_status;
+        if (u.buyer_feedback_reason !== undefined) body.buyerFeedbackReason = u.buyer_feedback_reason;
+        if (u.buyer_feedback_updated_at !== undefined) body.buyerFeedbackUpdatedAt = u.buyer_feedback_updated_at;
+        if (u.buyer_feedback_history !== undefined) body.buyerFeedbackHistory = u.buyer_feedback_history;
+        if (u.buyer_country !== undefined) body.buyerCountry = u.buyer_country;
+        if (u.commodity !== undefined) body.commodity = u.commodity;
+        if (u.quantity !== undefined) body.quantity = u.quantity;
+        if (u.laycan_start !== undefined) body.laycanStart = u.laycan_start;
+        if (u.laycan_end !== undefined) body.laycanEnd = u.laycan_end;
+        if (u.port_of_loading !== undefined) body.portOfLoading = u.port_of_loading;
+        if (u.sales_term !== undefined) body.salesTerm = u.sales_term;
+        if (u.target_selling_price !== undefined) body.targetSellingPrice = u.target_selling_price;
+        if (u.price_basis !== undefined) body.priceBasis = u.price_basis;
+        if (u.payment_terms !== undefined) body.paymentTerms = u.payment_terms;
+        if (u.surveyor !== undefined) body.surveyor = u.surveyor;
+        if (u.gar !== undefined) body.gar = u.gar;
+        if (u.tm !== undefined) body.tm = u.tm;
+        if (u.ts !== undefined) body.ts = u.ts;
+        if (u.ash !== undefined) body.ash = u.ash;
+        if (u.vm !== undefined) body.vm = u.vm;
+        if (u.size !== undefined) body.size = u.size;
+        if (u.supplier_candidates !== undefined) body.supplierCandidates = u.supplier_candidates;
+        if (u.below_spec_reason !== undefined) body.belowSpecReason = u.below_spec_reason;
+        if (u.blending_scenario !== undefined) body.blendingScenario = u.blending_scenario;
+        if (u.rough_pnl !== undefined) body.roughPnl = u.rough_pnl;
         if (u.template_type !== undefined) body.templateType = u.template_type;
         if (u.template_checklist !== undefined) body.templateChecklist = u.template_checklist;
         if (u.urgency_score !== undefined) body.urgencyScore = u.urgency_score;
@@ -418,18 +583,35 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
     shipments: [],
     addShipment: async (s) => {
         const body: any = {
-            no: s.no, exportDmo: s.export_dmo, status: s.status || "upcoming",
+            no: s.no, forecastSalesId: s.forecast_sales_id, forecastSalesName: s.forecast_sales_name, fcoNumber: s.fco_number,
+            commercialMomDocumentId: s.commercial_mom_document_id,
+            commercialPoDocumentId: s.commercial_po_document_id,
+            sourceConfirmationStatus: s.source_confirmation_status,
+            sourceConfirmationDocumentId: s.source_confirmation_document_id,
+            sourceConfirmationNotes: s.source_confirmation_notes,
+            sourceConfirmedBy: s.source_confirmed_by,
+            sourceConfirmedByName: s.source_confirmed_by_name,
+            sourceConfirmedAt: s.source_confirmed_at,
+            sourceLegalReadinessStatus: s.source_legal_readiness_status,
+            sourceCargoReadinessStatus: s.source_cargo_readiness_status,
+            exportDmo: s.export_dmo, status: s.status || "upcoming",
             origin: s.origin, mvProjectName: s.mv_project_name, source: s.source,
             iupOp: s.iup_op, shipmentFlow: s.shipment_flow, jettyLoadingPort: s.jetty_loading_port,
             laycan: s.laycan, nomination: s.nomination, qtyPlan: s.qty_plan, qtyCob: s.qty_cob,
             remarks: s.remarks, hargaActualFob: s.harga_actual_fob, hargaActualFobMv: s.harga_actual_fob_mv,
             hpb: s.hpb, statusHpb: s.status_hpb, shipmentStatus: s.shipment_status,
+            paymentStatus: s.payment_status, paymentDueDate: s.payment_due_date,
+            qualityStatus: s.quality_status, issueStatus: s.issue_status,
             issueNotes: s.issue_notes, blDate: s.bl_date, pic: s.pic,
             kuotaExport: s.kuota_export, surveyorLhv: s.surveyor_lhv,
             completelyLoaded: s.completely_loaded, lhvTerbit: s.lhv_terbit,
             lossGainCargo: s.loss_gain_cargo, sp: s.sp, deadfreight: s.deadfreight,
             jarak: s.jarak, shippingTerm: s.shipping_term, shippingRate: s.shipping_rate,
             priceFreight: s.price_freight, allowance: s.allowance, demm: s.demm,
+            royaltyCost: s.royalty_cost,
+            taxExportCost: s.tax_export_cost,
+            surveyCost: s.survey_cost,
+            paymentFinanceCost: s.payment_finance_cost,
             noSpal: s.no_spal, noSi: s.no_si, coaDate: s.coa_date, resultGar: s.result_gar,
             sentToSupplier: s.sent_to_supplier, sentToBargeOwner: s.sent_to_barge_owner, noInvoiceMkls: s.no_invoice_mkls,
             year: s.year || new Date().getFullYear(),
@@ -468,12 +650,27 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             const data = await res.json();
             const ship = data.shipment;
             const mapped: ShipmentDetail = {
-                id: ship.id, no: ship.no, export_dmo: ship.exportDmo, status: ship.status,
+                id: ship.id, no: ship.no, forecast_sales_id: ship.forecastSalesId, forecast_sales_name: ship.forecastSalesName, fco_number: ship.fcoNumber,
+                commercial_mom_document_id: ship.commercialMomDocumentId,
+                commercial_po_document_id: ship.commercialPoDocumentId,
+                source_confirmation_status: ship.sourceConfirmationStatus,
+                source_confirmation_document_id: ship.sourceConfirmationDocumentId,
+                source_confirmation_notes: ship.sourceConfirmationNotes,
+                source_confirmed_by: ship.sourceConfirmedBy,
+                source_confirmed_by_name: ship.sourceConfirmedByName,
+                source_confirmed_at: ship.sourceConfirmedAt,
+                source_legal_readiness_status: ship.sourceLegalReadinessStatus,
+                source_cargo_readiness_status: ship.sourceCargoReadinessStatus,
+                export_dmo: ship.exportDmo, status: ship.status,
                 origin: ship.origin, mv_project_name: ship.mvProjectName, source: ship.source,
                 iup_op: ship.iupOp, shipment_flow: ship.shipmentFlow, jetty_loading_port: ship.jettyLoadingPort,
                 laycan: ship.laycan, nomination: ship.nomination, qty_plan: ship.qtyPlan, qty_cob: ship.qtyCob,
                 remarks: ship.remarks, harga_actual_fob: ship.hargaActualFob, harga_actual_fob_mv: ship.hargaActualFobMv,
                 hpb: ship.hpb, status_hpb: ship.statusHpb, shipment_status: ship.shipmentStatus,
+                payment_status: ship.paymentStatus,
+                payment_due_date: ship.paymentDueDate,
+                quality_status: ship.qualityStatus,
+                issue_status: ship.issueStatus,
                 issue_notes: ship.issueNotes, bl_date: ship.blDate, pic: ship.pic,
                 status_reason: ship.statusReason,
                 kuota_export: ship.kuotaExport, surveyor_lhv: ship.surveyorLhv,
@@ -481,6 +678,10 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 loss_gain_cargo: ship.lossGainCargo, sp: ship.sp, deadfreight: ship.deadfreight,
                 jarak: ship.jarak, shipping_term: ship.shippingTerm, shipping_rate: ship.shippingRate,
                 price_freight: ship.priceFreight, allowance: ship.allowance, demm: ship.demm,
+                royalty_cost: ship.royaltyCost,
+                tax_export_cost: ship.taxExportCost,
+                survey_cost: ship.surveyCost,
+                payment_finance_cost: ship.paymentFinanceCost,
                 no_spal: ship.noSpal, no_si: ship.noSi, coa_date: ship.coaDate, result_gar: ship.resultGar,
                 sent_to_supplier: ship.sentToSupplier, sent_to_barge_owner: ship.sentToBargeOwner, no_invoice_mkls: ship.noInvoiceMkls,
                 pending_items: Array.isArray(ship.pendingItems) ? ship.pendingItems : [],
@@ -527,6 +728,19 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         const body: any = { id };
         // Map snake_case to camelCase for API
         if (u.no !== undefined) body.no = u.no;
+        if (u.forecast_sales_id !== undefined) body.forecastSalesId = u.forecast_sales_id;
+        if (u.forecast_sales_name !== undefined) body.forecastSalesName = u.forecast_sales_name;
+        if (u.fco_number !== undefined) body.fcoNumber = u.fco_number;
+        if (u.commercial_mom_document_id !== undefined) body.commercialMomDocumentId = u.commercial_mom_document_id;
+        if (u.commercial_po_document_id !== undefined) body.commercialPoDocumentId = u.commercial_po_document_id;
+        if (u.source_confirmation_status !== undefined) body.sourceConfirmationStatus = u.source_confirmation_status;
+        if (u.source_confirmation_document_id !== undefined) body.sourceConfirmationDocumentId = u.source_confirmation_document_id;
+        if (u.source_confirmation_notes !== undefined) body.sourceConfirmationNotes = u.source_confirmation_notes;
+        if (u.source_confirmed_by !== undefined) body.sourceConfirmedBy = u.source_confirmed_by;
+        if (u.source_confirmed_by_name !== undefined) body.sourceConfirmedByName = u.source_confirmed_by_name;
+        if (u.source_confirmed_at !== undefined) body.sourceConfirmedAt = u.source_confirmed_at;
+        if (u.source_legal_readiness_status !== undefined) body.sourceLegalReadinessStatus = u.source_legal_readiness_status;
+        if (u.source_cargo_readiness_status !== undefined) body.sourceCargoReadinessStatus = u.source_cargo_readiness_status;
         if (u.export_dmo !== undefined) body.exportDmo = u.export_dmo;
         if (u.status !== undefined) body.status = u.status;
         if (u.origin !== undefined) body.origin = u.origin;
@@ -545,6 +759,10 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.hpb !== undefined) body.hpb = u.hpb;
         if (u.status_hpb !== undefined) body.statusHpb = u.status_hpb;
         if (u.shipment_status !== undefined) body.shipmentStatus = u.shipment_status;
+        if (u.payment_status !== undefined) body.paymentStatus = u.payment_status;
+        if (u.payment_due_date !== undefined) body.paymentDueDate = u.payment_due_date;
+        if (u.quality_status !== undefined) body.qualityStatus = u.quality_status;
+        if (u.issue_status !== undefined) body.issueStatus = u.issue_status;
         if (u.issue_notes !== undefined) body.issueNotes = u.issue_notes;
         if (u.bl_date !== undefined) body.blDate = u.bl_date;
         if (u.pic !== undefined) body.pic = u.pic;
@@ -559,6 +777,10 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.shipping_term !== undefined) body.shippingTerm = u.shipping_term;
         if (u.shipping_rate !== undefined) body.shippingRate = u.shipping_rate;
         if (u.price_freight !== undefined) body.priceFreight = u.price_freight;
+        if (u.royalty_cost !== undefined) body.royaltyCost = u.royalty_cost;
+        if (u.tax_export_cost !== undefined) body.taxExportCost = u.tax_export_cost;
+        if (u.survey_cost !== undefined) body.surveyCost = u.survey_cost;
+        if (u.payment_finance_cost !== undefined) body.paymentFinanceCost = u.payment_finance_cost;
         if (u.allowance !== undefined) body.allowance = u.allowance;
         if (u.demm !== undefined) body.demm = u.demm;
         if (u.no_spal !== undefined) body.noSpal = u.no_spal;
@@ -730,6 +952,18 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             surveyor: q.surveyor,
             samplingDate: q.sampling_date,
             specResult: q.spec_result,
+            contractSpec: q.contract_spec,
+            sourceEstimate: q.source_estimate,
+            qcResult: q.qc_result,
+            qcDocumentId: q.qc_document_id,
+            psiResult: q.psi_result,
+            psiDocumentId: q.psi_document_id,
+            coaPolResult: q.coa_pol_result,
+            coaPolDocumentId: q.coa_pol_document_id,
+            coaPodResult: q.coa_pod_result,
+            coaPodDocumentId: q.coa_pod_document_id,
+            comparisonStatus: q.comparison_status,
+            warningNotes: q.warning_notes,
             status: q.status,
         };
         const res = await fetch("/api/memory/quality", {
@@ -739,12 +973,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         });
         if (res.ok) {
             const data = await res.json();
-            const qr = data.quality;
-            const mapped: QualityResult = {
-                id: qr.id, cargo_id: qr.cargoId, cargo_name: qr.cargoName, surveyor: qr.surveyor,
-                sampling_date: qr.samplingDate, spec_result: { gar: qr.gar, ts: qr.ts, ash: qr.ash, tm: qr.tm },
-                status: qr.status, created_at: qr.createdAt
-            };
+            const mapped = mapQualityResult(data.quality);
             set((s) => {
                 const raw = [...s._rawQualityResults, mapped];
                 return { _rawQualityResults: raw, qualityResults: raw.filter(x => !x.is_deleted) };
@@ -758,6 +987,18 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.surveyor !== undefined) body.surveyor = u.surveyor;
         if (u.sampling_date !== undefined) body.samplingDate = u.sampling_date;
         if (u.spec_result !== undefined) body.specResult = u.spec_result;
+        if (u.contract_spec !== undefined) body.contractSpec = u.contract_spec;
+        if (u.source_estimate !== undefined) body.sourceEstimate = u.source_estimate;
+        if (u.qc_result !== undefined) body.qcResult = u.qc_result;
+        if (u.qc_document_id !== undefined) body.qcDocumentId = u.qc_document_id;
+        if (u.psi_result !== undefined) body.psiResult = u.psi_result;
+        if (u.psi_document_id !== undefined) body.psiDocumentId = u.psi_document_id;
+        if (u.coa_pol_result !== undefined) body.coaPolResult = u.coa_pol_result;
+        if (u.coa_pol_document_id !== undefined) body.coaPolDocumentId = u.coa_pol_document_id;
+        if (u.coa_pod_result !== undefined) body.coaPodResult = u.coa_pod_result;
+        if (u.coa_pod_document_id !== undefined) body.coaPodDocumentId = u.coa_pod_document_id;
+        if (u.comparison_status !== undefined) body.comparisonStatus = u.comparison_status;
+        if (u.warning_notes !== undefined) body.warningNotes = u.warning_notes;
         if (u.status !== undefined) body.status = u.status;
 
         const res = await fetch("/api/memory/quality", {
@@ -770,12 +1011,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             throw new Error(err.error || "Failed to update quality result");
         }
         const data = await res.json();
-        const qr = data.quality;
-        const mapped = {
-            id: qr.id, cargo_id: qr.cargoId, cargo_name: qr.cargoName, surveyor: qr.surveyor,
-            sampling_date: qr.samplingDate, spec_result: { gar: qr.gar, ts: qr.ts, ash: qr.ash, tm: qr.tm },
-            status: qr.status, created_at: qr.createdAt
-        };
+        const mapped = mapQualityResult(data.quality);
         set((s) => {
             const raw = s._rawQualityResults.map((q) => q.id === id ? { ...q, ...mapped } : q);
             return { _rawQualityResults: raw, qualityResults: raw.filter(x => !x.is_deleted) };
@@ -962,7 +1198,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
     addPLForecast: async (p) => {
         // OPTIMISTIC UPDATE: Create temporary forecast immediately for better UX
         const tempId = `temp-${Date.now()}`;
-        const grossProfitMt = (p.selling_price || 0) - (p.buying_price || 0) - (p.freight_cost || 0) - (p.other_cost || 0);
+        const grossProfitMt = (p.selling_price || 0) - plUnitCost(p);
         const totalGrossProfit = grossProfitMt * (p.quantity || 0);
 
         const optimisticForecast: PLForecastItem = {
@@ -978,6 +1214,10 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             selling_price: p.selling_price || 0,
             buying_price: p.buying_price || 0,
             freight_cost: p.freight_cost || 0,
+            royalty_cost: p.royalty_cost || 0,
+            tax_cost: p.tax_cost || 0,
+            survey_cost: p.survey_cost || 0,
+            payment_cost: p.payment_cost || 0,
             other_cost: p.other_cost || 0,
             gross_profit_mt: grossProfitMt,
             total_gross_profit: totalGrossProfit,
@@ -1000,6 +1240,10 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             if (p.selling_price !== undefined) body.sellingPrice = p.selling_price;
             if (p.buying_price !== undefined) body.buyingPrice = p.buying_price;
             if (p.freight_cost !== undefined) body.freightCost = p.freight_cost;
+            if (p.royalty_cost !== undefined) body.royaltyCost = p.royalty_cost;
+            if (p.tax_cost !== undefined) body.taxCost = p.tax_cost;
+            if (p.survey_cost !== undefined) body.surveyCost = p.survey_cost;
+            if (p.payment_cost !== undefined) body.paymentCost = p.payment_cost;
             if (p.other_cost !== undefined) body.otherCost = p.other_cost;
             if (p.project_name) body.projectName = p.project_name;
 
@@ -1034,6 +1278,10 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 selling_price: pl.sellingPrice || 0,
                 buying_price: pl.buyingPrice || 0,
                 freight_cost: pl.freightCost || 0,
+                royalty_cost: pl.royaltyCost || 0,
+                tax_cost: pl.taxCost || 0,
+                survey_cost: pl.surveyCost || 0,
+                payment_cost: pl.paymentCost || 0,
                 other_cost: pl.otherCost || 0,
                 gross_profit_mt: pl.grossProfitMt || 0,
                 total_gross_profit: pl.totalGrossProfit || 0,
@@ -1064,8 +1312,12 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 const sellingPrice = u.selling_price !== undefined ? u.selling_price : f.selling_price;
                 const buyingPrice = u.buying_price !== undefined ? u.buying_price : f.buying_price;
                 const freightCost = u.freight_cost !== undefined ? u.freight_cost : f.freight_cost;
+                const royaltyCost = u.royalty_cost !== undefined ? u.royalty_cost : f.royalty_cost;
+                const taxCost = u.tax_cost !== undefined ? u.tax_cost : f.tax_cost;
+                const surveyCost = u.survey_cost !== undefined ? u.survey_cost : f.survey_cost;
+                const paymentCost = u.payment_cost !== undefined ? u.payment_cost : f.payment_cost;
                 const otherCost = u.other_cost !== undefined ? u.other_cost : f.other_cost;
-                updated.gross_profit_mt = sellingPrice - buyingPrice - freightCost - otherCost;
+                updated.gross_profit_mt = sellingPrice - buyingPrice - freightCost - (royaltyCost || 0) - (taxCost || 0) - (surveyCost || 0) - (paymentCost || 0) - otherCost;
                 updated.total_gross_profit = updated.gross_profit_mt * quantity;
                 return updated;
             });
@@ -1080,6 +1332,10 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             if (u.selling_price !== undefined) body.sellingPrice = u.selling_price;
             if (u.buying_price !== undefined) body.buyingPrice = u.buying_price;
             if (u.freight_cost !== undefined) body.freightCost = u.freight_cost;
+            if (u.royalty_cost !== undefined) body.royaltyCost = u.royalty_cost;
+            if (u.tax_cost !== undefined) body.taxCost = u.tax_cost;
+            if (u.survey_cost !== undefined) body.surveyCost = u.survey_cost;
+            if (u.payment_cost !== undefined) body.paymentCost = u.payment_cost;
             if (u.other_cost !== undefined) body.otherCost = u.other_cost;
             if (u.project_name !== undefined) body.projectName = u.project_name;
             if (u.buyer !== undefined) body.buyer = u.buyer;
@@ -1123,6 +1379,10 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 selling_price: pl.sellingPrice || 0,
                 buying_price: pl.buyingPrice || 0,
                 freight_cost: pl.freightCost || 0,
+                royalty_cost: pl.royaltyCost || 0,
+                tax_cost: pl.taxCost || 0,
+                survey_cost: pl.surveyCost || 0,
+                payment_cost: pl.paymentCost || 0,
                 other_cost: pl.otherCost || 0,
                 gross_profit_mt: pl.grossProfitMt || 0,
                 total_gross_profit: pl.totalGrossProfit || 0,
@@ -1224,12 +1484,27 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                         // Shipments merge
                         if (shipRes?.success && shipRes.shipments) {
                             const mappedShipments: ShipmentDetail[] = shipRes.shipments.map((s: any) => ({
-                                id: s.id, no: s.no, export_dmo: s.exportDmo, status: s.status,
+                                id: s.id, no: s.no, forecast_sales_id: s.forecastSalesId, forecast_sales_name: s.forecastSalesName, fco_number: s.fcoNumber,
+                                commercial_mom_document_id: s.commercialMomDocumentId,
+                                commercial_po_document_id: s.commercialPoDocumentId,
+                                source_confirmation_status: s.sourceConfirmationStatus,
+                                source_confirmation_document_id: s.sourceConfirmationDocumentId,
+                                source_confirmation_notes: s.sourceConfirmationNotes,
+                                source_confirmed_by: s.sourceConfirmedBy,
+                                source_confirmed_by_name: s.sourceConfirmedByName,
+                                source_confirmed_at: s.sourceConfirmedAt,
+                                source_legal_readiness_status: s.sourceLegalReadinessStatus,
+                                source_cargo_readiness_status: s.sourceCargoReadinessStatus,
+                                export_dmo: s.exportDmo, status: s.status,
                                 origin: s.origin, mv_project_name: s.mvProjectName, source: s.source,
                                 iup_op: s.iupOp, shipment_flow: s.shipmentFlow, jetty_loading_port: s.jettyLoadingPort,
                                 laycan: s.laycan, nomination: s.nomination, qty_plan: s.qtyPlan, qty_cob: s.qtyCob,
                                 remarks: s.remarks, harga_actual_fob: s.hargaActualFob, harga_actual_fob_mv: s.hargaActualFobMv,
                                 hpb: s.hpb, status_hpb: s.statusHpb, shipment_status: s.shipmentStatus,
+                                payment_status: s.paymentStatus,
+                                payment_due_date: s.paymentDueDate,
+                                quality_status: s.qualityStatus,
+                                issue_status: s.issueStatus,
                                 issue_notes: s.issueNotes, bl_date: s.blDate, pic: s.pic,
                                 status_reason: s.statusReason,
                                 kuota_export: s.kuotaExport, surveyor_lhv: s.surveyorLhv,
@@ -1237,6 +1512,10 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                                 loss_gain_cargo: s.lossGainCargo, sp: s.sp, deadfreight: s.deadfreight,
                                 jarak: s.jarak, shipping_term: s.shippingTerm, shipping_rate: s.shippingRate,
                                 price_freight: s.priceFreight, allowance: s.allowance, demm: s.demm,
+                                royalty_cost: s.royaltyCost,
+                                tax_export_cost: s.taxExportCost,
+                                survey_cost: s.surveyCost,
+                                payment_finance_cost: s.paymentFinanceCost,
                                 no_spal: s.noSpal, no_si: s.noSi, coa_date: s.coaDate, result_gar: s.resultGar,
                                 sent_to_supplier: s.sentToSupplier, sent_to_barge_owner: s.sentToBargeOwner, no_invoice_mkls: s.noInvoiceMkls,
                                 // Fix missing fields for dashboard accuracy
@@ -1305,11 +1584,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
 
                         // Quality merge
                         if (qRes?.success && qRes.quality) {
-                            const mappedQuality: QualityResult[] = qRes.quality.map((q: any) => ({
-                                id: q.id, cargo_id: q.cargoId, cargo_name: q.cargoName, surveyor: q.surveyor,
-                                sampling_date: q.samplingDate, spec_result: { gar: q.gar, ts: q.ts, ash: q.ash, tm: q.tm },
-                                status: q.status, created_at: q.createdAt, is_deleted: q.isDeleted
-                            }));
+                            const mappedQuality: QualityResult[] = qRes.quality.map(mapQualityResult);
                             updates._rawQualityResults = mappedQuality;
                             updates.qualityResults = mappedQuality.filter(x => !x.is_deleted);
                         }
@@ -1389,6 +1664,10 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                                 selling_price: p.sellingPrice || 0,
                                 buying_price: p.buyingPrice || 0,
                                 freight_cost: p.freightCost || 0,
+                                royalty_cost: p.royaltyCost || 0,
+                                tax_cost: p.taxCost || 0,
+                                survey_cost: p.surveyCost || 0,
+                                payment_cost: p.paymentCost || 0,
                                 other_cost: p.otherCost || 0,
                                 gross_profit_mt: p.grossProfitMt || 0,
                                 total_gross_profit: p.totalGrossProfit || 0,
@@ -1422,11 +1701,43 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                                 buyer: project.buyer,
                                 status: project.status,
                                 notes: project.notes,
+                                buyer_country: project.buyerCountry,
+                                commodity: project.commodity,
+                                quantity: project.quantity,
+                                laycan_start: project.laycanStart,
+                                laycan_end: project.laycanEnd,
+                                port_of_loading: project.portOfLoading,
+                                sales_term: project.salesTerm,
+                                target_selling_price: project.targetSellingPrice,
+                                price_basis: project.priceBasis,
+                                payment_terms: project.paymentTerms,
+                                surveyor: project.surveyor,
+                                gar: project.gar,
+                                tm: project.tm,
+                                ts: project.ts,
+                                ash: project.ash,
+                                vm: project.vm,
+                                size: project.size,
+                                supplier_candidates: project.supplierCandidates,
+                                below_spec_reason: project.belowSpecReason,
+                                below_spec_acknowledged_at: project.belowSpecAcknowledgedAt,
+                                below_spec_acknowledged_by_name: project.belowSpecAcknowledgedByName,
+                                blending_scenario: project.blendingScenario,
+                                rough_pnl: project.roughPnl,
                                 created_by: project.createdBy,
                                 created_by_name: project.createdByName,
                                 approved_by: project.approvedBy,
                                 approved_by_name: project.approvedByName,
                                 approved_at: project.approvedAt,
+                                approval_history: project.approvalHistory,
+                                revision_history: project.revisionHistory,
+                                fco_number: project.fcoNumber,
+                                fco_generated_at: project.fcoGeneratedAt,
+                                fco_history: project.fcoHistory,
+                                buyer_feedback_status: project.buyerFeedbackStatus,
+                                buyer_feedback_reason: project.buyerFeedbackReason,
+                                buyer_feedback_updated_at: project.buyerFeedbackUpdatedAt,
+                                buyer_feedback_history: project.buyerFeedbackHistory,
                                 template_type: project.templateType,
                                 template_checklist: project.templateChecklist,
                                 urgency_score: project.urgencyScore,
@@ -1488,7 +1799,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
     }
 }), {
     name: "commercial-store-v2",
-    storage: createJSONStorage(() => localStorage),
+    storage: commercialPersistStorage,
     partialize: (state) => ({
         _rawDeals: state._rawDeals,
         deals: state.deals,

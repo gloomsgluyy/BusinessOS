@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth/next";
 import prisma from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { canReadModuleForRole, isExecutiveRole } from "@/lib/role-access";
+import { readDocumentObject } from "@/lib/document-storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -38,6 +39,9 @@ async function ensureShipmentDocumentTable() {
   `);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentDocument_shipmentId_idx" ON "ShipmentDocument"("shipmentId");`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentDocument_shipmentId_documentGroup_idx" ON "ShipmentDocument"("shipmentId", "documentGroup");`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "storageProvider" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "storageKey" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "storageUrl" TEXT;`);
   shipmentDocumentTableReady = true;
 }
 
@@ -109,6 +113,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         title: true,
         fileName: true,
         data: true,
+        storageProvider: true,
+        storageKey: true,
       },
     }),
   ]);
@@ -118,9 +124,14 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const zip = new JSZip();
   const seenNames = new Map<string, number>();
-  docs.forEach((doc, index) => {
-    zip.file(zipEntryName(doc, index, seenNames), Buffer.from(doc.data));
-  });
+  await Promise.all(docs.map(async (doc, index) => {
+    const fileBuffer = await readDocumentObject({
+      provider: doc.storageProvider,
+      key: doc.storageKey,
+      data: doc.data,
+    });
+    zip.file(zipEntryName(doc, index, seenNames), fileBuffer);
+  }));
 
   const zipBuffer = await zip.generateAsync({ type: "nodebuffer", compression: "STORE" });
   const shipmentName = cleanText(shipment.nomination || shipment.bargeName || shipment.vesselName || shipment.mvProjectName || params.id, params.id);

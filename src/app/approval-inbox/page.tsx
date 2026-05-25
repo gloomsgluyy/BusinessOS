@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { CheckCircle2, XCircle, Shield, ClipboardList, ShoppingCart, Receipt } from "lucide-react";
+import { CheckCircle2, XCircle, Shield, ClipboardList, ShoppingCart, Receipt, GitPullRequestArrow, RefreshCw, ExternalLink } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuthStore } from "@/store/auth-store";
 import { useTaskStore } from "@/store/task-store";
@@ -9,8 +9,56 @@ import { useSalesStore } from "@/store/sales-store";
 import { usePurchaseStore } from "@/store/purchase-store";
 import { cn, formatRupiah, relativeDate } from "@/lib/utils";
 
+type SrsApprovalKind = "forecast_sales" | "early_si" | "source_change" | "barge_change";
+
+type SrsApprovalItem = {
+    id: string;
+    kind: SrsApprovalKind;
+    recordId: string;
+    approvalRequestId?: string | null;
+    shipmentId?: string | null;
+    title: string;
+    subtitle: string;
+    requestedBy?: string | null;
+    createdAt?: string | null;
+    slaDueAt?: string | null;
+    ageHours?: number | null;
+    priority: "critical" | "high" | "medium";
+    href: string;
+    meta: Record<string, string | number | null>;
+};
+
+type SrsApprovalSummary = {
+    total: number;
+    forecastSales: number;
+    earlySi: number;
+    sourceChange: number;
+    bargeChange: number;
+    critical: number;
+    overdue: number;
+};
+
+const srsKindLabels: Record<SrsApprovalKind, string> = {
+    forecast_sales: "Forecast Sales",
+    early_si: "Early SI",
+    source_change: "Source Change",
+    barge_change: "Barge Change",
+};
+
 export default function ApprovalInboxPage() {
     const [, setIsInitializing] = React.useState(false);
+    const [srsItems, setSrsItems] = React.useState<SrsApprovalItem[]>([]);
+    const [srsSummary, setSrsSummary] = React.useState<SrsApprovalSummary>({
+        total: 0,
+        forecastSales: 0,
+        earlySi: 0,
+        sourceChange: 0,
+        bargeChange: 0,
+        critical: 0,
+        overdue: 0,
+    });
+    const [srsLoading, setSrsLoading] = React.useState(false);
+    const [actingItemId, setActingItemId] = React.useState<string | null>(null);
 
     const { currentUser, hasPermission } = useAuthStore();
 
@@ -26,15 +74,45 @@ export default function ApprovalInboxPage() {
     const approvePurchase = usePurchaseStore((s) => s.approvePurchase);
     const rejectPurchase = usePurchaseStore((s) => s.rejectPurchase);
 
+    const loadSrsQueue = React.useCallback(async () => {
+        setSrsLoading(true);
+        try {
+            const res = await fetch("/api/approval-center/pending", { cache: "no-store" });
+            if (!res.ok) {
+                setSrsItems([]);
+                setSrsSummary({ total: 0, forecastSales: 0, earlySi: 0, sourceChange: 0, bargeChange: 0, critical: 0, overdue: 0 });
+                return;
+            }
+            const json = await res.json();
+            setSrsItems(Array.isArray(json.items) ? json.items : []);
+            setSrsSummary({
+                total: Number(json.summary?.total || 0),
+                forecastSales: Number(json.summary?.forecastSales || 0),
+                earlySi: Number(json.summary?.earlySi || 0),
+                sourceChange: Number(json.summary?.sourceChange || 0),
+                bargeChange: Number(json.summary?.bargeChange || 0),
+                critical: Number(json.summary?.critical || 0),
+                overdue: Number(json.summary?.overdue || 0),
+            });
+        } catch (error) {
+            console.error("[approval-inbox] failed to load SRS queue:", error);
+        } finally {
+            setSrsLoading(false);
+        }
+    }, []);
+
     React.useEffect(() => {
         Promise.all([
             syncTasks(),
             syncSales(),
-            syncPurchases()
+            syncPurchases(),
+            loadSrsQueue(),
         ]).finally(() => setIsInitializing(false));
-    }, [syncTasks, syncSales, syncPurchases]);
+    }, [syncTasks, syncSales, syncPurchases, loadSrsQueue]);
 
-    const [activeTab, setActiveTab] = React.useState<"tasks" | "sales" | "purchases">("tasks");
+    const [activeTab, setActiveTab] = React.useState<"srs" | "tasks" | "sales" | "purchases">("srs");
+    const [srsKindFilter, setSrsKindFilter] = React.useState<"all" | SrsApprovalKind>("all");
+    const [srsPriorityFilter, setSrsPriorityFilter] = React.useState<"all" | "critical" | "high" | "medium" | "overdue">("all");
 
     if (!hasPermission("approval_inbox")) {
         return (
@@ -45,8 +123,85 @@ export default function ApprovalInboxPage() {
     const tasksInReview = tasks.filter((t) => t.status === "review");
     const pendingSales = orders.filter((o) => o.status === "pending");
     const pendingPurchases = purchases.filter((p) => p.status === "pending");
+    const filteredSrsItems = srsItems.filter((item) => {
+        if (srsKindFilter !== "all" && item.kind !== srsKindFilter) return false;
+        if (srsPriorityFilter === "overdue") return Boolean(item.slaDueAt && new Date(item.slaDueAt).getTime() < Date.now());
+        if (srsPriorityFilter !== "all" && item.priority !== srsPriorityFilter) return false;
+        return true;
+    });
 
-    const totalPending = tasksInReview.length + pendingSales.length + pendingPurchases.length;
+    const totalPending = srsItems.length + tasksInReview.length + pendingSales.length + pendingPurchases.length;
+
+    const decideSrsItem = async (item: SrsApprovalItem, decision: "approve" | "reject") => {
+        const actionLabel = decision === "approve" ? "Approve" : "Reject";
+        const comment = window.prompt(`${actionLabel} ${item.title}\n\nComment wajib diisi:`);
+        if (!comment?.trim()) return;
+
+        setActingItemId(item.id);
+        try {
+            let res: Response;
+            if (item.kind === "forecast_sales") {
+                res = await fetch("/api/memory/projects", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        id: item.recordId,
+                        status: decision === "approve" ? "approved" : "rejected",
+                        approvalComment: comment.trim(),
+                    }),
+                });
+            } else if (item.kind === "early_si") {
+                res = await fetch(`/api/shipments/${item.shipmentId}/shipping-instructions`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        id: item.recordId,
+                        action: decision,
+                        comment: comment.trim(),
+                    }),
+                });
+            } else if (item.kind === "source_change") {
+                res = await fetch(`/api/shipments/${item.shipmentId}/source-changes`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        id: item.recordId,
+                        action: decision,
+                        comment: comment.trim(),
+                    }),
+                });
+            } else {
+                res = await fetch(`/api/shipments/${item.shipmentId}/barge-changes`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        id: item.recordId,
+                        action: decision,
+                        comment: comment.trim(),
+                    }),
+                });
+            }
+
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json.error || "Approval action failed");
+            await fetch("/api/approval-center/pending", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    approvalRequestId: item.approvalRequestId,
+                    kind: item.kind,
+                    recordId: item.recordId,
+                    status: decision === "approve" ? "approved" : "rejected",
+                    comment: comment.trim(),
+                }),
+            }).catch(() => undefined);
+            await loadSrsQueue();
+        } catch (error) {
+            window.alert(error instanceof Error ? error.message : "Approval action failed");
+        } finally {
+            setActingItemId(null);
+        }
+    };
 
     return (
         <AppShell>
@@ -60,6 +215,21 @@ export default function ApprovalInboxPage() {
 
                 {/* Tabs */}
                 <div className="flex flex-wrap gap-2 mb-6 px-1 animate-fade-in">
+                    <button
+                        onClick={() => setActiveTab("srs")}
+                        className={cn(
+                            "px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border",
+                            activeTab === "srs"
+                                ? "bg-slate-900 text-white border-slate-900 shadow-md shadow-slate-900/20 dark:bg-white dark:text-slate-950 dark:border-white"
+                                : "bg-card text-muted-foreground border-border hover:border-slate-500/50 hover:bg-accent"
+                        )}
+                    >
+                        <div className="flex items-center gap-2">
+                            <GitPullRequestArrow className="w-3.5 h-3.5" />
+                            <span>SRS Queue</span>
+                            {srsItems.length > 0 && <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full">{srsItems.length}</span>}
+                        </div>
+                    </button>
                     <button
                         onClick={() => setActiveTab("tasks")}
                         className={cn(
@@ -108,6 +278,145 @@ export default function ApprovalInboxPage() {
                 </div>
 
                 <div className="space-y-6 min-h-[400px]">
+                    {/* SRS Approval Queue */}
+                    {activeTab === "srs" && (
+                        <div className="animate-slide-up space-y-4">
+                            <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
+                                {[
+                                    ["Total", srsSummary.total],
+                                    ["Critical", srsSummary.critical],
+                                    ["Overdue", srsSummary.overdue],
+                                    ["Forecast", srsSummary.forecastSales],
+                                    ["Early SI", srsSummary.earlySi],
+                                    ["Source", srsSummary.sourceChange],
+                                    ["Barge", srsSummary.bargeChange],
+                                ].map(([label, value]) => (
+                                    <div key={String(label)} className="rounded-lg border border-border bg-card p-3">
+                                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+                                        <p className="text-xl font-bold tabular-nums">{value}</p>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="flex items-center justify-between gap-3">
+                                <p className="text-xs text-muted-foreground">
+                                    Antrean approval lintas Forecast Sales, SI awal, source change, dan barge change.
+                                </p>
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                    <select
+                                        value={srsKindFilter}
+                                        onChange={(event) => setSrsKindFilter(event.target.value as any)}
+                                        className="h-8 rounded-lg border border-border bg-card px-2 text-xs outline-none focus:border-primary/50"
+                                    >
+                                        <option value="all">All kinds</option>
+                                        <option value="forecast_sales">Forecast Sales</option>
+                                        <option value="early_si">Early SI</option>
+                                        <option value="source_change">Source Change</option>
+                                        <option value="barge_change">Barge Change</option>
+                                    </select>
+                                    <select
+                                        value={srsPriorityFilter}
+                                        onChange={(event) => setSrsPriorityFilter(event.target.value as any)}
+                                        className="h-8 rounded-lg border border-border bg-card px-2 text-xs outline-none focus:border-primary/50"
+                                    >
+                                        <option value="all">All priority</option>
+                                        <option value="overdue">Overdue SLA</option>
+                                        <option value="critical">Critical</option>
+                                        <option value="high">High</option>
+                                        <option value="medium">Medium</option>
+                                    </select>
+                                    <button
+                                        onClick={loadSrsQueue}
+                                        disabled={srsLoading}
+                                        className="h-8 px-3 rounded-lg border border-border bg-card hover:bg-accent text-xs font-medium flex items-center gap-2 disabled:opacity-60"
+                                    >
+                                        <RefreshCw className={cn("w-3.5 h-3.5", srsLoading && "animate-spin")} />
+                                        Refresh
+                                    </button>
+                                </div>
+                            </div>
+
+                            {srsLoading && srsItems.length === 0 ? (
+                                <div className="text-center py-12 border-2 border-dashed border-border/50 rounded-xl">
+                                    <RefreshCw className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3 animate-spin" />
+                                    <p className="text-sm text-muted-foreground">Loading approval queue...</p>
+                                </div>
+                            ) : filteredSrsItems.length === 0 ? (
+                                <div className="text-center py-12 border-2 border-dashed border-border/50 rounded-xl">
+                                    <GitPullRequestArrow className="w-12 h-12 text-muted-foreground/20 mx-auto mb-3" />
+                                    <p className="text-sm text-muted-foreground">No SRS workflow approvals waiting.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {filteredSrsItems.map((item, i) => (
+                                        <div key={item.id} className={cn("card-elevated p-4 animate-fade-in", `delay-${Math.min(i + 1, 6)}`)}>
+                                            <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                                                <div className="w-10 h-10 rounded-lg bg-slate-900/10 text-slate-800 dark:bg-white/10 dark:text-white flex items-center justify-center shrink-0">
+                                                    <GitPullRequestArrow className="w-5 h-5" />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                                                        <span className={cn(
+                                                            "text-[10px] px-2 py-0.5 rounded-full font-semibold",
+                                                            item.priority === "critical" ? "bg-red-500/10 text-red-600" : "bg-amber-500/10 text-amber-600"
+                                                        )}>
+                                                            {item.priority}
+                                                        </span>
+                                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent text-muted-foreground font-medium">
+                                                            {srsKindLabels[item.kind]}
+                                                        </span>
+                                                        {item.requestedBy && <span className="text-[10px] text-muted-foreground">by {item.requestedBy}</span>}
+                                                        {item.ageHours !== null && item.ageHours !== undefined && (
+                                                            <span className="text-[10px] text-muted-foreground">{item.ageHours}h open</span>
+                                                        )}
+                                                    </div>
+                                                    <h3 className="text-sm font-semibold truncate">{item.title}</h3>
+                                                    <p className="text-xs text-muted-foreground mt-0.5">{item.subtitle}</p>
+                                                    <div className="flex flex-wrap gap-2 mt-2">
+                                                        {item.slaDueAt && (
+                                                            <span className={cn(
+                                                                "text-[10px] px-2 py-1 rounded-md font-semibold",
+                                                                new Date(item.slaDueAt).getTime() < Date.now()
+                                                                    ? "bg-red-500/10 text-red-600"
+                                                                    : "bg-emerald-500/10 text-emerald-600",
+                                                            )}>
+                                                                SLA: {new Date(item.slaDueAt).toLocaleString()}
+                                                            </span>
+                                                        )}
+                                                        {Object.entries(item.meta || {}).filter(([, value]) => value !== null && value !== "").slice(0, 4).map(([key, value]) => (
+                                                            <span key={key} className="text-[10px] px-2 py-1 rounded-md bg-muted text-muted-foreground">
+                                                                {key}: <span className="text-foreground">{String(value)}</span>
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-wrap lg:flex-nowrap gap-2 shrink-0">
+                                                    <a href={item.href} className="px-3 py-1.5 rounded-lg border border-border hover:bg-accent transition-all text-xs font-medium flex items-center gap-1.5">
+                                                        <ExternalLink className="w-3.5 h-3.5" /> Open
+                                                    </a>
+                                                    <button
+                                                        onClick={() => decideSrsItem(item, "approve")}
+                                                        disabled={actingItemId === item.id}
+                                                        className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5 disabled:opacity-60"
+                                                    >
+                                                        <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+                                                    </button>
+                                                    <button
+                                                        onClick={() => decideSrsItem(item, "reject")}
+                                                        disabled={actingItemId === item.id}
+                                                        className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-600 hover:bg-red-500 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5 disabled:opacity-60"
+                                                    >
+                                                        <XCircle className="w-3.5 h-3.5" /> Reject
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* Tasks in Review */}
                     {activeTab === "tasks" && (
                         <div className="animate-slide-up">

@@ -52,7 +52,7 @@ export default function TransshipmentPage() {
 
     const handleAddShipment = async () => {
         if (!addForm.mv_project_name && !addForm.shipment_number) {
-            alert("MV/Project Name or Shipment Number is required");
+            alert("MV/Forecast Sales Name or Shipment Number is required");
             return;
         }
         await addShipment(addForm as any);

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import prisma from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { canReadModuleForRole, canWriteModuleForRole, isExecutiveRole } from "@/lib/role-access";
+import { readDocumentObject } from "@/lib/document-storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,6 +26,13 @@ async function ensureShipmentDocumentTable() {
       "mimeType" TEXT,
       "sizeBytes" INTEGER NOT NULL DEFAULT 0,
       "data" BYTEA NOT NULL,
+      "version" INTEGER NOT NULL DEFAULT 1,
+      "parentDocumentId" TEXT,
+      "replacedByDocumentId" TEXT,
+      "replacementReason" TEXT,
+      "replacedAt" TIMESTAMP(3),
+      "replacedBy" TEXT,
+      "replacedByName" TEXT,
       "uploadedBy" TEXT,
       "uploadedByName" TEXT,
       "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -33,6 +41,16 @@ async function ensureShipmentDocumentTable() {
       CONSTRAINT "ShipmentDocument_pkey" PRIMARY KEY ("id")
     );
   `);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "parentDocumentId" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "replacedByDocumentId" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "replacementReason" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "replacedAt" TIMESTAMP(3);`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "replacedBy" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "replacedByName" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "storageProvider" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "storageKey" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "storageUrl" TEXT;`);
   shipmentDocumentTableReady = true;
 }
 
@@ -69,6 +87,16 @@ function docSelect() {
     fileName: true,
     mimeType: true,
     sizeBytes: true,
+    storageProvider: true,
+    storageKey: true,
+    storageUrl: true,
+    version: true,
+    parentDocumentId: true,
+    replacedByDocumentId: true,
+    replacementReason: true,
+    replacedAt: true,
+    replacedBy: true,
+    replacedByName: true,
     uploadedBy: true,
     uploadedByName: true,
     createdAt: true,
@@ -88,10 +116,18 @@ export async function GET(_req: Request, { params }: { params: { id: string; doc
   if (!doc) return NextResponse.json({ error: "Document not found" }, { status: 404 });
   if (!canReadShipmentDocs(session.user.role, doc.documentGroup)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  return new NextResponse(Buffer.from(doc.data), {
+  const fileBuffer = await readDocumentObject({
+    provider: doc.storageProvider,
+    key: doc.storageKey,
+    data: doc.data,
+  });
+
+  const body = fileBuffer.buffer.slice(fileBuffer.byteOffset, fileBuffer.byteOffset + fileBuffer.byteLength) as ArrayBuffer;
+
+  return new NextResponse(body, {
     headers: {
       "Content-Type": doc.mimeType || "application/octet-stream",
-      "Content-Length": String(doc.sizeBytes || doc.data.length),
+      "Content-Length": String(doc.sizeBytes || fileBuffer.length),
       "Content-Disposition": `inline; filename="${contentDispositionFileName(doc.fileName)}"`,
       "Cache-Control": "private, max-age=60",
     },
@@ -106,10 +142,13 @@ export async function PUT(req: Request, { params }: { params: { id: string; docI
 
   const existing = await prisma.shipmentDocument.findFirst({
     where: { id: params.docId, shipmentId: params.id, isDeleted: false },
-    select: { id: true, documentGroup: true },
+    select: { id: true, documentGroup: true, status: true, replacedByDocumentId: true },
   });
   if (!existing) return NextResponse.json({ error: "Document not found" }, { status: 404 });
   if (!canWriteShipmentDocs(session.user.role, existing.documentGroup)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (existing.documentGroup === "critical" && existing.replacedByDocumentId) {
+    return NextResponse.json({ error: "Superseded critical document metadata cannot be edited" }, { status: 409 });
+  }
 
   const data = await req.json();
   const doc = await prisma.shipmentDocument.update({

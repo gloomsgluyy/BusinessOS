@@ -5,13 +5,29 @@ export default withAuth(
     function middleware(req) {
         const token = req.nextauth.token
         const path = req.nextUrl.pathname
+        const role = (token?.role as string)?.toUpperCase();
+
+        if (path === "/projects") {
+            const nextUrl = req.nextUrl.clone();
+            nextUrl.pathname = "/forecast-sales";
+            return NextResponse.redirect(nextUrl);
+        }
+
+        if (role === "STAFF") {
+            const allowedDocumentPath = path === "/document-drive" || path.startsWith("/api/document-drive");
+            if (!allowedDocumentPath) {
+                if (path.startsWith("/api/")) {
+                    return NextResponse.json({ error: "Forbidden. Document Drive access only." }, { status: 403 });
+                }
+                return NextResponse.redirect(new URL("/document-drive", req.url));
+            }
+        }
 
         // Protect Dashboard (Execs only based on UserRole schema)
         if (path === "/") {
-            const role = (token?.role as string)?.toUpperCase();
             const allowedRoles = ["CEO", "DIRUT", "ASS_DIRUT", "COO"];
             if (!allowedRoles.includes(role)) {
-                return NextResponse.redirect(new URL("/projects", req.url))
+                return NextResponse.redirect(new URL("/forecast-sales", req.url))
             }
         }
 

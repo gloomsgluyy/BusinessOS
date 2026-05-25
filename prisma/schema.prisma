@@ -138,6 +138,36 @@ model AuditLog {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model ApprovalRequest {
+  id               String    @id @default(cuid())
+  kind             String
+  recordId         String
+  shipmentId       String?
+  title            String
+  subtitle         String?
+  status           String    @default("pending")
+  priority         String    @default("medium")
+  href             String?
+  meta             String    @default("{}")
+  requestedBy      String?
+  requestedByName  String?
+  sourceUpdatedAt  DateTime?
+  slaDueAt         DateTime?
+  resolvedBy       String?
+  resolvedByName   String?
+  resolvedAt       DateTime?
+  decisionComment  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  isDeleted        Boolean   @default(false)
+
+  @@unique([kind, recordId])
+  @@index([status])
+  @@index([kind, status])
+  @@index([shipmentId])
+  @@index([priority, slaDueAt])
+}
+
 model TaskItem {
   id           String    @id @default(cuid())
   title        String
@@ -196,6 +226,11 @@ model PurchaseRequest {
 model ShipmentDetail {
   id               String    @id @default(cuid())
   status           String    @default("upcoming")
+  forecastSalesId  String?
+  forecastSalesName String?
+  fcoNumber        String?
+  commercialMomDocumentId String?
+  commercialPoDocumentId String?
   buyer            String?
   supplier         String?
   iupOp            String?
@@ -240,6 +275,9 @@ model ShipmentDetail {
   origin           String?
   pic              String?
   priceFreight     Float?
+  royaltyCost      Float?
+  taxExportCost    Float?
+  surveyCost       Float?
   product          String?
   qtyCob           Float?
   qtyPlan          Float?
@@ -251,7 +289,20 @@ model ShipmentDetail {
   shipmentStatus   String?
   shippingRate     Float?
   shippingTerm     String?
+  paymentStatus    String?
+  paymentDueDate   DateTime?
+  paymentFinanceCost Float?
+  qualityStatus    String?
+  issueStatus      String?
   source           String?
+  sourceConfirmationStatus String?
+  sourceConfirmationDocumentId String?
+  sourceConfirmationNotes String?
+  sourceConfirmedBy String?
+  sourceConfirmedByName String?
+  sourceConfirmedAt DateTime?
+  sourceLegalReadinessStatus String?
+  sourceCargoReadinessStatus String?
   sp               Float?
   statusHpb        String?
   surveyorLhv      String?
@@ -315,19 +366,34 @@ model SourceSupplier {
 }
 
 model QualityResult {
-  id           String    @id @default(cuid())
-  cargoId      String
-  cargoName    String
-  surveyor     String?
-  samplingDate DateTime?
-  gar          Float?
-  ts           Float?
-  ash          Float?
-  tm           Float?
-  status       String    @default("pending")
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  isDeleted    Boolean   @default(false)
+  id                String    @id @default(cuid())
+  cargoId           String
+  cargoName         String
+  surveyor          String?
+  samplingDate      DateTime?
+  gar               Float?
+  ts                Float?
+  ash               Float?
+  tm                Float?
+  contractSpec      String?
+  sourceEstimate    String?
+  qcResult          String?
+  qcDocumentId      String?
+  psiResult         String?
+  psiDocumentId     String?
+  coaPolResult      String?
+  coaPolDocumentId  String?
+  coaPodResult      String?
+  coaPodDocumentId  String?
+  comparisonStatus  String?
+  warningNotes      String?
+  reviewedBy        String?
+  reviewedByName    String?
+  reviewedAt        DateTime?
+  status            String    @default("pending")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  isDeleted         Boolean   @default(false)
 }
 
 model MarketPrice {
@@ -407,13 +473,72 @@ model DailyDelivery {
   actualTs           Float?
   actualAsh          Float?
   actualTm           Float?
+  skabSupplierSentAt DateTime?
+  skabOperationReceivedAt DateTime?
+  skabOperationSentAt DateTime?
+  skabTrafficReceivedAt DateTime?
+  skabTrafficSentFinanceAt DateTime?
+  skabFinanceReceivedAt DateTime?
+  skabEvidenceDocumentId String?
+  skabNotes         String?
+  dsrSupplierSentAt DateTime?
+  dsrOperationReceivedAt DateTime?
+  dsrOperationSentAt DateTime?
+  dsrTrafficReceivedAt DateTime?
+  dsrEvidenceDocumentId String?
+  blCmOperationSentAt DateTime?
+  blCmTrafficReceivedAt DateTime?
+  blCmTrafficSentFinanceAt DateTime?
+  blCmFinanceReceivedAt DateTime?
+  blCmEvidenceDocumentId String?
+  coaPolDate        DateTime?
+  coaPolSurveyorSentAt DateTime?
+  coaPolTrafficReceivedAt DateTime?
+  coaPolFinanceReceivedAt DateTime?
+  coaPolEvidenceDocumentId String?
+  coaPodReceivedAt DateTime?
+  financeSubmitFullSetAt DateTime?
+  vendorReceivedFullSetAt DateTime?
+  approvalDtAt      DateTime?
+  vendorPaidAt      DateTime?
+  coaPodEvidenceDocumentId String?
+  fullSetDocumentStatus String?
+  hardcopyStatus    String?
+  softcopyStatus    String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   isDeleted          Boolean   @default(false)
 }
 
+model DailyDeliveryDocument {
+  id                String   @id @default(cuid())
+  dailyDeliveryId   String
+  documentType      String
+  title             String
+  fileName          String
+  mimeType          String?
+  sizeBytes         Int      @default(0)
+  data              Bytes
+  storageProvider   String?
+  storageKey        String?
+  storageUrl        String?
+  uploadedBy        String?
+  uploadedByName    String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  isDeleted         Boolean  @default(false)
+
+  @@index([dailyDeliveryId])
+  @@index([dailyDeliveryId, documentType])
+}
+
 model OutstandingPayment {
   id              String    @id @default(cuid())
+  shipmentId      String?
+  shipmentName    String?
+  invoiceNumber   String?
+  invoiceDocumentId String?
+  paymentProofDocumentId String?
   perusahaan      String
   kodeBatu        String?
   priceInclPph    Float?
@@ -421,12 +546,17 @@ model OutstandingPayment {
   totalDp         Float?
   calculationDate DateTime?
   dpToShipment    DateTime?
+  dueDate         DateTime?
+  disputeStatus   String?
+  notes           String?
   timeframeDays   String?
   status          String    @default("pending")
   year            Int       @default(2026)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   isDeleted       Boolean   @default(false)
+
+  @@index([shipmentId])
 }
 
 model MeetingItem {
@@ -459,6 +589,10 @@ model PLForecast {
   sellingPrice     Float    @default(0)
   buyingPrice      Float    @default(0)
   freightCost      Float    @default(0)
+  royaltyCost      Float    @default(0)
+  taxCost          Float    @default(0)
+  surveyCost       Float    @default(0)
+  paymentCost      Float    @default(0)
   otherCost        Float    @default(0)
   grossProfitMt    Float    @default(0)
   totalGrossProfit Float    @default(0)
@@ -503,6 +637,29 @@ model ProjectItem {
   buyer          String?
   status         String    @default("waiting_approval")
   notes          String?
+  buyerCountry   String?
+  commodity      String?
+  quantity       Float?
+  laycanStart    DateTime?
+  laycanEnd      DateTime?
+  portOfLoading  String?
+  salesTerm      String?
+  targetSellingPrice Float?
+  priceBasis     String?
+  paymentTerms   String?
+  surveyor       String?
+  gar            Float?
+  tm             Float?
+  ts             Float?
+  ash            Float?
+  vm             Float?
+  size           String?
+  supplierCandidates String?
+  belowSpecReason String?
+  belowSpecAcknowledgedAt DateTime?
+  belowSpecAcknowledgedByName String?
+  blendingScenario String?
+  roughPnl       String?
   createdBy      String?
   createdByName  String?
   createdAt      DateTime  @default(now())
@@ -511,12 +668,54 @@ model ProjectItem {
   approvedBy     String?
   approvedByName String?
   approvedAt     DateTime?
+  approvalHistory String?
+  revisionHistory String?
+  fcoNumber      String?
+  fcoGeneratedAt DateTime?
+  fcoHistory     String?
+  buyerFeedbackStatus String?
+  buyerFeedbackReason String?
+  buyerFeedbackUpdatedAt DateTime?
+  buyerFeedbackHistory String?
   templateType    String?
   templateChecklist String?
   urgencyScore    Int?
   urgencyLevel    String?
   urgencyReport   String?
   lastUrgencyAnalyzedAt DateTime?
+}
+
+model ProjectSupplierCandidate {
+  id              String   @id @default(cuid())
+  projectId       String
+  sourceId        String?
+  supplierName    String
+  sourceName      String?
+  region          String?
+  fitScore        Int?
+  warningText     String?
+  stockAvailable  Float?
+  gar             Float?
+  tm              Float?
+  ts              Float?
+  ash             Float?
+  priceUsd        Float?
+  status          String   @default("candidate")
+  selected        Boolean  @default(false)
+  version         Int      @default(1)
+  notes           String?
+  createdBy       String?
+  createdByName   String?
+  selectedBy      String?
+  selectedByName  String?
+  selectedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  isDeleted       Boolean  @default(false)
+
+  @@index([projectId])
+  @@index([projectId, selected])
+  @@index([projectId, status])
 }
 
 model ProjectDocument {
@@ -528,6 +727,9 @@ model ProjectDocument {
   mimeType         String?
   sizeBytes        Int      @default(0)
   data             Bytes
+  storageProvider  String?
+  storageKey       String?
+  storageUrl       String?
   uploadedBy       String?
   uploadedByName   String?
   createdAt        DateTime @default(now())
@@ -549,6 +751,16 @@ model ShipmentDocument {
   mimeType         String?
   sizeBytes        Int      @default(0)
   data             Bytes
+  storageProvider  String?
+  storageKey       String?
+  storageUrl       String?
+  version          Int      @default(1)
+  parentDocumentId String?
+  replacedByDocumentId String?
+  replacementReason String?
+  replacedAt       DateTime?
+  replacedBy       String?
+  replacedByName   String?
   uploadedBy       String?
   uploadedByName   String?
   createdAt        DateTime @default(now())
@@ -557,6 +769,141 @@ model ShipmentDocument {
 
   @@index([shipmentId])
   @@index([shipmentId, documentGroup])
+}
+
+model ShipmentDocumentChecklistItem {
+  id               String    @id @default(cuid())
+  shipmentId       String
+  documentGroup    String    @default("required")
+  requirementCode  String?
+  requirementLabel String
+  title            String
+  required         Boolean   @default(true)
+  ownerRole        String?
+  responsibleParty String?
+  status           String    @default("pending")
+  expectedDate     DateTime?
+  receivedDate     DateTime?
+  submittedDate    DateTime?
+  submittedTo      String?
+  hardcopyStatus   String?
+  notes            String?
+  createdBy        String?
+  createdByName    String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  isDeleted        Boolean   @default(false)
+
+  @@index([shipmentId])
+  @@index([shipmentId, documentGroup])
+  @@unique([shipmentId, documentGroup, requirementCode])
+}
+
+model ShipmentIssueLog {
+  id            String    @id @default(cuid())
+  shipmentId    String
+  category      String
+  impact        String?
+  action        String?
+  pic           String?
+  targetDate    DateTime?
+  status        String    @default("open")
+  evidence      String?
+  notes         String?
+  createdBy     String?
+  createdByName String?
+  resolvedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  isDeleted     Boolean   @default(false)
+
+  @@index([shipmentId])
+  @@index([shipmentId, status])
+}
+
+model ShipmentSourceChangeRequest {
+  id                  String    @id @default(cuid())
+  shipmentId          String
+  oldSource           String?
+  newSource           String
+  reason              String
+  evidence            String?
+  impact              String?
+  status              String    @default("pending")
+  version             Int       @default(1)
+  active              Boolean   @default(false)
+  requestedBy         String?
+  requestedByName     String?
+  approvedBy          String?
+  approvedByName      String?
+  approvedAt          DateTime?
+  approvalComment     String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  isDeleted           Boolean   @default(false)
+
+  @@index([shipmentId])
+  @@index([shipmentId, status])
+}
+
+model ShipmentBargeChangeLog {
+  id                  String    @id @default(cuid())
+  shipmentId          String
+  oldMv               String?
+  oldTb               String?
+  oldBg               String?
+  oldNomination       String?
+  newMv               String?
+  newTb               String?
+  newBg               String?
+  newNomination       String?
+  reason              String
+  evidence            String?
+  impact              String?
+  status              String    @default("pending")
+  version             Int       @default(1)
+  active              Boolean   @default(false)
+  requestedBy         String?
+  requestedByName     String?
+  approvedBy          String?
+  approvedByName      String?
+  approvedAt          DateTime?
+  approvalComment     String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  isDeleted           Boolean   @default(false)
+
+  @@index([shipmentId])
+  @@index([shipmentId, status])
+}
+
+model ShippingInstructionRecord {
+  id              String   @id @default(cuid())
+  shipmentId      String
+  siNumber        String
+  version         Int      @default(1)
+  status          String   @default("generated")
+  reason          String?
+  earlyApprovalReason String?
+  approvedBy      String?
+  approvedByName  String?
+  approvedAt      DateTime?
+  approvalComment String?
+  cancellationReason String?
+  cancelledBy     String?
+  cancelledByName String?
+  cancelledAt     DateTime?
+  pdfFileName     String?
+  pdfGeneratedAt  DateTime?
+  snapshot        String   @default("{}")
+  generatedBy     String?
+  generatedByName String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  isDeleted       Boolean  @default(false)
+
+  @@index([shipmentId])
+  @@index([shipmentId, version])
 }
 
 model Partner {

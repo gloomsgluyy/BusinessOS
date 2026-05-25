@@ -15,10 +15,120 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
+type QualitySpecPayload = {
+    gar?: number | null;
+    ts?: number | null;
+    ash?: number | null;
+    tm?: number | null;
+};
+
+async function ensureQualityWorkflowColumns() {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "contractSpec" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "sourceEstimate" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "qcResult" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "qcDocumentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "psiResult" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "psiDocumentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "coaPolResult" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "coaPolDocumentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "coaPodResult" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "coaPodDocumentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "comparisonStatus" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "warningNotes" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "reviewedBy" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "reviewedByName" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "reviewedAt" TIMESTAMP(3);`);
+}
+
+function toNum(value: unknown) {
+    if (value === "" || value === null || value === undefined) return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+}
+
+function cleanSpec(value: unknown): QualitySpecPayload | null {
+    const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
+    const spec: QualitySpecPayload = {
+        gar: toNum(raw.gar),
+        ts: toNum(raw.ts),
+        ash: toNum(raw.ash),
+        tm: toNum(raw.tm),
+    };
+    return Object.values(spec).some((item) => item !== null) ? spec : null;
+}
+
+function compareQuality(contract: QualitySpecPayload | null, finalSpec: QualitySpecPayload | null) {
+    if (!contract || !finalSpec) {
+        return { status: "pending", notes: "Contract spec or final quality result is still incomplete." };
+    }
+
+    const warnings: string[] = [];
+    const claims: string[] = [];
+    if (contract.gar != null && finalSpec.gar != null && finalSpec.gar < contract.gar) {
+        const diff = Math.round(contract.gar - finalSpec.gar);
+        (diff >= 100 ? claims : warnings).push(`GAR below contract by ${diff}`);
+    }
+    for (const key of ["ts", "ash", "tm"] as const) {
+        const limit = contract[key];
+        const actual = finalSpec[key];
+        if (limit != null && actual != null && actual > limit) {
+            const diff = Math.round((actual - limit) * 100) / 100;
+            (diff >= 0.25 ? claims : warnings).push(`${key.toUpperCase()} above contract by ${diff}`);
+        }
+    }
+
+    if (claims.length) return { status: "claim_potential", notes: claims.join("; ") };
+    if (warnings.length) return { status: "warning", notes: warnings.join("; ") };
+    return { status: "passed", notes: "Final quality is within contract limits." };
+}
+
+function hasOwn(data: any, camel: string, snake?: string) {
+    return Object.prototype.hasOwnProperty.call(data, camel) || Boolean(snake && Object.prototype.hasOwnProperty.call(data, snake));
+}
+
+function incoming(data: any, camel: string, snake: string) {
+    if (Object.prototype.hasOwnProperty.call(data, camel)) return data[camel];
+    if (Object.prototype.hasOwnProperty.call(data, snake)) return data[snake];
+    return undefined;
+}
+
+function buildQualityWorkflowData(data: any, session: any) {
+    const contractSpec = cleanSpec(data.contractSpec);
+    const sourceEstimate = cleanSpec(data.sourceEstimate);
+    const qcResult = cleanSpec(data.qcResult);
+    const psiResult = cleanSpec(data.psiResult);
+    const coaPolResult = cleanSpec(data.coaPolResult);
+    const coaPodResult = cleanSpec(data.coaPodResult);
+    const finalSpec = coaPodResult || coaPolResult || psiResult || qcResult || cleanSpec(data.specResult);
+    const comparison = compareQuality(contractSpec, finalSpec);
+    const comparisonStatus = data.comparisonStatus || comparison.status;
+    const warningNotes = data.warningNotes || comparison.notes;
+
+    const payload: Record<string, any> = {
+        comparisonStatus,
+        warningNotes,
+        reviewedBy: session.user.id,
+        reviewedByName: session.user.name || "Unknown",
+        reviewedAt: new Date(),
+    };
+    if (hasOwn(data, "contractSpec")) payload.contractSpec = contractSpec ? JSON.stringify(contractSpec) : null;
+    if (hasOwn(data, "sourceEstimate")) payload.sourceEstimate = sourceEstimate ? JSON.stringify(sourceEstimate) : null;
+    if (hasOwn(data, "qcResult")) payload.qcResult = qcResult ? JSON.stringify(qcResult) : null;
+    if (hasOwn(data, "qcDocumentId", "qc_document_id")) payload.qcDocumentId = incoming(data, "qcDocumentId", "qc_document_id") || null;
+    if (hasOwn(data, "psiResult")) payload.psiResult = psiResult ? JSON.stringify(psiResult) : null;
+    if (hasOwn(data, "psiDocumentId", "psi_document_id")) payload.psiDocumentId = incoming(data, "psiDocumentId", "psi_document_id") || null;
+    if (hasOwn(data, "coaPolResult")) payload.coaPolResult = coaPolResult ? JSON.stringify(coaPolResult) : null;
+    if (hasOwn(data, "coaPolDocumentId", "coa_pol_document_id")) payload.coaPolDocumentId = incoming(data, "coaPolDocumentId", "coa_pol_document_id") || null;
+    if (hasOwn(data, "coaPodResult")) payload.coaPodResult = coaPodResult ? JSON.stringify(coaPodResult) : null;
+    if (hasOwn(data, "coaPodDocumentId", "coa_pod_document_id")) payload.coaPodDocumentId = incoming(data, "coaPodDocumentId", "coa_pod_document_id") || null;
+    return payload;
+}
+
 export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureQualityWorkflowColumns();
 
         const url = new URL(req.url);
         const pagination = parsePaginationParams(url.searchParams);
@@ -50,9 +160,11 @@ export async function POST(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureQualityWorkflowColumns();
 
         const data = await req.json();
         const qualityId = uuidv4();
+        const workflowData = buildQualityWorkflowData(data, session);
 
         // DATABASE-FIRST: Write to database as primary source
         const quality = await prisma.$transaction(async (tx) => {
@@ -67,7 +179,8 @@ export async function POST(req: Request) {
                     ts: data.specResult?.ts ? parseFloat(data.specResult.ts.toString()) : null,
                     ash: data.specResult?.ash ? parseFloat(data.specResult.ash.toString()) : null,
                     tm: data.specResult?.tm ? parseFloat(data.specResult.tm.toString()) : null,
-                    status: data.status || "pending"
+                    ...workflowData,
+                    status: data.status || workflowData.comparisonStatus || "pending"
                 }
             });
 
@@ -102,6 +215,7 @@ export async function PUT(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureQualityWorkflowColumns();
 
         const data = await req.json();
         if (!data.id) return NextResponse.json({ error: "Quality ID missing" }, { status: 400 });
@@ -114,6 +228,7 @@ export async function PUT(req: Request) {
         }
 
         // DATABASE-FIRST: Update database as primary source
+        const workflowData = buildQualityWorkflowData(data, session);
         const quality = await prisma.$transaction(async (tx) => {
             const updatedQuality = await tx.qualityResult.update({
                 where: { id: data.id },
@@ -126,7 +241,8 @@ export async function PUT(req: Request) {
                     ts: data.specResult?.ts ? parseFloat(data.specResult.ts.toString()) : undefined,
                     ash: data.specResult?.ash ? parseFloat(data.specResult.ash.toString()) : undefined,
                     tm: data.specResult?.tm ? parseFloat(data.specResult.tm.toString()) : undefined,
-                    status: data.status
+                    ...workflowData,
+                    status: data.status || workflowData.comparisonStatus
                 }
             });
 
@@ -161,6 +277,7 @@ export async function DELETE(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureQualityWorkflowColumns();
 
         const url = new URL(req.url);
         const id = url.searchParams.get("id");

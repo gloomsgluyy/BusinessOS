@@ -1,0 +1,4 @@
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "qcDocumentId" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "psiDocumentId" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "coaPolDocumentId" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "coaPodDocumentId" TEXT;

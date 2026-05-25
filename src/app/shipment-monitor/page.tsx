@@ -6,11 +6,11 @@ import { useCommercialStore } from "@/store/commercial-store";
 import { useDailyDeliveryStore } from "@/store/daily-delivery-store";
 import { SHIPMENT_STATUSES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { ShipmentDetail, ShipmentDocument, ShipmentDocumentGroup, ShipmentStatus } from "@/types";
+import { DailyDeliveryDocument, ProjectDocument, ShipmentBargeChangeLog, ShipmentDetail, ShipmentDocument, ShipmentDocumentChecklistItem, ShipmentDocumentGroup, ShipmentIssueLog, ShipmentSourceChangeRequest, ShipmentStatus, ShippingInstructionRecord } from "@/types";
 import {
     Ship, Calendar, Plus, ExternalLink, Activity, Anchor, FileText, CheckCircle2,
     AlertTriangle, Package, DollarSign, TrendingUp, Filter, Search, Edit, Trash2, X, Download, Truck, Droplets, Flame, Beaker, Clock, ShieldCheck, CloudLightning, Leaf, Loader2, Wand2,
-    Map as MapIcon, MapPin, ChevronUp, ChevronDown, Eye, List, Info, CreditCard, UploadCloud, Save
+    Map as MapIcon, MapPin, ChevronUp, ChevronDown, Eye, List, Info, CreditCard, UploadCloud, Upload, Save
 } from "lucide-react";
 import { AIAgent } from "@/lib/ai-agent";
 import { ReportModal } from "@/components/shared/report-modal";
@@ -28,6 +28,13 @@ const normalizeKey = (v?: string | null) => (v || "").toUpperCase().replace(/[^\
 const shipmentQty = (s: ShipmentDetail) => safeNum(s.quantity_loaded ?? s.qty_plan ?? s.qty_cob);
 const shipmentSellPrice = (s: ShipmentDetail) => safeNum(s.sales_price ?? s.sp ?? s.harga_actual_fob_mv);
 const shipmentBuyPrice = (s: ShipmentDetail) => safeNum(s.buying_price ?? s.harga_actual_fob ?? s.hpb);
+const shipmentCostPerMt = (s: ShipmentDetail) =>
+    shipmentBuyPrice(s) +
+    safeNum(s.price_freight ?? s.shipping_rate) +
+    safeNum(s.royalty_cost) +
+    safeNum(s.tax_export_cost) +
+    safeNum(s.survey_cost) +
+    safeNum(s.payment_finance_cost);
 const shipmentMargin = (s: ShipmentDetail) => {
     const manualMargin = safeNum(s.margin_mt);
     if (manualMargin) return manualMargin;
@@ -43,6 +50,34 @@ const monthToNumber: Record<string, number> = {
 
 const DOCUMENT_ACCEPT = "image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.docx,.jpg,.jpeg,.png,.webp,.gif";
 
+const formatShortDate = (value?: string | null) => value ? new Date(value).toLocaleDateString() : "-";
+const daysSince = (value?: string | null) => {
+    if (!value) return 0;
+    const start = new Date(value).setHours(0, 0, 0, 0);
+    const today = new Date().setHours(0, 0, 0, 0);
+    return Math.max(0, Math.floor((today - start) / 86400000));
+};
+
+const getDomesticHandoverSummary = (d: any) => {
+    const tracks = [
+        { label: "SKAB", done: d.skab_finance_received_at, last: d.skab_traffic_sent_finance_at || d.skab_traffic_received_at || d.skab_operation_sent_at || d.skab_operation_received_at || d.skab_supplier_sent_at, stuck: d.skab_finance_received_at ? "Finance received" : d.skab_traffic_sent_finance_at ? "Finance" : d.skab_traffic_received_at ? "Traffic" : d.skab_operation_received_at ? "Operation" : d.skab_supplier_sent_at ? "Operation" : "Supplier" },
+        { label: "DSR", done: d.dsr_traffic_received_at, last: d.dsr_operation_sent_at || d.dsr_operation_received_at || d.dsr_supplier_sent_at, stuck: d.dsr_traffic_received_at ? "Traffic received" : d.dsr_operation_sent_at ? "Traffic" : d.dsr_operation_received_at ? "Operation" : d.dsr_supplier_sent_at ? "Operation" : "Supplier" },
+        { label: "BL/CM", done: d.bl_cm_finance_received_at, last: d.bl_cm_traffic_sent_finance_at || d.bl_cm_traffic_received_at || d.bl_cm_operation_sent_at || d.bl_date, stuck: d.bl_cm_finance_received_at ? "Finance received" : d.bl_cm_traffic_sent_finance_at ? "Finance" : d.bl_cm_traffic_received_at ? "Traffic" : d.bl_cm_operation_sent_at ? "Traffic" : "Operation" },
+        { label: "COA POL", done: d.coa_pol_finance_received_at, last: d.coa_pol_traffic_received_at || d.coa_pol_surveyor_sent_at || d.coa_pol_date, stuck: d.coa_pol_finance_received_at ? "Finance received" : d.coa_pol_traffic_received_at ? "Finance" : d.coa_pol_surveyor_sent_at ? "Traffic" : "Surveyor" },
+        { label: "COA POD", done: d.vendor_paid_at || d.vendor_received_full_set_at, last: d.approval_dt_at || d.vendor_received_full_set_at || d.finance_submit_full_set_at || d.coa_pod_received_at, stuck: d.vendor_paid_at ? "Paid" : d.approval_dt_at ? "Vendor payment" : d.vendor_received_full_set_at ? "Approval DT" : d.finance_submit_full_set_at ? "Vendor" : d.coa_pod_received_at ? "Finance" : "Quality/Traffic" },
+    ];
+    const completed = tracks.filter((track) => track.done).length;
+    const active = tracks.find((track) => !track.done && track.last) || tracks.find((track) => !track.done);
+    return {
+        completed,
+        total: tracks.length,
+        activeLabel: active?.label || "Complete",
+        stuckAt: active?.stuck || "Complete",
+        agingDays: active?.last ? daysSince(active.last) : 0,
+        tracks,
+    };
+};
+
 const SHIPMENT_REQUIRED_DOCUMENTS = [
     { code: "a", label: "COPY OF LAPORAN HASIL VERIFIKASI" },
     { code: "b", label: "1 ORIGINAL DRAUGHT SURVEY REPORT" },
@@ -55,6 +90,24 @@ const SHIPMENT_REQUIRED_DOCUMENTS = [
     { code: "i", label: "1 ORIGINAL AND 4 COPIES OF CERTIFICATE OF SAMPLING AND ANALYSIS ISSUED BY INDEPENDENT SURVEYOR AT LOADING PORT (IF ANY)" },
     { code: "j", label: "1 ORIGINAL AND 4 COPIES OF CERTIFICATE OF WEIGHT ISSUED BY INDEPENDENT SURVEYOR AT LOADING PORT (IF ANY)" },
     { code: "k", label: "1 ORIGINAL AND 2 COPIES OF CERTIFICATE OF DRAUGHT SURVEY REPORT BY INDEPENDENT SURVEYOR AT LOADING PORT" },
+];
+
+const CHECKLIST_STATUS_OPTIONS = [
+    { value: "pending", label: "Pending" },
+    { value: "received", label: "Received" },
+    { value: "submitted", label: "Submitted" },
+    { value: "completed", label: "Completed" },
+    { value: "not_required", label: "Not Required" },
+    { value: "rejected", label: "Rejected" },
+];
+
+const HARDCOPY_STATUS_OPTIONS = [
+    { value: "", label: "Hardcopy -" },
+    { value: "pending", label: "Pending" },
+    { value: "received", label: "Received" },
+    { value: "submitted", label: "Submitted" },
+    { value: "archived", label: "Archived" },
+    { value: "not_required", label: "Not Required" },
 ];
 
 type DocumentUploadDraft = {
@@ -128,6 +181,63 @@ const formatLaycanWithYear = (s: ShipmentDetail): string => {
     return y ? `${laycanRaw} ${y}` : laycanRaw;
 };
 
+const toDateInputValue = (value?: string | null): string => {
+    if (!value) return "";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+};
+
+const getDaysBetween = (from?: string | null, to = new Date()): number | null => {
+    if (!from) return null;
+    const date = new Date(from);
+    if (Number.isNaN(date.getTime())) return null;
+    const start = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const end = new Date(to.getFullYear(), to.getMonth(), to.getDate()).getTime();
+    return Math.floor((end - start) / 86400000);
+};
+
+const getChecklistAging = (item?: ShipmentDocumentChecklistItem | null) => {
+    if (!item) return { label: "Pending target date", tone: "muted" as const };
+    const status = (item.status || "pending").toLowerCase();
+    if (status === "completed" || status === "not_required") return { label: "No aging", tone: "ok" as const };
+    if (status === "pending") {
+        const days = getDaysBetween(item.expectedDate);
+        if (days === null) return { label: "Pending target date", tone: "muted" as const };
+        if (days > 0) return { label: `Overdue ${days}d`, tone: "danger" as const };
+        if (days === 0) return { label: "Due today", tone: "warn" as const };
+        return { label: `Due in ${Math.abs(days)}d`, tone: "ok" as const };
+    }
+    if (status === "received") {
+        const days = getDaysBetween(item.receivedDate);
+        return { label: days === null ? "Received date empty" : `Received aging ${days}d`, tone: days !== null && days > 3 ? "warn" as const : "muted" as const };
+    }
+    if (status === "submitted") {
+        const days = getDaysBetween(item.submittedDate);
+        return { label: days === null ? "Submitted date empty" : `Submitted aging ${days}d`, tone: days !== null && days > 3 ? "warn" as const : "muted" as const };
+    }
+    return { label: "Need review", tone: status === "rejected" ? "danger" as const : "muted" as const };
+};
+
+const isShipmentClosingStatus = (value?: string | null): boolean => {
+    const status = normalizeKey(value || "");
+    return status.includes("COMPLETED") || status.includes("DONE_SHIPMENT") || status.includes("DONE") || status.includes("CLOSED") || status.includes("DISCHARGED");
+};
+
+const getDocumentClosingBlockers = (items: ShipmentDocumentChecklistItem[]) => {
+    const ready = new Set(["submitted", "completed", "not_required"]);
+    return items
+        .filter((item) => item.documentGroup === "required" && item.required !== false && !ready.has((item.status || "pending").toLowerCase()))
+        .map((item) => `${item.requirementCode ? `${item.requirementCode}. ` : ""}${item.requirementLabel} (${(item.status || "pending").replace("_", " ")})`);
+};
+
+const getSiClosingBlockers = (records: ShippingInstructionRecord[]) => {
+    const ready = records.some((record) => ["approved", "generated"].includes((record.status || "").toLowerCase()));
+    if (ready) return [];
+    if (records.length === 0) return ["Shipping Instruction has not been recorded."];
+    const latest = [...records].sort((a, b) => b.version - a.version)[0];
+    return [`Latest SI ${latest.siNumber} v${latest.version} is ${latest.status}.`];
+};
+
 const isExportType = (s: ShipmentDetail): boolean => {
     const t = normalizeKey(s.type || s.export_dmo || "");
     if (t.includes("LOCAL") || t.includes("DMO") || t.includes("DOMESTIC")) return false;
@@ -142,6 +252,135 @@ const getCounterparty = (s: ShipmentDetail): { role: "Buyer" | "Vendor"; value: 
     }
     return { role: "Vendor", value: vendor || buyer || "-" };
 };
+
+const hasUsefulText = (...values: unknown[]): boolean =>
+    values.some((value) => {
+        const text = String(value ?? "").replace(/\s+/g, " ").trim();
+        if (!text) return false;
+        return !["-", "N/A", "NA", "TBA", "TBD", "UNKNOWN", "NULL", "0"].includes(text.toUpperCase());
+    });
+
+const hasUsefulNumber = (...values: unknown[]): boolean =>
+    values.some((value) => {
+        const number = Number(value);
+        return Number.isFinite(number) && number > 0;
+    });
+
+const isReadyStatus = (value: unknown, allowed: string[]) => {
+    const status = normalizeKey(String(value || ""));
+    return allowed.some((item) => status.includes(item));
+};
+
+const getCommercialClosingBlockers = (shipment: Partial<ShipmentDetail>) => {
+    const blockers: string[] = [];
+    const paymentReady = isReadyStatus(shipment.payment_status, ["PAID", "SETTLED", "COMPLETED", "COMPLETE", "NOT_REQUIRED", "N/A"]);
+    if (!paymentReady) blockers.push(`Payment status is ${shipment.payment_status || "empty"}`);
+    if (!hasUsefulText(shipment.no_invoice_mkls)) blockers.push("Invoice number is missing");
+    if (!hasUsefulNumber(shipment.quantity_loaded, shipment.qty_plan, shipment.qty_cob)) blockers.push("Final/loaded quantity is missing");
+    if (!hasUsefulNumber(shipment.sales_price, shipment.sp, shipment.harga_actual_fob_mv)) blockers.push("Sales price is missing");
+    if (!hasUsefulNumber(shipment.buying_price, shipment.harga_actual_fob, shipment.hpb)) blockers.push("Buying price is missing");
+    return blockers;
+};
+
+const getQualityClosingBlockers = (shipment: Partial<ShipmentDetail>) => {
+    const qualityReady = isReadyStatus(shipment.quality_status, ["PASSED", "APPROVED", "ACCEPTED", "COMPLETED", "COMPLETE", "NOT_REQUIRED"]);
+    const qualityNotRequired = isReadyStatus(shipment.quality_status, ["NOT_REQUIRED", "N/A"]);
+    const hasResult = hasUsefulNumber(shipment.result_gar) || hasUsefulText(shipment.coa_date);
+    if (!qualityReady) return [`Quality status is ${shipment.quality_status || "empty"}`];
+    if (!qualityNotRequired && !hasResult) return ["Quality evidence is missing"];
+    return [];
+};
+
+const getIssueClosingBlockers = (shipment: Partial<ShipmentDetail>) => {
+    const text = [shipment.status_reason, shipment.issue_notes, shipment.remarks]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .join(" ");
+    if (!/(pending|waiting|delay|issue|problem|hold|claim|dispute|short|loss|not clear|belum|menunggu|kendala)/i.test(text)) return [];
+    if (isReadyStatus(shipment.issue_status, ["RESOLVED", "CLOSED", "CLEARED", "DONE", "NOT_REQUIRED", "N/A"])) return [];
+    return [`Issue status is ${shipment.issue_status || "empty"}`];
+};
+
+const getStructuredIssueClosingBlockers = (issues: ShipmentIssueLog[] = []) =>
+    issues
+        .filter((issue) => !["resolved", "closed", "not_required"].includes((issue.status || "").toLowerCase()))
+        .map((issue) => `Issue Log: ${issue.category} is ${issue.status || "open"}`);
+
+const getSourceChangeClosingBlockers = (changes: ShipmentSourceChangeRequest[] = []) =>
+    changes
+        .filter((change) => (change.status || "").toLowerCase() === "pending")
+        .map((change) => `Source Change: v${change.version} ${change.oldSource || "-"} -> ${change.newSource} is pending`);
+
+const getSourceConfirmationClosingBlockers = (shipment: Partial<ShipmentDetail>) => {
+    const blockers: string[] = [];
+    const status = shipment.source_confirmation_status;
+    const legal = shipment.source_legal_readiness_status;
+    const cargo = shipment.source_cargo_readiness_status;
+    if (status && !isReadyStatus(status, ["CONFIRMED", "APPROVED", "READY", "NOT_REQUIRED", "N/A"])) blockers.push(`Source confirmation is ${status}`);
+    if (legal && !isReadyStatus(legal, ["READY", "CLEARED", "APPROVED", "NOT_REQUIRED", "N/A"])) blockers.push(`Source legal readiness is ${legal}`);
+    if (cargo && !isReadyStatus(cargo, ["READY", "CLEARED", "APPROVED", "NOT_REQUIRED", "N/A"])) blockers.push(`Source cargo readiness is ${cargo}`);
+    if (isReadyStatus(status, ["CONFIRMED", "APPROVED", "READY"]) && !shipment.source_confirmation_document_id) blockers.push("Source confirmation evidence is missing");
+    return blockers;
+};
+
+const getBargeChangeClosingBlockers = (changes: ShipmentBargeChangeLog[] = []) =>
+    changes
+        .filter((change) => (change.status || "").toLowerCase() === "pending")
+        .map((change) => `Barge Change: v${change.version} pending`);
+
+const getShipmentClosingBlockers = (
+    shipment: Partial<ShipmentDetail>,
+    checklist: ShipmentDocumentChecklistItem[],
+    siRecords: ShippingInstructionRecord[],
+    issues: ShipmentIssueLog[] = [],
+    sourceChanges: ShipmentSourceChangeRequest[] = [],
+    bargeChanges: ShipmentBargeChangeLog[] = [],
+) => [
+    ...getDocumentClosingBlockers(checklist).map((item) => `Document: ${item}`),
+    ...getSiClosingBlockers(siRecords).map((item) => `SI: ${item}`),
+    ...getCommercialClosingBlockers(shipment).map((item) => `Commercial: ${item}`),
+    ...getQualityClosingBlockers(shipment).map((item) => `Quality: ${item}`),
+    ...getIssueClosingBlockers(shipment).map((item) => `Issue: ${item}`),
+    ...getStructuredIssueClosingBlockers(issues),
+    ...getSourceChangeClosingBlockers(sourceChanges),
+    ...getSourceConfirmationClosingBlockers(shipment),
+    ...getBargeChangeClosingBlockers(bargeChanges),
+];
+
+const getShipmentCompleteness = (shipment: ShipmentDetail) => {
+    const checks = [
+        { label: "Forecast Sales/MV", filled: hasUsefulText(shipment.mv_project_name, shipment.forecast_sales_name, shipment.vessel_name) },
+        { label: "Buyer/Vendor", filled: hasUsefulText(shipment.buyer, shipment.supplier, shipment.source, shipment.iup_op) },
+        { label: "Source confirmation", filled: hasUsefulText(shipment.source_confirmation_status) || hasUsefulText(shipment.source_confirmation_document_id) },
+        { label: "Product", filled: hasUsefulText(shipment.product) },
+        { label: "Export/DMO Type", filled: hasUsefulText(shipment.export_dmo, shipment.type) },
+        { label: "Vessel/Nomination", filled: hasUsefulText(shipment.vessel_name, shipment.nomination, shipment.barge_name) },
+        { label: "Load Port", filled: hasUsefulText(shipment.jetty_loading_port, shipment.loading_port) },
+        { label: "Discharge Port", filled: hasUsefulText(shipment.discharge_port) },
+        { label: "Laycan", filled: hasUsefulText(shipment.laycan) },
+        { label: "Planned Quantity", filled: hasUsefulNumber(shipment.qty_plan, shipment.quantity_loaded, shipment.qty_cob) },
+        { label: "Sales Price", filled: hasUsefulNumber(shipment.sales_price, shipment.sp, shipment.harga_actual_fob_mv) },
+        { label: "Buying Price", filled: hasUsefulNumber(shipment.buying_price, shipment.harga_actual_fob, shipment.hpb) },
+        { label: "Shipping Term", filled: hasUsefulText(shipment.shipping_term) },
+        { label: "Surveyor", filled: hasUsefulText(shipment.surveyor_lhv) },
+        { label: "PIC", filled: hasUsefulText(shipment.pic, shipment.pic_name) },
+        { label: "Status Reason/Remarks", filled: hasUsefulText(shipment.status_reason, shipment.remarks, shipment.issue_notes) },
+    ];
+    const filled = checks.filter((item) => item.filled).length;
+    return {
+        percent: Math.round((filled / checks.length) * 100),
+        filled,
+        total: checks.length,
+        missing: checks.filter((item) => !item.filled).map((item) => item.label),
+    };
+};
+
+const completenessClass = (percent: number) =>
+    percent >= 85
+        ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/25"
+        : percent >= 60
+            ? "bg-amber-500/10 text-amber-700 border-amber-500/25"
+            : "bg-rose-500/10 text-rose-600 border-rose-500/25";
 
 type SummaryStatus = "upcoming" | "loading" | "in_transit" | "completed" | "cancelled" | "unknown";
 
@@ -274,7 +513,10 @@ export default function ShipmentMonitorPage() {
     const pathname = usePathname();
     const didApplyDeepLinkRef = React.useRef<string | null>(null);
     const didApplyTabFromUrlRef = React.useRef(false);
+    const didApplyMainTabFromUrlRef = React.useRef(false);
+    const didApplyDailyDeepLinkRef = React.useRef<string | null>(null);
     const openedViaDeepLinkRef = React.useRef(false);
+    const openedDailyViaDeepLinkRef = React.useRef(false);
 
     const { shipments, projects, syncFromMemory, marketPrices, sources, addShipment, updateShipment, deleteShipment } = useCommercialStore();
     const { dailyDeliveries, syncDeliveries, addDelivery, updateDelivery, deleteDelivery } = useDailyDeliveryStore();
@@ -286,6 +528,7 @@ export default function ShipmentMonitorPage() {
     const [mainTab, setMainTab] = React.useState<"MV Barge" | "Daily Delivery" | "Route Optimizer" | "Analytics" | "Risk Assessment">("MV Barge");
     const [activeTab, setActiveTab] = React.useState<"all" | "upcoming" | "loading" | "in_transit" | "completed" | "cancelled">("all");
     const [activeView, setActiveView] = React.useState<"list" | "card" | "map">("list");
+    const [highlightedDailyId, setHighlightedDailyId] = React.useState<string | null>(null);
     const [detailShipment, setDetailShipment] = React.useState<ShipmentDetail | null>(null);
     const [detailModalTab, setDetailModalTab] = React.useState<"overview" | "documents" | "blending" | "timeline" | "risk">("overview");
     const [showChildBargeDetails, setShowChildBargeDetails] = React.useState(false);
@@ -311,6 +554,15 @@ export default function ShipmentMonitorPage() {
             setActiveTab(tabParam as "all" | "upcoming" | "loading" | "in_transit" | "completed" | "cancelled");
         }
         didApplyTabFromUrlRef.current = true;
+    }, [searchParams]);
+
+    React.useEffect(() => {
+        if (didApplyMainTabFromUrlRef.current) return;
+        const mainParam = (searchParams.get("main") || searchParams.get("view") || "").toLowerCase();
+        if (["daily", "daily_delivery", "delivery", "domestic"].includes(mainParam)) {
+            setMainTab("Daily Delivery");
+        }
+        didApplyMainTabFromUrlRef.current = true;
     }, [searchParams]);
 
     React.useEffect(() => {
@@ -358,25 +610,82 @@ export default function ShipmentMonitorPage() {
     // Interactive Modal States
     const [showDailyForm, setShowDailyForm] = React.useState(false);
     const [editDailyData, setEditDailyData] = React.useState<any>(null);
-    const [dailyForm, setDailyForm] = React.useState<Partial<any>>({ report_type: "domestic", year: 2026, buyer: "", mv_barge_nomination: "", bl_quantity: 0, issue: "" });
+    const [dailyHandoverDocuments, setDailyHandoverDocuments] = React.useState<DailyDeliveryDocument[]>([]);
+    const [dailyDocumentAction, setDailyDocumentAction] = React.useState<string | null>(null);
+    const [dailyForm, setDailyForm] = React.useState<Partial<any>>({
+        report_type: "domestic",
+        year: 2026,
+        buyer: "",
+        mv_barge_nomination: "",
+        bl_quantity: 0,
+        issue: "",
+        full_set_document_status: "pending",
+        hardcopy_status: "pending",
+        softcopy_status: "pending",
+    });
 
-    const [activeDailyTab, setActiveDailyTab] = React.useState<"general" | "logistics" | "quality" | "commercial">("general");
+    const [activeDailyTab, setActiveDailyTab] = React.useState<"general" | "logistics" | "quality" | "commercial" | "handover">("general");
+
+    const loadDailyHandoverDocuments = React.useCallback(async (dailyDeliveryId: string) => {
+        try {
+            const res = await fetch(`/api/daily-delivery/${dailyDeliveryId}/documents`, { cache: "no-store" });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to load daily delivery documents");
+            setDailyHandoverDocuments(Array.isArray(data.documents) ? data.documents : []);
+        } catch {
+            setDailyHandoverDocuments([]);
+        }
+    }, []);
 
     const handleOpenDailyForm = (data?: any) => {
         if (data) {
             setEditDailyData(data);
             setDailyForm({ ...data });
+            loadDailyHandoverDocuments(data.id);
         } else {
             setEditDailyData(null);
+            setDailyHandoverDocuments([]);
             setDailyForm({
                 report_type: "domestic", year: 2026, buyer: "", mv_barge_nomination: "",
                 bl_quantity: 0, issue: "", shipment_status: "upcoming", pod: "",
-                shipping_term: "FOB", pol: "", area: "", supplier: "", project: "", flow: ""
+                shipping_term: "FOB", pol: "", area: "", supplier: "", project: "", flow: "",
+                full_set_document_status: "pending", hardcopy_status: "pending", softcopy_status: "pending",
             });
         }
         setActiveDailyTab("general");
         setShowDailyForm(true);
     };
+
+    React.useEffect(() => {
+        const dailyId = searchParams.get("daily");
+        if (!dailyId) return;
+        if (dailyDeliveries.length === 0) return;
+        if (didApplyDailyDeepLinkRef.current === dailyId) return;
+
+        const target = dailyDeliveries.find((delivery) => String(delivery.id) === dailyId);
+        if (!target) return;
+
+        setMainTab("Daily Delivery");
+        setHighlightedDailyId(dailyId);
+        setEditDailyData(target);
+        setDailyForm({ ...target });
+        setActiveDailyTab((searchParams.get("dailyTab") || "").toLowerCase() === "handover" ? "handover" : "general");
+        setShowDailyForm(true);
+        loadDailyHandoverDocuments(target.id);
+        didApplyDailyDeepLinkRef.current = dailyId;
+        openedDailyViaDeepLinkRef.current = true;
+    }, [dailyDeliveries, loadDailyHandoverDocuments, searchParams]);
+
+    const closeDailyForm = React.useCallback(() => {
+        setShowDailyForm(false);
+
+        if (openedDailyViaDeepLinkRef.current) {
+            openedDailyViaDeepLinkRef.current = false;
+            didApplyDailyDeepLinkRef.current = null;
+            setHighlightedDailyId(null);
+            router.replace(pathname, { scroll: false });
+        }
+    }, [pathname, router]);
 
     const handleSaveDaily = async () => {
         setIsSaving(true);
@@ -388,7 +697,7 @@ export default function ShipmentMonitorPage() {
                 await addDelivery(dailyForm as any);
                 setToast({ message: "Daily log added", type: "success" });
             }
-            setShowDailyForm(false);
+            closeDailyForm();
         } catch (e) {
             setToast({ message: "Failed to save daily log", type: "error" });
         } finally {
@@ -407,6 +716,65 @@ export default function ShipmentMonitorPage() {
         }
     };
 
+    const dailyEvidenceByType = React.useMemo(() => {
+        const map = new Map<string, DailyDeliveryDocument[]>();
+        dailyHandoverDocuments.forEach((doc) => {
+            const list = map.get(doc.documentType) || [];
+            list.push(doc);
+            map.set(doc.documentType, list);
+        });
+        return map;
+    }, [dailyHandoverDocuments]);
+
+    const uploadDailyHandoverEvidence = async (documentType: string, evidenceField: string, title: string, file: File | null) => {
+        if (!file) return;
+        if (!editDailyData?.id) {
+            setToast({ message: "Save the daily log first before uploading evidence.", type: "error" });
+            return;
+        }
+        if (!canManageShipments) {
+            setToast({ message: "You do not have permission to upload domestic handover evidence.", type: "error" });
+            return;
+        }
+        const actionKey = `daily:${documentType}`;
+        setDailyDocumentAction(actionKey);
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("documentType", documentType);
+            formData.append("title", title);
+            const res = await fetch(`/api/daily-delivery/${editDailyData.id}/documents`, { method: "POST", body: formData });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Upload failed");
+            setDailyHandoverDocuments((current) => [data.document, ...current]);
+            const patch = { [evidenceField]: data.document.id };
+            setDailyForm((current) => ({ ...current, ...patch }));
+            await updateDelivery(editDailyData.id, patch);
+            setEditDailyData((current: any) => current ? { ...current, ...patch } : current);
+            setToast({ message: "Domestic handover evidence uploaded", type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to upload domestic handover evidence", type: "error" });
+        } finally {
+            setDailyDocumentAction(null);
+        }
+    };
+
+    const deleteDailyHandoverEvidence = async (doc: DailyDeliveryDocument) => {
+        if (!editDailyData?.id || !confirm("Delete this domestic evidence file?")) return;
+        setDailyDocumentAction(`daily-delete:${doc.id}`);
+        try {
+            const res = await fetch(`/api/daily-delivery/${editDailyData.id}/documents/${doc.id}`, { method: "DELETE" });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Delete failed");
+            setDailyHandoverDocuments((current) => current.filter((item) => item.id !== doc.id));
+            setToast({ message: "Domestic evidence deleted", type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to delete domestic evidence", type: "error" });
+        } finally {
+            setDailyDocumentAction(null);
+        }
+    };
+
 
     const [editBlendingMode, setEditBlendingMode] = React.useState(false);
     const [blendingForm, setBlendingForm] = React.useState({ gar: 0, ts: 0, ash: 0, tm: 0 });
@@ -417,8 +785,23 @@ export default function ShipmentMonitorPage() {
     const [isSaving, setIsSaving] = React.useState(false);
     const [toast, setToast] = React.useState<{ message: string; type: ToastType } | null>(null);
     const [shipmentDocuments, setShipmentDocuments] = React.useState<ShipmentDocument[]>([]);
+    const [shipmentDocumentChecklist, setShipmentDocumentChecklist] = React.useState<ShipmentDocumentChecklistItem[]>([]);
+    const [projectReferenceDocs, setProjectReferenceDocs] = React.useState<ProjectDocument[]>([]);
+    const [isLoadingProjectReferenceDocs, setIsLoadingProjectReferenceDocs] = React.useState(false);
     const [isLoadingDocuments, setIsLoadingDocuments] = React.useState(false);
     const [documentAction, setDocumentAction] = React.useState<string | null>(null);
+    const [shipmentIssues, setShipmentIssues] = React.useState<ShipmentIssueLog[]>([]);
+    const [issueDraft, setIssueDraft] = React.useState({ category: "", impact: "", action: "", pic: "", targetDate: "", status: "open", evidence: "", notes: "" });
+    const [issueAction, setIssueAction] = React.useState<string | null>(null);
+    const [sourceChanges, setSourceChanges] = React.useState<ShipmentSourceChangeRequest[]>([]);
+    const [sourceChangeDraft, setSourceChangeDraft] = React.useState({ newSource: "", reason: "", evidence: "", impact: "" });
+    const [sourceChangeAction, setSourceChangeAction] = React.useState<string | null>(null);
+    const [bargeChanges, setBargeChanges] = React.useState<ShipmentBargeChangeLog[]>([]);
+    const [bargeChangeDraft, setBargeChangeDraft] = React.useState({ newMv: "", newTb: "", newBg: "", newNomination: "", reason: "", evidence: "", impact: "" });
+    const [bargeChangeAction, setBargeChangeAction] = React.useState<string | null>(null);
+    const [shippingInstructions, setShippingInstructions] = React.useState<ShippingInstructionRecord[]>([]);
+    const [isLoadingSiRecords, setIsLoadingSiRecords] = React.useState(false);
+    const [siAction, setSiAction] = React.useState(false);
     const [additionalDraft, setAdditionalDraft] = React.useState<DocumentUploadDraft>({ title: "", status: "draft", notes: "", file: null });
     const [criticalDraft, setCriticalDraft] = React.useState<DocumentUploadDraft>({ title: "", status: "draft", notes: "", file: null });
     const [editingDocumentId, setEditingDocumentId] = React.useState<string | null>(null);
@@ -450,21 +833,101 @@ export default function ShipmentMonitorPage() {
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.error || "Failed to load shipment documents");
             setShipmentDocuments(data.documents || []);
+            setShipmentDocumentChecklist(data.checklistItems || []);
         } catch (error: any) {
             setShipmentDocuments([]);
+            setShipmentDocumentChecklist([]);
             setToast({ message: error?.message || "Failed to load shipment documents", type: "error" });
         } finally {
             setIsLoadingDocuments(false);
         }
     }, []);
 
+    const loadProjectReferenceDocs = React.useCallback(async (projectId?: string | null) => {
+        if (!projectId) {
+            setProjectReferenceDocs([]);
+            return;
+        }
+        setIsLoadingProjectReferenceDocs(true);
+        try {
+            const res = await fetch(`/api/projects/${projectId}/documents`);
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to load Forecast Sales documents");
+            setProjectReferenceDocs((data.documents || []).map((doc: ProjectDocument) => ({
+                ...doc,
+                url: `/api/projects/${projectId}/documents/${doc.id}`,
+            })));
+        } catch {
+            setProjectReferenceDocs([]);
+        } finally {
+            setIsLoadingProjectReferenceDocs(false);
+        }
+    }, []);
+
+    const loadShipmentIssues = React.useCallback(async (shipmentId: string) => {
+        try {
+            const res = await fetch(`/api/shipments/${shipmentId}/issues`);
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to load shipment issues");
+            setShipmentIssues(data.issues || []);
+        } catch {
+            setShipmentIssues([]);
+        }
+    }, []);
+
+    const loadSourceChanges = React.useCallback(async (shipmentId: string) => {
+        try {
+            const res = await fetch(`/api/shipments/${shipmentId}/source-changes`);
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to load source changes");
+            setSourceChanges(data.changes || []);
+        } catch {
+            setSourceChanges([]);
+        }
+    }, []);
+
+    const loadBargeChanges = React.useCallback(async (shipmentId: string) => {
+        try {
+            const res = await fetch(`/api/shipments/${shipmentId}/barge-changes`);
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to load barge changes");
+            setBargeChanges(data.changes || []);
+        } catch {
+            setBargeChanges([]);
+        }
+    }, []);
+
+    const loadShippingInstructions = React.useCallback(async (shipmentId: string) => {
+        setIsLoadingSiRecords(true);
+        try {
+            const res = await fetch(`/api/shipments/${shipmentId}/shipping-instructions`);
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to load SI records");
+            setShippingInstructions(data.records || []);
+        } catch (error: any) {
+            setShippingInstructions([]);
+            setToast({ message: error?.message || "Failed to load SI records", type: "error" });
+        } finally {
+            setIsLoadingSiRecords(false);
+        }
+    }, []);
+
     React.useEffect(() => {
         if (!detailShipment?.id) {
             setShipmentDocuments([]);
+            setShipmentDocumentChecklist([]);
+            setShipmentIssues([]);
+            setSourceChanges([]);
+            setBargeChanges([]);
+            setShippingInstructions([]);
             return;
         }
         loadShipmentDocuments(detailShipment.id);
-    }, [detailShipment?.id, loadShipmentDocuments]);
+        loadShipmentIssues(detailShipment.id);
+        loadSourceChanges(detailShipment.id);
+        loadBargeChanges(detailShipment.id);
+        loadShippingInstructions(detailShipment.id);
+    }, [detailShipment?.id, loadShipmentDocuments, loadShipmentIssues, loadSourceChanges, loadBargeChanges, loadShippingInstructions]);
 
     const uploadShipmentDocument = async (params: {
         group: ShipmentDocumentGroup;
@@ -500,6 +963,14 @@ export default function ShipmentMonitorPage() {
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.error || "Upload failed");
             setShipmentDocuments((current) => [data.document, ...current]);
+            if (data.checklistItem) {
+                setShipmentDocumentChecklist((current) => {
+                    const exists = current.some((item) => item.id === data.checklistItem.id);
+                    return exists
+                        ? current.map((item) => item.id === data.checklistItem.id ? { ...item, ...data.checklistItem } : item)
+                        : [...current, data.checklistItem];
+                });
+            }
             setToast({ message: "Document uploaded", type: "success" });
         } catch (error: any) {
             setToast({ message: error?.message || "Failed to upload document", type: "error" });
@@ -523,6 +994,56 @@ export default function ShipmentMonitorPage() {
         }
     };
 
+    const renderDailyDateInput = (field: string, label: string) => (
+        <div className="space-y-1">
+            <label className="text-[10px] font-bold text-muted-foreground uppercase">{label}</label>
+            <input
+                type="date"
+                value={dailyForm[field] ? new Date(dailyForm[field]).toISOString().split("T")[0] : ""}
+                onChange={(e) => setDailyForm({ ...dailyForm, [field]: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50"
+            />
+        </div>
+    );
+
+    const uploadSourceConfirmationEvidence = async (file: File | null) => {
+        if (!detailShipment?.id || !file) return;
+        if (!canManageShipments) {
+            setToast({ message: "You do not have permission to confirm shipment source.", type: "error" });
+            return;
+        }
+        setDocumentAction("source-confirmation");
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("documentGroup", "additional");
+            formData.append("title", "Source Confirmation Evidence");
+            formData.append("status", "submitted");
+            formData.append("notes", "Source legal/cargo readiness confirmation evidence.");
+            formData.append("requirementCode", "SOURCE_CONFIRMATION");
+            formData.append("requirementLabel", "Source Confirmation Evidence");
+            const res = await fetch(`/api/shipments/${detailShipment.id}/documents`, { method: "POST", body: formData });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Upload failed");
+            const now = new Date().toISOString();
+            const patch: Partial<ShipmentDetail> = {
+                source_confirmation_status: "confirmed",
+                source_confirmation_document_id: data.document.id,
+                source_confirmed_by: (session?.user as any)?.id,
+                source_confirmed_by_name: session?.user?.name || session?.user?.email || "User",
+                source_confirmed_at: now,
+            };
+            await updateShipment(detailShipment.id, patch);
+            setShipmentDocuments((current) => [data.document, ...current]);
+            setDetailShipment((current) => current ? { ...current, ...patch } : current);
+            setToast({ message: "Source confirmation evidence linked", type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to upload source confirmation evidence", type: "error" });
+        } finally {
+            setDocumentAction(null);
+        }
+    };
+
     const uploadRequiredFiles = async (req: { code: string; label: string }, files: File[]) => {
         for (const file of files) {
             await uploadShipmentDocument({
@@ -533,6 +1054,201 @@ export default function ShipmentMonitorPage() {
                 requirementCode: req.code,
                 requirementLabel: req.label,
             });
+        }
+    };
+
+    const updateChecklistItem = async (item: ShipmentDocumentChecklistItem | { documentGroup: ShipmentDocumentGroup; requirementCode?: string | null; requirementLabel: string; title: string }, updates: Partial<ShipmentDocumentChecklistItem>) => {
+        if (!detailShipment?.id) return;
+        const actionKey = `checklist:${"id" in item ? item.id : item.requirementCode || item.title}`;
+        setDocumentAction(actionKey);
+        try {
+            const res = await fetch(`/api/shipments/${detailShipment.id}/documents`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    ...item,
+                    ...updates,
+                    documentGroup: item.documentGroup,
+                    requirementCode: item.requirementCode || "",
+                    requirementLabel: item.requirementLabel,
+                    title: item.title,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to update checklist");
+            setShipmentDocumentChecklist((current) => {
+                const exists = current.some((row) => row.id === data.checklistItem.id);
+                return exists
+                    ? current.map((row) => row.id === data.checklistItem.id ? { ...row, ...data.checklistItem } : row)
+                    : [...current, data.checklistItem];
+            });
+            setToast({ message: "Checklist updated", type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to update checklist", type: "error" });
+        } finally {
+            setDocumentAction(null);
+        }
+    };
+
+    const saveShipmentIssue = async () => {
+        if (!detailShipment?.id) return;
+        if (!canManageShipments) {
+            setToast({ message: "You do not have permission to add shipment issues.", type: "error" });
+            return;
+        }
+        if (!issueDraft.category.trim()) {
+            setToast({ message: "Issue category is required.", type: "error" });
+            return;
+        }
+        setIssueAction("create");
+        try {
+            const res = await fetch(`/api/shipments/${detailShipment.id}/issues`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(issueDraft),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to save issue");
+            setShipmentIssues((current) => [data.issue, ...current]);
+            setIssueDraft({ category: "", impact: "", action: "", pic: "", targetDate: "", status: "open", evidence: "", notes: "" });
+            setToast({ message: "Issue log added.", type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to save issue", type: "error" });
+        } finally {
+            setIssueAction(null);
+        }
+    };
+
+    const updateShipmentIssueStatus = async (issue: ShipmentIssueLog, status: string) => {
+        if (!detailShipment?.id) return;
+        setIssueAction(issue.id);
+        try {
+            const res = await fetch(`/api/shipments/${detailShipment.id}/issues`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: issue.id, status }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to update issue");
+            setShipmentIssues((current) => current.map((item) => item.id === issue.id ? data.issue : item));
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to update issue", type: "error" });
+        } finally {
+            setIssueAction(null);
+        }
+    };
+
+    const saveSourceChange = async () => {
+        if (!detailShipment?.id) return;
+        if (!canManageShipments) {
+            setToast({ message: "You do not have permission to request source changes.", type: "error" });
+            return;
+        }
+        if (!sourceChangeDraft.newSource.trim() || !sourceChangeDraft.reason.trim()) {
+            setToast({ message: "New source and reason are required.", type: "error" });
+            return;
+        }
+        setSourceChangeAction("create");
+        try {
+            const res = await fetch(`/api/shipments/${detailShipment.id}/source-changes`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(sourceChangeDraft),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to request source change");
+            setSourceChanges((current) => [data.change, ...current]);
+            setSourceChangeDraft({ newSource: "", reason: "", evidence: "", impact: "" });
+            setToast({ message: "Source change request created.", type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to request source change", type: "error" });
+        } finally {
+            setSourceChangeAction(null);
+        }
+    };
+
+    const decideSourceChange = async (change: ShipmentSourceChangeRequest, action: "approve" | "reject") => {
+        if (!detailShipment?.id) return;
+        const comment = window.prompt(action === "approve" ? "Approval comment:" : "Reject reason:", action === "approve" ? "Approved source change" : "Rejected source change");
+        if (comment === null) return;
+        setSourceChangeAction(change.id);
+        try {
+            const res = await fetch(`/api/shipments/${detailShipment.id}/source-changes`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: change.id, action, comment }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to decide source change");
+            setSourceChanges((current) => current.map((item) => item.id === change.id ? data.change : { ...item, active: action === "approve" ? false : item.active }));
+            if (action === "approve") {
+                setDetailShipment((current) => current ? { ...current, source: data.change.newSource, supplier: data.change.newSource } : current);
+            }
+            setToast({ message: `Source change ${action === "approve" ? "approved" : "rejected"}.`, type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to decide source change", type: "error" });
+        } finally {
+            setSourceChangeAction(null);
+        }
+    };
+
+    const saveBargeChange = async () => {
+        if (!detailShipment?.id) return;
+        if (!canManageShipments) {
+            setToast({ message: "You do not have permission to request barge changes.", type: "error" });
+            return;
+        }
+        if (!bargeChangeDraft.reason.trim()) {
+            setToast({ message: "Barge change reason is required.", type: "error" });
+            return;
+        }
+        setBargeChangeAction("create");
+        try {
+            const res = await fetch(`/api/shipments/${detailShipment.id}/barge-changes`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(bargeChangeDraft),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to request barge change");
+            setBargeChanges((current) => [data.change, ...current]);
+            setBargeChangeDraft({ newMv: "", newTb: "", newBg: "", newNomination: "", reason: "", evidence: "", impact: "" });
+            setToast({ message: "Barge change request created.", type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to request barge change", type: "error" });
+        } finally {
+            setBargeChangeAction(null);
+        }
+    };
+
+    const decideBargeChange = async (change: ShipmentBargeChangeLog, action: "approve" | "reject") => {
+        if (!detailShipment?.id) return;
+        const comment = window.prompt(action === "approve" ? "Approval comment:" : "Reject reason:", action === "approve" ? "Approved barge change" : "Rejected barge change");
+        if (comment === null) return;
+        setBargeChangeAction(change.id);
+        try {
+            const res = await fetch(`/api/shipments/${detailShipment.id}/barge-changes`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: change.id, action, comment }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to decide barge change");
+            setBargeChanges((current) => current.map((item) => item.id === change.id ? data.change : { ...item, active: action === "approve" ? false : item.active }));
+            if (action === "approve") {
+                setDetailShipment((current) => current ? {
+                    ...current,
+                    vessel_name: data.change.newMv || current.vessel_name,
+                    mv_project_name: data.change.newMv || current.mv_project_name,
+                    barge_name: data.change.newTb || data.change.newBg || current.barge_name,
+                    nomination: data.change.newNomination || current.nomination,
+                } : current);
+            }
+            setToast({ message: `Barge change ${action === "approve" ? "approved" : "rejected"}.`, type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to decide barge change", type: "error" });
+        } finally {
+            setBargeChangeAction(null);
         }
     };
 
@@ -600,6 +1316,47 @@ export default function ShipmentMonitorPage() {
         );
     };
 
+    const renderDailyEvidenceUpload = (params: {
+        documentType: string;
+        evidenceField: string;
+        title: string;
+    }) => {
+        const docs = dailyEvidenceByType.get(params.documentType) || [];
+        return (
+            <div className="space-y-2">
+                {renderDocumentDropzone({
+                    id: `daily-evidence-${params.documentType}`,
+                    actionKey: `daily:${params.documentType}`,
+                    disabled: !editDailyData?.id || !canManageShipments || Boolean(dailyDocumentAction),
+                    selectedFileName: !editDailyData?.id ? "Save daily log first" : undefined,
+                    onFiles: (files) => uploadDailyHandoverEvidence(params.documentType, params.evidenceField, params.title, files[0] || null),
+                })}
+                {docs.length > 0 && (
+                    <div className="space-y-1">
+                        {docs.map((doc) => (
+                            <div key={doc.id} className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-background px-2 py-1 text-[10px]">
+                                <a href={doc.url || `/api/daily-delivery/${doc.dailyDeliveryId}/documents/${doc.id}`} target="_blank" rel="noreferrer" className="min-w-0 truncate font-semibold text-primary">
+                                    {doc.title}: {doc.fileName}
+                                </a>
+                                {canManageShipments && (
+                                    <button
+                                        type="button"
+                                        onClick={() => deleteDailyHandoverEvidence(doc)}
+                                        disabled={dailyDocumentAction === `daily-delete:${doc.id}`}
+                                        className="rounded p-1 text-red-500 hover:bg-red-500/10 disabled:opacity-50"
+                                        title="Delete evidence"
+                                    >
+                                        <Trash2 className="h-3 w-3" />
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     const startEditDocument = (doc: ShipmentDocument) => {
         setEditingDocumentId(doc.id);
         setEditingDocumentDraft({ title: doc.title || "", status: doc.status || "draft", notes: doc.notes || "" });
@@ -635,11 +1392,86 @@ export default function ShipmentMonitorPage() {
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.error || "Failed to delete document");
             setShipmentDocuments((current) => current.filter((item) => item.id !== doc.id));
+            await loadShipmentDocuments(detailShipment.id);
             setToast({ message: "Document deleted", type: "success" });
         } catch (error: any) {
             setToast({ message: error?.message || "Failed to delete document", type: "error" });
         } finally {
             setDocumentAction(null);
+        }
+    };
+
+    const generateSiRecord = async () => {
+        if (!detailShipment?.id || siAction) return;
+        const revisionReason = shippingInstructions.length > 0
+            ? window.prompt("Revision reason for this SI version:", "SI data updated")
+            : "Initial SI generated";
+        if (revisionReason === null) return;
+        const laycanDate = parseFlexibleDate(detailShipment.laycan);
+        const isEarly = laycanDate ? Math.ceil((laycanDate.getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000) > 10 : false;
+        const earlyApprovalReason = isEarly
+            ? window.prompt("SI dibuat sebelum H-10. Isi alasan early approval:", revisionReason || "Operational preparation required")
+            : "";
+        if (isEarly && !earlyApprovalReason?.trim()) return;
+        setSiAction(true);
+        try {
+            const res = await fetch(`/api/shipments/${detailShipment.id}/shipping-instructions`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reason: revisionReason, earlyApprovalReason }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to generate SI version");
+            setShippingInstructions((current) => [data.record, ...current]);
+            setToast({ message: `SI version ${data.record.version} recorded.`, type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to generate SI version", type: "error" });
+        } finally {
+            setSiAction(false);
+        }
+    };
+
+    const decideSiRecord = async (record: ShippingInstructionRecord, action: "approve" | "reject") => {
+        if (!detailShipment?.id) return;
+        const comment = window.prompt(`${action === "approve" ? "Approve" : "Reject"} SI ${record.siNumber}:`, action === "approve" ? "Approved" : "Rejected");
+        if (!comment?.trim()) return;
+        setSiAction(true);
+        try {
+            const res = await fetch(`/api/shipments/${detailShipment.id}/shipping-instructions`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: record.id, action, comment }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to update SI approval");
+            setShippingInstructions((current) => current.map((item) => item.id === record.id ? data.record : item));
+            setToast({ message: `SI ${action === "approve" ? "approved" : "rejected"}.`, type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to update SI approval", type: "error" });
+        } finally {
+            setSiAction(false);
+        }
+    };
+
+    const cancelSiRecord = async (record: ShippingInstructionRecord) => {
+        if (!detailShipment?.id) return;
+        const comment = window.prompt(`Cancel SI ${record.siNumber}. Isi alasan cancellation:`, "SI cancelled");
+        if (!comment?.trim()) return;
+        setSiAction(true);
+        try {
+            const res = await fetch(`/api/shipments/${detailShipment.id}/shipping-instructions`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: record.id, action: "cancel", comment }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || "Failed to cancel SI");
+            setShippingInstructions((current) => current.map((item) => item.id === record.id ? data.record : item));
+            setToast({ message: "SI cancelled.", type: "success" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to cancel SI", type: "error" });
+        } finally {
+            setSiAction(false);
         }
     };
 
@@ -652,8 +1484,12 @@ export default function ShipmentMonitorPage() {
                 {docs.map((doc) => {
                     const isEditing = editingDocumentId === doc.id;
                     const canManageThisDoc = doc.documentGroup === "critical" ? canAccessCriticalDocuments : canManageShipments;
+                    const isSupersededCritical = doc.documentGroup === "critical" && Boolean(doc.replacedByDocumentId);
                     return (
-                        <div key={doc.id} className="rounded-lg border border-border/50 bg-background/70 p-2.5 text-xs">
+                        <div key={doc.id} className={cn(
+                            "rounded-lg border border-border/50 bg-background/70 p-2.5 text-xs",
+                            isSupersededCritical && "bg-accent/30 opacity-80"
+                        )}>
                             {isEditing ? (
                                 <div className="space-y-2">
                                     <input
@@ -691,18 +1527,31 @@ export default function ShipmentMonitorPage() {
                                     <a href={doc.url || `/api/shipments/${doc.shipmentId}/documents/${doc.id}`} target="_blank" rel="noreferrer" className="min-w-0 inline-flex items-center gap-1.5 font-semibold text-foreground hover:text-primary">
                                         <FileText className="w-3.5 h-3.5 shrink-0" />
                                         <span className="truncate max-w-[220px]">{doc.title || doc.fileName}</span>
+                                        {doc.documentGroup === "critical" && (
+                                            <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[9px] font-bold text-red-600">
+                                                v{doc.version || 1}
+                                            </span>
+                                        )}
                                         <ExternalLink className="w-3 h-3 shrink-0 text-muted-foreground" />
                                     </a>
                                     <div className="flex items-center gap-1.5">
                                         <span className="rounded bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase text-muted-foreground">{doc.status || "draft"}</span>
+                                        {isSupersededCritical && (
+                                            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-700">history</span>
+                                        )}
                                         {canManageThisDoc && (
                                             <>
-                                                <button onClick={() => startEditDocument(doc)} className="p-1 rounded hover:bg-accent" title="Edit document metadata"><Edit className="w-3.5 h-3.5" /></button>
+                                                <button onClick={() => startEditDocument(doc)} disabled={isSupersededCritical} className="p-1 rounded hover:bg-accent disabled:opacity-40" title={isSupersededCritical ? "Superseded critical document is retained as history" : "Edit document metadata"}><Edit className="w-3.5 h-3.5" /></button>
                                                 <button onClick={() => deleteShipmentDocument(doc)} disabled={documentAction === `delete:${doc.id}`} className="p-1 rounded hover:bg-red-500/10 text-red-500 disabled:opacity-50" title="Delete document"><Trash2 className="w-3.5 h-3.5" /></button>
                                             </>
                                         )}
                                     </div>
                                     {doc.notes && <p className="w-full text-[10px] text-muted-foreground">{doc.notes}</p>}
+                                    {isSupersededCritical && (
+                                        <p className="w-full text-[10px] text-amber-700">
+                                            Superseded by newer critical document. {doc.replacementReason || "Kept for replacement history."}
+                                        </p>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -781,18 +1630,42 @@ export default function ShipmentMonitorPage() {
             setToast({ message: "Status reason is required for on-going shipments.", type: "error" });
             return;
         }
+        if (isShipmentClosingStatus(editForm.status)) {
+            const checklistLoadedForEdit = detailShipment?.id === editShipment.id && shipmentDocumentChecklist.length > 0;
+            const blockers = getShipmentClosingBlockers(
+                editForm,
+                checklistLoadedForEdit ? shipmentDocumentChecklist : [],
+                detailShipment?.id === editShipment.id ? shippingInstructions : [],
+                detailShipment?.id === editShipment.id ? shipmentIssues : [],
+                detailShipment?.id === editShipment.id ? sourceChanges : [],
+                detailShipment?.id === editShipment.id ? bargeChanges : [],
+            );
+            if (blockers.length > 0) {
+                setToast({ message: `Cannot close shipment. Resolve closing blockers first: ${blockers.slice(0, 2).join("; ")}`, type: "error" });
+                return;
+            }
+        }
         setIsSaving(true);
         try {
+            const payload = { ...editForm };
+            if (
+                payload.source_confirmation_status === "confirmed" &&
+                !payload.source_confirmed_at
+            ) {
+                payload.source_confirmed_by = (session?.user as any)?.id;
+                payload.source_confirmed_by_name = session?.user?.name || session?.user?.email || "User";
+                payload.source_confirmed_at = new Date().toISOString();
+            }
             if (editShipment.id) {
-                await updateShipment(editShipment.id, editForm);
+                await updateShipment(editShipment.id, payload);
                 setToast({ message: "Shipment updated successfully!", type: "success" });
             } else {
-                await addShipment(editForm as any);
+                await addShipment(payload as any);
                 setToast({ message: "New shipment created successfully!", type: "success" });
             }
             setEditShipment(null);
         } catch (error) {
-            setToast({ message: "Failed to save shipment.", type: "error" });
+            setToast({ message: error instanceof Error ? error.message : "Failed to save shipment.", type: "error" });
         } finally {
             setIsSaving(false);
         }
@@ -829,10 +1702,14 @@ export default function ShipmentMonitorPage() {
     }, [projects, shipments]);
 
     const selectedProjectMeta = React.useMemo(() => {
+        if (editForm.forecast_sales_id) {
+            const byId = projects.find((p) => p.id === editForm.forecast_sales_id);
+            if (byId) return byId;
+        }
         const key = normalizeKey(editForm.mv_project_name || "");
         if (!key) return null;
         return projects.find((p) => normalizeKey(p.name) === key) || null;
-    }, [editForm.mv_project_name, projects]);
+    }, [editForm.forecast_sales_id, editForm.mv_project_name, projects]);
 
     React.useEffect(() => {
         if (!selectedProjectMeta) return;
@@ -842,6 +1719,11 @@ export default function ShipmentMonitorPage() {
             return { ...prev, buyer: selectedProjectMeta.buyer };
         });
     }, [selectedProjectMeta]);
+
+    React.useEffect(() => {
+        if (!editShipment) return;
+        loadProjectReferenceDocs(selectedProjectMeta?.id || editForm.forecast_sales_id || null);
+    }, [editShipment, selectedProjectMeta?.id, editForm.forecast_sales_id, loadProjectReferenceDocs]);
 
     const uniqueYears = React.useMemo(() => {
         return Array.from(new Set(
@@ -943,6 +1825,37 @@ export default function ShipmentMonitorPage() {
             })
             .sort((a, b) => (a.no || 99999) - (b.no || 99999));
     }, [detailShipment, shipments]);
+
+    const linkedForecast = React.useMemo(() => {
+        if (!detailShipment) return null;
+        const byId = detailShipment.forecast_sales_id
+            ? projects.find((project) => project.id === detailShipment.forecast_sales_id)
+            : undefined;
+        if (byId) return byId;
+        const shipmentForecastName = normalizeKey(detailShipment.forecast_sales_name || detailShipment.mv_project_name);
+        if (!shipmentForecastName) return null;
+        return projects.find((project) => normalizeKey(project.name) === shipmentForecastName) || null;
+    }, [detailShipment, projects]);
+
+    React.useEffect(() => {
+        if (!detailShipment) return;
+        loadProjectReferenceDocs(linkedForecast?.id || null);
+    }, [detailShipment, linkedForecast?.id, loadProjectReferenceDocs]);
+
+    const selectedMomDoc = React.useMemo(() => {
+        if (!detailShipment?.commercial_mom_document_id) return null;
+        return projectReferenceDocs.find((doc) => doc.id === detailShipment.commercial_mom_document_id) || null;
+    }, [detailShipment?.commercial_mom_document_id, projectReferenceDocs]);
+
+    const selectedPoDoc = React.useMemo(() => {
+        if (!detailShipment?.commercial_po_document_id) return null;
+        return projectReferenceDocs.find((doc) => doc.id === detailShipment.commercial_po_document_id) || null;
+    }, [detailShipment?.commercial_po_document_id, projectReferenceDocs]);
+
+    const sourceConfirmationDoc = React.useMemo(() => {
+        if (!detailShipment?.source_confirmation_document_id) return null;
+        return shipmentDocuments.find((doc) => doc.id === detailShipment.source_confirmation_document_id) || null;
+    }, [detailShipment?.source_confirmation_document_id, shipmentDocuments]);
 
     const toggleExpand = (id: string) => {
         setExpandedRows((prev) => {
@@ -1131,6 +2044,7 @@ export default function ShipmentMonitorPage() {
                                         <th className="px-6 py-4 font-semibold">Buyer</th>
                                         <th className="px-6 py-4 font-semibold">MV/Barge Nom.</th>
                                         <th className="px-6 py-4 font-semibold">BL Quantity</th>
+                                        <th className="px-6 py-4 font-semibold">Domestic Handover</th>
                                         <th className="px-6 py-4 font-semibold">Issue</th>
                                         <th className="px-6 py-4 font-semibold text-right">Actions</th>
                                     </tr>
@@ -1138,26 +2052,47 @@ export default function ShipmentMonitorPage() {
                                 <tbody className="divide-y divide-border/50 bg-card">
                                     {dailyDeliveries.length === 0 ? (
                                         <tr>
-                                            <td colSpan={6} className="px-6 py-8 text-center text-xs text-muted-foreground">
+                                            <td colSpan={8} className="px-6 py-8 text-center text-xs text-muted-foreground">
                                                 No daily delivery data fetched for current filter.
                                             </td>
                                         </tr>
-                                    ) : dailyDeliveries.map(d => (
-                                        <tr key={d.id} className="hover:bg-accent/40 transition-colors">
-                                            <td className="px-6 py-4"><span className="px-2 py-1 bg-accent rounded text-[10px] font-bold uppercase">{d.report_type}</span></td>
-                                            <td className="px-6 py-4 text-xs font-semibold">{d.year}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-foreground">{d.buyer || "-"}</td>
-                                            <td className="px-6 py-4 text-xs font-semibold">{d.mv_barge_nomination || "-"}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-blue-500">{d.bl_quantity ? `${d.bl_quantity.toLocaleString()} MT` : "-"}</td>
-                                            <td className="px-6 py-4 text-[10px] text-muted-foreground truncate max-w-[200px]">{d.issue || "No Issues"}</td>
-                                            <td className="px-6 py-4 text-right">
-                                                <div className="flex items-center justify-end gap-1">
-                                                    <button onClick={(e) => { e.stopPropagation(); handleOpenDailyForm(d); }} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground"><Edit className="w-3.5 h-3.5" /></button>
-                                                    <button onClick={(e) => handleDeleteDaily(d.id, e)} className="p-1.5 rounded-lg hover:bg-rose-500/20 text-rose-500"><Trash2 className="w-3.5 h-3.5" /></button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    ) : dailyDeliveries.map(d => {
+                                        const handover = getDomesticHandoverSummary(d);
+                                        return (
+                                            <tr
+                                                key={d.id}
+                                                id={`daily-${d.id}`}
+                                                onClick={() => handleOpenDailyForm(d)}
+                                                className={cn(
+                                                    "cursor-pointer transition-colors hover:bg-accent/40",
+                                                    highlightedDailyId === String(d.id) && "bg-amber-500/10 ring-1 ring-inset ring-amber-500/40",
+                                                )}
+                                            >
+                                                <td className="px-6 py-4"><span className="px-2 py-1 bg-accent rounded text-[10px] font-bold uppercase">{d.report_type}</span></td>
+                                                <td className="px-6 py-4 text-xs font-semibold">{d.year}</td>
+                                                <td className="px-6 py-4 text-xs font-bold text-foreground">{d.buyer || "-"}</td>
+                                                <td className="px-6 py-4 text-xs font-semibold">{d.mv_barge_nomination || "-"}</td>
+                                                <td className="px-6 py-4 text-xs font-bold text-blue-500">{d.bl_quantity ? `${d.bl_quantity.toLocaleString()} MT` : "-"}</td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex flex-col gap-1">
+                                                        <span className={cn("w-fit rounded px-2 py-1 text-[10px] font-bold", handover.completed === handover.total ? "bg-emerald-500/10 text-emerald-600" : handover.agingDays > 3 ? "bg-amber-500/10 text-amber-700" : "bg-blue-500/10 text-blue-600")}>
+                                                            {handover.completed}/{handover.total} docs
+                                                        </span>
+                                                        <span className="text-[10px] text-muted-foreground">
+                                                            {handover.activeLabel} at {handover.stuckAt}{handover.agingDays ? ` (${handover.agingDays}d)` : ""}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 text-[10px] text-muted-foreground truncate max-w-[200px]">{d.issue || "No Issues"}</td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        <button onClick={(e) => { e.stopPropagation(); handleOpenDailyForm(d); }} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground"><Edit className="w-3.5 h-3.5" /></button>
+                                                        <button onClick={(e) => handleDeleteDaily(d.id, e)} className="p-1.5 rounded-lg hover:bg-rose-500/20 text-rose-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -1165,14 +2100,14 @@ export default function ShipmentMonitorPage() {
                         {/* Daily Form Modal - Expanded with Tabs */}
                         {showDailyForm && (
                             <div className="modal-overlay z-50 fixed inset-0 flex items-center justify-center p-4">
-                                <div className="modal-backdrop absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setShowDailyForm(false)} />
+                                <div className="modal-backdrop absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={closeDailyForm} />
                                 <div className="modal-content relative bg-card border border-border w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-xl shadow-2xl animate-scale-in flex flex-col z-[60]">
                                     <div className="flex items-center justify-between p-6 border-b border-border">
                                         <div>
                                             <h2 className="text-lg font-bold">{editDailyData ? "Edit" : "New"} Daily Log</h2>
                                             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Unified Delivery Recap System</p>
                                         </div>
-                                        <button onClick={() => setShowDailyForm(false)} className="p-2 hover:bg-accent rounded-lg transition-colors"><X className="w-4 h-4" /></button>
+                                        <button onClick={closeDailyForm} className="p-2 hover:bg-accent rounded-lg transition-colors"><X className="w-4 h-4" /></button>
                                     </div>
 
                                     {/* Tabs Header */}
@@ -1182,6 +2117,7 @@ export default function ShipmentMonitorPage() {
                                             { id: "logistics", label: "Logistics & Tracking", icon: Anchor },
                                             { id: "quality", label: "Surveyor & Quality", icon: Beaker },
                                             { id: "commercial", label: "Commercial & Finance", icon: CreditCard },
+                                            { id: "handover", label: "Domestic Handover", icon: FileText },
                                         ].map((t) => (
                                             <button
                                                 key={t.id}
@@ -1206,7 +2142,7 @@ export default function ShipmentMonitorPage() {
                                                 </div>
                                                 <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Year</label>
                                                     <input type="number" value={dailyForm.year} onChange={e => setDailyForm({ ...dailyForm, year: +e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Project</label>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Forecast Sales</label>
                                                     <input value={dailyForm.project || ""} onChange={e => setDailyForm({ ...dailyForm, project: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" placeholder="e.g. 11GAWE-01" /></div>
                                                 <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Buyer</label>
                                                     <input value={dailyForm.buyer} onChange={e => setDailyForm({ ...dailyForm, buyer: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-primary/50" /></div>
@@ -1284,10 +2220,138 @@ export default function ShipmentMonitorPage() {
                                                 </div>
                                             </div>
                                         )}
+
+                                        {activeDailyTab === "handover" && (
+                                            <div className="space-y-5 animate-fade-in">
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                    <div className="space-y-1">
+                                                        <label className="text-[10px] font-bold text-muted-foreground uppercase">Full Set Docs</label>
+                                                        <select value={dailyForm.full_set_document_status || "pending"} onChange={e => setDailyForm({ ...dailyForm, full_set_document_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm">
+                                                            <option value="pending">Pending</option>
+                                                            <option value="partial">Partial</option>
+                                                            <option value="submitted">Submitted</option>
+                                                            <option value="approved">Approved</option>
+                                                            <option value="completed">Completed</option>
+                                                        </select>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-[10px] font-bold text-muted-foreground uppercase">Hardcopy</label>
+                                                        <select value={dailyForm.hardcopy_status || "pending"} onChange={e => setDailyForm({ ...dailyForm, hardcopy_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm">
+                                                            <option value="pending">Pending</option>
+                                                            <option value="partial">Partial</option>
+                                                            <option value="received">Received</option>
+                                                            <option value="submitted">Submitted</option>
+                                                        </select>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-[10px] font-bold text-muted-foreground uppercase">Softcopy</label>
+                                                        <select value={dailyForm.softcopy_status || "pending"} onChange={e => setDailyForm({ ...dailyForm, softcopy_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm">
+                                                            <option value="pending">Pending</option>
+                                                            <option value="partial">Partial</option>
+                                                            <option value="received">Received</option>
+                                                            <option value="submitted">Submitted</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+
+                                                <div className="rounded-xl border border-border bg-accent/10 p-4">
+                                                    <h3 className="text-xs font-bold text-primary uppercase mb-3">SKAB-SK: Supplier to Operation to Traffic to Finance</h3>
+                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                        {renderDailyDateInput("skab_supplier_sent_at", "Supplier Sent")}
+                                                        {renderDailyDateInput("skab_operation_received_at", "Operation Received")}
+                                                        {renderDailyDateInput("skab_operation_sent_at", "Operation Sent")}
+                                                        {renderDailyDateInput("skab_traffic_received_at", "Traffic Received")}
+                                                        {renderDailyDateInput("skab_traffic_sent_finance_at", "Traffic Sent Finance")}
+                                                        {renderDailyDateInput("skab_finance_received_at", "Finance Received")}
+                                                        <div className="space-y-1">
+                                                            <label className="text-[10px] font-bold text-muted-foreground uppercase">Evidence Ref</label>
+                                                            <input value={dailyForm.skab_evidence_document_id || ""} onChange={e => setDailyForm({ ...dailyForm, skab_evidence_document_id: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm" />
+                                                        </div>
+                                                        <div className="md:col-span-3">
+                                                            {renderDailyEvidenceUpload({ documentType: "skab", evidenceField: "skab_evidence_document_id", title: "SKAB-SK Evidence" })}
+                                                        </div>
+                                                        <div className="space-y-1 md:col-span-2">
+                                                            <label className="text-[10px] font-bold text-muted-foreground uppercase">Notes</label>
+                                                            <input value={dailyForm.skab_notes || ""} onChange={e => setDailyForm({ ...dailyForm, skab_notes: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm" />
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="rounded-xl border border-border bg-accent/10 p-4">
+                                                    <h3 className="text-xs font-bold text-primary uppercase mb-3">DSR Carbon: Supplier to Operation to Traffic</h3>
+                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                        {renderDailyDateInput("dsr_supplier_sent_at", "Supplier Sent")}
+                                                        {renderDailyDateInput("dsr_operation_received_at", "Operation Received")}
+                                                        {renderDailyDateInput("dsr_operation_sent_at", "Operation Sent")}
+                                                        {renderDailyDateInput("dsr_traffic_received_at", "Traffic Received")}
+                                                        <div className="space-y-1 md:col-span-2">
+                                                            <label className="text-[10px] font-bold text-muted-foreground uppercase">Evidence Ref</label>
+                                                            <input value={dailyForm.dsr_evidence_document_id || ""} onChange={e => setDailyForm({ ...dailyForm, dsr_evidence_document_id: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm" />
+                                                        </div>
+                                                        <div className="md:col-span-3">
+                                                            {renderDailyEvidenceUpload({ documentType: "dsr", evidenceField: "dsr_evidence_document_id", title: "DSR Carbon Evidence" })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="rounded-xl border border-border bg-accent/10 p-4">
+                                                    <h3 className="text-xs font-bold text-primary uppercase mb-3">BL/CM: Operation to Traffic to Finance</h3>
+                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                        {renderDailyDateInput("bl_date", "BL Date")}
+                                                        {renderDailyDateInput("bl_cm_operation_sent_at", "Operation Sent")}
+                                                        {renderDailyDateInput("bl_cm_traffic_received_at", "Traffic Received")}
+                                                        {renderDailyDateInput("bl_cm_traffic_sent_finance_at", "Traffic Sent Finance")}
+                                                        {renderDailyDateInput("bl_cm_finance_received_at", "Finance Received")}
+                                                        <div className="space-y-1">
+                                                            <label className="text-[10px] font-bold text-muted-foreground uppercase">Evidence Ref</label>
+                                                            <input value={dailyForm.bl_cm_evidence_document_id || ""} onChange={e => setDailyForm({ ...dailyForm, bl_cm_evidence_document_id: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm" />
+                                                        </div>
+                                                        <div className="md:col-span-3">
+                                                            {renderDailyEvidenceUpload({ documentType: "bl_cm", evidenceField: "bl_cm_evidence_document_id", title: "BL/CM Evidence" })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="rounded-xl border border-border bg-accent/10 p-4">
+                                                    <h3 className="text-xs font-bold text-primary uppercase mb-3">COA POL: Surveyor to Traffic to Finance</h3>
+                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                        {renderDailyDateInput("coa_pol_date", "COA Date")}
+                                                        {renderDailyDateInput("coa_pol_surveyor_sent_at", "Surveyor Sent")}
+                                                        {renderDailyDateInput("coa_pol_traffic_received_at", "Traffic Received")}
+                                                        {renderDailyDateInput("coa_pol_finance_received_at", "Finance Received")}
+                                                        <div className="space-y-1 md:col-span-2">
+                                                            <label className="text-[10px] font-bold text-muted-foreground uppercase">Evidence Ref</label>
+                                                            <input value={dailyForm.coa_pol_evidence_document_id || ""} onChange={e => setDailyForm({ ...dailyForm, coa_pol_evidence_document_id: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm" />
+                                                        </div>
+                                                        <div className="md:col-span-3">
+                                                            {renderDailyEvidenceUpload({ documentType: "coa_pol", evidenceField: "coa_pol_evidence_document_id", title: "COA POL Evidence" })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="rounded-xl border border-border bg-accent/10 p-4">
+                                                    <h3 className="text-xs font-bold text-primary uppercase mb-3">COA POD / Final Docs</h3>
+                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                        {renderDailyDateInput("coa_pod_received_at", "COA POD Received")}
+                                                        {renderDailyDateInput("finance_submit_full_set_at", "Finance Submit Full Set")}
+                                                        {renderDailyDateInput("vendor_received_full_set_at", "Vendor Received")}
+                                                        {renderDailyDateInput("approval_dt_at", "Approval DT")}
+                                                        {renderDailyDateInput("vendor_paid_at", "Paid to Vendor")}
+                                                        <div className="space-y-1">
+                                                            <label className="text-[10px] font-bold text-muted-foreground uppercase">Evidence Ref</label>
+                                                            <input value={dailyForm.coa_pod_evidence_document_id || ""} onChange={e => setDailyForm({ ...dailyForm, coa_pod_evidence_document_id: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm" />
+                                                        </div>
+                                                        <div className="md:col-span-3">
+                                                            {renderDailyEvidenceUpload({ documentType: "coa_pod", evidenceField: "coa_pod_evidence_document_id", title: "COA POD / Final Docs Evidence" })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="p-6 border-t border-border bg-accent/5 flex justify-end gap-3">
-                                        <button onClick={() => setShowDailyForm(false)} className="px-4 py-2 hover:bg-accent rounded-lg text-sm font-semibold transition-colors text-muted-foreground" disabled={isSaving}>Cancel</button>
+                                        <button onClick={closeDailyForm} className="px-4 py-2 hover:bg-accent rounded-lg text-sm font-semibold transition-colors text-muted-foreground" disabled={isSaving}>Cancel</button>
                                         <button onClick={handleSaveDaily} className="btn-primary" disabled={isSaving}>
                                             {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : (editDailyData ? "Update Record" : "Create Record")}
                                         </button>
@@ -1385,6 +2449,7 @@ export default function ShipmentMonitorPage() {
                                     {paginatedData.map((sh) => {
                                         const stCfg = SHIPMENT_STATUSES.find((s) => s.value === sh.status);
                                         const cp = getCounterparty(sh);
+                                        const completeness = getShipmentCompleteness(sh);
                                         return (
                                             <div key={sh.id} className="card-custom p-4 flex flex-col justify-between hover:border-primary/50 transition-colors group cursor-pointer" onClick={() => setDetailShipment(sh)}>
                                                 <div>
@@ -1393,9 +2458,14 @@ export default function ShipmentMonitorPage() {
                                                             <h3 className="font-bold text-lg text-primary group-hover:underline decoration-primary/50 underline-offset-4">{sh.mv_project_name || sh.vessel_name || sh.shipment_number || `#${sh.no}`}</h3>
                                                             <p className="text-xs text-muted-foreground">{cp.role}: {cp.value} | {sh.origin || "-"} | Year {getShipmentYear(sh) || "-"}</p>
                                                         </div>
-                                                        <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
-                                                            {stCfg?.label}
-                                                        </span>
+                                                        <div className="flex flex-col items-end gap-1">
+                                                            <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
+                                                                {stCfg?.label}
+                                                            </span>
+                                                            <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-md border", completenessClass(completeness.percent))}>
+                                                                {completeness.percent}% filled
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                     {sh.status_reason && ["upcoming", "loading", "in_transit"].includes(sh.status) && (
                                                         <p className="text-[10px] text-amber-500/90 mt-1 line-clamp-2"><AlertTriangle className="w-3 h-3 inline mr-1" />{sh.status_reason}</p>
@@ -1418,6 +2488,11 @@ export default function ShipmentMonitorPage() {
                                                             <p className="font-medium text-emerald-500 font-mono">{shipmentSellPrice(sh) ? `$${safeFmt(shipmentSellPrice(sh))}` : "-"}</p>
                                                         </div>
                                                     </div>
+                                                    {completeness.missing.length > 0 && (
+                                                        <p className="text-[10px] text-muted-foreground mb-3 line-clamp-1">
+                                                            Missing: {completeness.missing.slice(0, 3).join(", ")}{completeness.missing.length > 3 ? ` +${completeness.missing.length - 3}` : ""}
+                                                        </p>
+                                                    )}
                                                 </div>
                                                 <div className="pt-3 border-t border-border/50 flex justify-between items-center text-xs text-muted-foreground">
                                                     <span className="flex items-center gap-1"><Anchor className="w-3.5 h-3.5" /> {formatLaycanWithYear(sh)}</span>
@@ -1455,7 +2530,7 @@ export default function ShipmentMonitorPage() {
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase w-8"></th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">NO</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">EXP/DMO</th>
-                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">MV / Project</th>
+                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">MV / Forecast Sales</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Year</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Buyer/Vendor</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Nomination</th>
@@ -1463,6 +2538,7 @@ export default function ShipmentMonitorPage() {
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Laycan</th>
                                                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Sales</th>
                                                 <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Buy/Margin</th>
+                                                <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Filled</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Status</th>
                                                 <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Pending Reason</th>
                                                 {mainTab === "Risk Assessment" && <th className="text-center px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Risk</th>}
@@ -1474,6 +2550,7 @@ export default function ShipmentMonitorPage() {
                                                 const stCfg = SHIPMENT_STATUSES.find((s) => s.value === sh.status);
                                                 const isExpanded = expandedRows.has(sh.id);
                                                 const cp = getCounterparty(sh);
+                                                const completeness = getShipmentCompleteness(sh);
 
                                                 return (
                                                     <React.Fragment key={sh.id}>
@@ -1494,6 +2571,11 @@ export default function ShipmentMonitorPage() {
                                                             <td className="px-4 py-3 text-right text-xs font-mono">{shipmentSellPrice(sh) ? `$${safeFmt(shipmentSellPrice(sh))}` : "-"}</td>
                                                             <td className="px-4 py-3 text-right text-xs font-mono font-medium text-emerald-500">
                                                                 {shipmentBuyPrice(sh) ? `$${safeFmt(shipmentBuyPrice(sh))}` : "-"} / {shipmentMargin(sh) ? `$${safeFmt(shipmentMargin(sh))}` : "-"}
+                                                            </td>
+                                                            <td className="px-4 py-3">
+                                                                <span className={cn("text-[10px] font-bold px-2 py-1 rounded-md border", completenessClass(completeness.percent))} title={completeness.missing.length ? `Missing: ${completeness.missing.join(", ")}` : "Complete"}>
+                                                                    {completeness.percent}%
+                                                                </span>
                                                             </td>
                                                             <td className="px-4 py-3">
                                                                 <span className="status-badge text-[10px]" style={{ color: stCfg?.color, backgroundColor: `${stCfg?.color}15` }}>
@@ -1535,7 +2617,7 @@ export default function ShipmentMonitorPage() {
                                                         {/* Expanded Detail Row */}
                                                         {isExpanded && (
                                                             <tr className="bg-accent/5 border-b border-border/30">
-                                                                <td colSpan={14} className="px-6 py-4">
+                                                                <td colSpan={mainTab === "Risk Assessment" ? 16 : 15} className="px-6 py-4">
                                                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                                                                         {/* Shipping Details */}
                                                                         <div className="space-y-2">
@@ -1915,6 +2997,14 @@ export default function ShipmentMonitorPage() {
                                         <span className="px-3 py-1.5 rounded-md text-xs font-bold text-white bg-emerald-500">
                                             {SHIPMENT_STATUSES.find(s => s.value === detailShipment.status)?.label || "Completed"}
                                         </span>
+                                        {(() => {
+                                            const completeness = getShipmentCompleteness(detailShipment);
+                                            return (
+                                                <span className={cn("px-3 py-1.5 rounded-md text-xs font-bold border", completenessClass(completeness.percent))} title={completeness.missing.length ? `Missing: ${completeness.missing.join(", ")}` : "Complete"}>
+                                                    {completeness.percent}% data filled
+                                                </span>
+                                            );
+                                        })()}
                                         {canManageShipments && (
                                             <>
                                                 <button onClick={() => { setEditShipment(detailShipment); setEditForm({ ...detailShipment }); closeDetailModal(); }} className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded-md hover:bg-accent text-xs font-semibold text-foreground transition-colors">
@@ -1952,6 +3042,237 @@ export default function ShipmentMonitorPage() {
                             <div className="overflow-y-auto overflow-x-hidden pr-1 sm:pr-2 pb-2 sm:pb-4 space-y-4">
                                 {detailModalTab === "overview" && (
                                     <div className="space-y-6 animate-fade-in">
+                                        {(() => {
+                                            const completeness = getShipmentCompleteness(detailShipment);
+                                            return (
+                                                <div className="rounded-xl border border-border/60 bg-background/60 p-4">
+                                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                                                        <div>
+                                                            <p className="text-xs font-bold text-foreground">Shipment Data Completeness</p>
+                                                            <p className="text-xs text-muted-foreground mt-1">
+                                                                {completeness.filled} of {completeness.total} required operational/commercial fields filled.
+                                                            </p>
+                                                        </div>
+                                                        <span className={cn("w-fit text-sm font-black px-3 py-2 rounded-lg border", completenessClass(completeness.percent))}>{completeness.percent}%</span>
+                                                    </div>
+                                                    <div className="mt-3 h-2 rounded-full bg-accent overflow-hidden">
+                                                        <div className={cn("h-full", completeness.percent >= 85 ? "bg-emerald-500" : completeness.percent >= 60 ? "bg-amber-500" : "bg-rose-500")} style={{ width: `${completeness.percent}%` }} />
+                                                    </div>
+                                                    {completeness.missing.length > 0 && (
+                                                        <p className="text-[11px] text-muted-foreground mt-2">
+                                                            Missing: {completeness.missing.slice(0, 8).join(", ")}{completeness.missing.length > 8 ? ` +${completeness.missing.length - 8}` : ""}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
+                                        <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4">
+                                            <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                                                <div>
+                                                    <p className="text-xs font-bold text-sky-600">Shipping Instruction Versions</p>
+                                                    <p className="text-xs text-muted-foreground mt-1">
+                                                        {isLoadingSiRecords
+                                                            ? "Loading SI records..."
+                                                            : shippingInstructions.length
+                                                                ? `${shippingInstructions.length} SI version(s) recorded for this shipment.`
+                                                                : "No SI version has been recorded yet."}
+                                                    </p>
+                                                </div>
+                                                {canManageShipments && (
+                                                    <button
+                                                        onClick={generateSiRecord}
+                                                        disabled={siAction}
+                                                        className="w-fit px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 text-white disabled:opacity-50"
+                                                    >
+                                                        {siAction ? <Loader2 className="w-3.5 h-3.5 inline mr-1.5 animate-spin" /> : <FileText className="w-3.5 h-3.5 inline mr-1.5" />}
+                                                        {shippingInstructions.length ? "Create SI Revision" : "Record SI v1"}
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {shippingInstructions.length > 0 && (
+                                                <div className="mt-3 space-y-2">
+                                                    {shippingInstructions.slice(0, 4).map((record) => (
+                                                        <div key={record.id} className="rounded-lg border border-border/60 bg-card p-3 text-xs">
+                                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                                <div>
+                                                                    <p className="font-bold text-foreground">{record.siNumber}</p>
+                                                                    <p className="text-[10px] text-muted-foreground">Version {record.version} | {record.status}</p>
+                                                                </div>
+                                                                <span className="text-[10px] text-muted-foreground">
+                                                                    {record.generatedByName || "Unknown"} | {new Date(record.createdAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
+                                                                </span>
+                                                            </div>
+                                                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                                <a
+                                                                    href={record.pdfUrl || `/api/shipments/${detailShipment.id}/shipping-instructions/${record.id}/pdf`}
+                                                                    className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold text-sky-600 hover:bg-sky-500/15"
+                                                                >
+                                                                    <Download className="h-3.5 w-3.5" />
+                                                                    Download SI PDF v{record.version}
+                                                                </a>
+                                                                {record.pdfGeneratedAt && (
+                                                                    <span className="text-[10px] text-muted-foreground">
+                                                                        PDF snapshot: {new Date(record.pdfGeneratedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            {record.reason && <p className="mt-2 text-muted-foreground">{record.reason}</p>}
+                                                            {record.earlyApprovalReason && (
+                                                                <p className="mt-1 text-amber-600">Early approval reason: {record.earlyApprovalReason}</p>
+                                                            )}
+                                                            {record.approvalComment && (
+                                                                <p className="mt-1 text-muted-foreground">
+                                                                    Decision by {record.approvedByName || "Unknown"}: {record.approvalComment}
+                                                                </p>
+                                                            )}
+                                                            {record.cancellationReason && (
+                                                                <p className="mt-1 text-rose-600">
+                                                                    Cancelled by {record.cancelledByName || "Unknown"}: {record.cancellationReason}
+                                                                </p>
+                                                            )}
+                                                            {record.status === "early_pending_approval" && canAccessCriticalDocuments && (
+                                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                                    <button
+                                                                        onClick={() => decideSiRecord(record, "approve")}
+                                                                        disabled={siAction}
+                                                                        className="px-2.5 py-1 rounded-md text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/30 disabled:opacity-50"
+                                                                    >
+                                                                        Approve Early SI
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => decideSiRecord(record, "reject")}
+                                                                        disabled={siAction}
+                                                                        className="px-2.5 py-1 rounded-md text-[10px] font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/30 disabled:opacity-50"
+                                                                    >
+                                                                        Reject
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                            {!["cancelled", "superseded"].includes(record.status) && canManageShipments && (
+                                                                <div className="mt-2">
+                                                                    <button
+                                                                        onClick={() => cancelSiRecord(record)}
+                                                                        disabled={siAction}
+                                                                        className="px-2.5 py-1 rounded-md text-[10px] font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/30 disabled:opacity-50"
+                                                                    >
+                                                                        Cancel SI
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                        {(linkedForecast || detailShipment.fco_number || detailShipment.forecast_sales_name) && (
+                                            <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
+                                                <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                                                    <div>
+                                                        <p className="text-xs font-bold text-blue-600">Commercial Reference</p>
+                                                        <h4 className="text-sm font-black text-foreground mt-1">
+                                                            {linkedForecast?.name || detailShipment.forecast_sales_name || detailShipment.mv_project_name || "-"}
+                                                        </h4>
+                                                        <p className="text-xs text-muted-foreground mt-1">
+                                                            FCO: <span className="font-semibold text-foreground">{linkedForecast?.fco_number || detailShipment.fco_number || "-"}</span>
+                                                            {" | "}
+                                                            Buyer Feedback: <span className="font-semibold text-foreground">{linkedForecast?.buyer_feedback_status || "-"}</span>
+                                                        </p>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs min-w-0 lg:min-w-[520px]">
+                                                        <div>
+                                                            <p className="text-[10px] uppercase text-muted-foreground">Target Price</p>
+                                                            <p className="font-bold text-foreground">{linkedForecast?.target_selling_price ? `$${safeFmt(linkedForecast.target_selling_price)}` : (shipmentSellPrice(detailShipment) ? `$${safeFmt(shipmentSellPrice(detailShipment))}` : "-")}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-[10px] uppercase text-muted-foreground">Payment</p>
+                                                            <p className="font-bold text-foreground truncate">{linkedForecast?.payment_terms || "-"}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-[10px] uppercase text-muted-foreground">Surveyor</p>
+                                                            <p className="font-bold text-foreground truncate">{linkedForecast?.surveyor || detailShipment.surveyor_lhv || "-"}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-[10px] uppercase text-muted-foreground">Source</p>
+                                                            <p className="font-bold text-foreground truncate">{detailShipment.supplier || detailShipment.source || linkedForecast?.supplier_candidates || "-"}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    {[
+                                                        { label: "MoM Reference", doc: selectedMomDoc, empty: detailShipment.commercial_mom_document_id ? "Linked MoM not found" : "No MoM linked" },
+                                                        { label: "PO Reference", doc: selectedPoDoc, empty: detailShipment.commercial_po_document_id ? "Linked PO not found" : "No PO linked" },
+                                                    ].map((item) => (
+                                                        <div key={item.label} className="rounded-lg border border-blue-500/15 bg-background/70 p-3">
+                                                            <p className="text-[10px] uppercase text-muted-foreground font-semibold">{item.label}</p>
+                                                            {item.doc ? (
+                                                                <a
+                                                                    href={item.doc.url || `/api/projects/${item.doc.projectId}/documents/${item.doc.id}`}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="mt-1 inline-flex max-w-full items-center gap-1.5 text-xs font-bold text-blue-600 hover:underline"
+                                                                >
+                                                                    <FileText className="w-3.5 h-3.5 shrink-0" />
+                                                                    <span className="truncate">{item.doc.fileName}</span>
+                                                                </a>
+                                                            ) : (
+                                                                <p className="mt-1 text-xs text-muted-foreground">{isLoadingProjectReferenceDocs ? "Loading reference docs..." : item.empty}</p>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                {linkedForecast && (
+                                                    <a
+                                                        href={`/forecast-sales?q=${encodeURIComponent(linkedForecast.name)}`}
+                                                        className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-blue-600 hover:underline"
+                                                    >
+                                                        <ExternalLink className="w-3.5 h-3.5" />
+                                                        Open Forecast Sales
+                                                    </a>
+                                                )}
+                                            </div>
+                                        )}
+                                        {(detailShipment.source || detailShipment.supplier || detailShipment.source_confirmation_status) && (
+                                            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                                                <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                                                    <div>
+                                                        <p className="text-xs font-bold text-emerald-600">Source Confirmation</p>
+                                                        <h4 className="text-sm font-black text-foreground mt-1">{detailShipment.supplier || detailShipment.source || "-"}</h4>
+                                                        <p className="text-xs text-muted-foreground mt-1">
+                                                            Status: <span className="font-semibold text-foreground">{detailShipment.source_confirmation_status || "not set"}</span>
+                                                            {" | "}
+                                                            Legal: <span className="font-semibold text-foreground">{detailShipment.source_legal_readiness_status || "-"}</span>
+                                                            {" | "}
+                                                            Cargo: <span className="font-semibold text-foreground">{detailShipment.source_cargo_readiness_status || "-"}</span>
+                                                        </p>
+                                                        {detailShipment.source_confirmation_notes && (
+                                                            <p className="text-xs text-muted-foreground mt-2">{detailShipment.source_confirmation_notes}</p>
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0 lg:min-w-[280px]">
+                                                        {sourceConfirmationDoc ? (
+                                                            <a
+                                                                href={sourceConfirmationDoc.url || `/api/shipments/${detailShipment.id}/documents/${sourceConfirmationDoc.id}`}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="inline-flex max-w-full items-center gap-1.5 text-xs font-bold text-emerald-600 hover:underline"
+                                                            >
+                                                                <FileText className="w-3.5 h-3.5 shrink-0" />
+                                                                <span className="truncate">{sourceConfirmationDoc.fileName}</span>
+                                                            </a>
+                                                        ) : (
+                                                            <p className="text-xs text-muted-foreground">No source evidence linked.</p>
+                                                        )}
+                                                        {canManageShipments && (
+                                                            <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-500/25 bg-background px-3 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-500/10">
+                                                                <Upload className="w-3.5 h-3.5" />
+                                                                {documentAction === "source-confirmation" ? "Uploading..." : "Upload Evidence"}
+                                                                <input type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" onChange={(e) => uploadSourceConfirmationEvidence(e.target.files?.[0] || null)} disabled={documentAction === "source-confirmation"} />
+                                                            </label>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
                                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
                                             {/* Unified Shipment Identity */}
                                             <div className="border border-border/60 rounded-xl p-4 sm:p-5 bg-background/60 shadow-sm">
@@ -1959,7 +3280,7 @@ export default function ShipmentMonitorPage() {
                                                     <Package className="w-4 h-4" /> Logistics Identity
                                                 </h4>
                                                 <div className="space-y-2.5 text-xs sm:text-[13px]">
-                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Project</span><span className="font-semibold text-foreground break-words">{detailShipment.mv_project_name || detailShipment.vessel_name || "-"}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Forecast Sales</span><span className="font-semibold text-foreground break-words">{detailShipment.mv_project_name || detailShipment.vessel_name || "-"}</span></div>
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Vessel</span><span className="font-semibold text-foreground break-words">{detailShipment.vessel_name || detailShipment.nomination || "-"}</span></div>
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Barge</span><span className="font-medium text-foreground break-words">{detailShipment.barge_name || "-"}</span></div>
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">{getCounterparty(detailShipment).role}</span><span className="font-bold text-primary break-words">{getCounterparty(detailShipment).value}</span></div>
@@ -1988,9 +3309,12 @@ export default function ShipmentMonitorPage() {
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Qty Loaded</span><span className="font-black text-foreground break-words">{shipmentQty(detailShipment).toLocaleString()} MT</span></div>
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Sales Price</span><span className="font-bold text-emerald-600 break-words">${safeFmt(shipmentSellPrice(detailShipment))}/MT</span></div>
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Buying Price</span><span className="font-bold text-amber-600 break-words">${safeFmt(shipmentBuyPrice(detailShipment))}/MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Freight</span><span className="font-medium text-foreground break-words">${safeFmt(detailShipment.price_freight ?? detailShipment.shipping_rate)}/MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Royalty/Tax</span><span className="font-medium text-foreground break-words">${safeFmt(safeNum(detailShipment.royalty_cost) + safeNum(detailShipment.tax_export_cost))}/MT</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Survey/Pay</span><span className="font-medium text-foreground break-words">${safeFmt(safeNum(detailShipment.survey_cost) + safeNum(detailShipment.payment_finance_cost))}/MT</span></div>
                                                     <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Margin</span><span className="font-bold text-blue-600 break-words">${safeFmt(shipmentMargin(detailShipment))}/MT</span></div>
                                                     <div className="grid grid-cols-[96px_1fr] gap-3 border-t border-emerald-500/10 pt-2"><span className="text-muted-foreground uppercase">Est. Revenue</span><span className="font-black text-emerald-700 break-words">${(shipmentQty(detailShipment) * shipmentSellPrice(detailShipment)).toLocaleString()}</span></div>
-                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Est. GP</span><span className="font-black text-blue-700 break-words">${(shipmentQty(detailShipment) * shipmentMargin(detailShipment)).toLocaleString()}</span></div>
+                                                    <div className="grid grid-cols-[96px_1fr] gap-3"><span className="text-muted-foreground uppercase">Est. GP</span><span className="font-black text-blue-700 break-words">${(shipmentQty(detailShipment) * (shipmentSellPrice(detailShipment) - shipmentCostPerMt(detailShipment))).toLocaleString()}</span></div>
                                                 </div>
                                             </div>
                                         </div>
@@ -2160,6 +3484,183 @@ export default function ShipmentMonitorPage() {
                                                 </div>
                                             </div>
                                         </div>
+                                        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 sm:p-5">
+                                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                                <h4 className="text-[11px] sm:text-xs font-bold flex items-center gap-2 text-blue-700 uppercase tracking-wider">
+                                                    <ShieldCheck className="w-4 h-4" /> Source Change Request
+                                                </h4>
+                                                <span className="rounded bg-background/70 px-2 py-1 text-[10px] font-bold text-muted-foreground">
+                                                    {sourceChanges.filter((item) => (item.status || "").toLowerCase() === "pending").length} pending
+                                                </span>
+                                            </div>
+                                            {canManageShipments && (
+                                                <div className="mt-3 grid grid-cols-1 md:grid-cols-5 gap-2">
+                                                    <input value={sourceChangeDraft.newSource} onChange={(e) => setSourceChangeDraft({ ...sourceChangeDraft, newSource: e.target.value })} placeholder="New source / supplier" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs md:col-span-2" />
+                                                    <input value={sourceChangeDraft.reason} onChange={(e) => setSourceChangeDraft({ ...sourceChangeDraft, reason: e.target.value })} placeholder="Reason" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <input value={sourceChangeDraft.evidence} onChange={(e) => setSourceChangeDraft({ ...sourceChangeDraft, evidence: e.target.value })} placeholder="Evidence / link" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <button onClick={saveSourceChange} disabled={sourceChangeAction === "create"} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60">
+                                                        {sourceChangeAction === "create" ? "Saving..." : "Request Change"}
+                                                    </button>
+                                                    <input value={sourceChangeDraft.impact} onChange={(e) => setSourceChangeDraft({ ...sourceChangeDraft, impact: e.target.value })} placeholder="Impact note" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs md:col-span-5" />
+                                                </div>
+                                            )}
+                                            <div className="mt-3 space-y-2">
+                                                {sourceChanges.length === 0 ? (
+                                                    <p className="text-xs text-muted-foreground">No source change request recorded.</p>
+                                                ) : sourceChanges.slice(0, 6).map((change) => (
+                                                    <div key={change.id} className="rounded-lg border border-border/50 bg-background/70 p-3 text-xs">
+                                                        <div className="flex flex-wrap items-start justify-between gap-2">
+                                                            <div>
+                                                                <p className="font-bold text-foreground">v{change.version}: {change.oldSource || "-"} -&gt; {change.newSource}</p>
+                                                                <p className="text-muted-foreground">{change.reason}</p>
+                                                                {change.impact && <p className="mt-1 text-[10px] text-muted-foreground">Impact: {change.impact}</p>}
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className={cn(
+                                                                    "rounded px-2 py-1 text-[10px] font-bold uppercase",
+                                                                    change.status === "approved" ? "bg-emerald-500/10 text-emerald-600" :
+                                                                        change.status === "rejected" ? "bg-rose-500/10 text-rose-600" :
+                                                                            "bg-amber-500/10 text-amber-700"
+                                                                )}>{change.active ? "active" : change.status}</span>
+                                                                {canAccessCriticalDocuments && change.status === "pending" && (
+                                                                    <>
+                                                                        <button onClick={() => decideSourceChange(change, "approve")} disabled={sourceChangeAction === change.id} className="rounded-md bg-emerald-600 px-2 py-1 text-[10px] font-bold text-white disabled:opacity-60">Approve</button>
+                                                                        <button onClick={() => decideSourceChange(change, "reject")} disabled={sourceChangeAction === change.id} className="rounded-md bg-rose-600 px-2 py-1 text-[10px] font-bold text-white disabled:opacity-60">Reject</button>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+                                                            <span>By: {change.requestedByName || "-"}</span>
+                                                            <span>Evidence: {change.evidence || "-"}</span>
+                                                            {change.approvedByName && <span>Decision: {change.approvedByName}</span>}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4 sm:p-5">
+                                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                                <h4 className="text-[11px] sm:text-xs font-bold flex items-center gap-2 text-indigo-700 uppercase tracking-wider">
+                                                    <Anchor className="w-4 h-4" /> Barge Change Log
+                                                </h4>
+                                                <span className="rounded bg-background/70 px-2 py-1 text-[10px] font-bold text-muted-foreground">
+                                                    {bargeChanges.filter((item) => (item.status || "").toLowerCase() === "pending").length} pending
+                                                </span>
+                                            </div>
+                                            {canManageShipments && (
+                                                <div className="mt-3 grid grid-cols-1 md:grid-cols-6 gap-2">
+                                                    <input value={bargeChangeDraft.newMv} onChange={(e) => setBargeChangeDraft({ ...bargeChangeDraft, newMv: e.target.value })} placeholder="New MV" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <input value={bargeChangeDraft.newTb} onChange={(e) => setBargeChangeDraft({ ...bargeChangeDraft, newTb: e.target.value })} placeholder="New TB" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <input value={bargeChangeDraft.newBg} onChange={(e) => setBargeChangeDraft({ ...bargeChangeDraft, newBg: e.target.value })} placeholder="New BG" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <input value={bargeChangeDraft.newNomination} onChange={(e) => setBargeChangeDraft({ ...bargeChangeDraft, newNomination: e.target.value })} placeholder="New nomination" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <input value={bargeChangeDraft.reason} onChange={(e) => setBargeChangeDraft({ ...bargeChangeDraft, reason: e.target.value })} placeholder="Reason" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <button onClick={saveBargeChange} disabled={bargeChangeAction === "create"} className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60">
+                                                        {bargeChangeAction === "create" ? "Saving..." : "Request Change"}
+                                                    </button>
+                                                    <input value={bargeChangeDraft.evidence} onChange={(e) => setBargeChangeDraft({ ...bargeChangeDraft, evidence: e.target.value })} placeholder="Evidence / link" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs md:col-span-3" />
+                                                    <input value={bargeChangeDraft.impact} onChange={(e) => setBargeChangeDraft({ ...bargeChangeDraft, impact: e.target.value })} placeholder="Impact note" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs md:col-span-3" />
+                                                </div>
+                                            )}
+                                            <div className="mt-3 space-y-2">
+                                                {bargeChanges.length === 0 ? (
+                                                    <p className="text-xs text-muted-foreground">No barge change request recorded.</p>
+                                                ) : bargeChanges.slice(0, 6).map((change) => (
+                                                    <div key={change.id} className="rounded-lg border border-border/50 bg-background/70 p-3 text-xs">
+                                                        <div className="flex flex-wrap items-start justify-between gap-2">
+                                                            <div>
+                                                                <p className="font-bold text-foreground">
+                                                                    v{change.version}: {(change.oldMv || "-")} / {(change.oldTb || "-")} / {(change.oldNomination || "-")} -&gt; {(change.newMv || "-")} / {(change.newTb || change.newBg || "-")} / {(change.newNomination || "-")}
+                                                                </p>
+                                                                <p className="text-muted-foreground">{change.reason}</p>
+                                                                {change.impact && <p className="mt-1 text-[10px] text-muted-foreground">Impact: {change.impact}</p>}
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className={cn(
+                                                                    "rounded px-2 py-1 text-[10px] font-bold uppercase",
+                                                                    change.status === "approved" ? "bg-emerald-500/10 text-emerald-600" :
+                                                                        change.status === "rejected" ? "bg-rose-500/10 text-rose-600" :
+                                                                            "bg-amber-500/10 text-amber-700"
+                                                                )}>{change.active ? "active" : change.status}</span>
+                                                                {canAccessCriticalDocuments && change.status === "pending" && (
+                                                                    <>
+                                                                        <button onClick={() => decideBargeChange(change, "approve")} disabled={bargeChangeAction === change.id} className="rounded-md bg-emerald-600 px-2 py-1 text-[10px] font-bold text-white disabled:opacity-60">Approve</button>
+                                                                        <button onClick={() => decideBargeChange(change, "reject")} disabled={bargeChangeAction === change.id} className="rounded-md bg-rose-600 px-2 py-1 text-[10px] font-bold text-white disabled:opacity-60">Reject</button>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+                                                            <span>By: {change.requestedByName || "-"}</span>
+                                                            <span>Evidence: {change.evidence || "-"}</span>
+                                                            {change.approvedByName && <span>Decision: {change.approvedByName}</span>}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 sm:p-5">
+                                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                                <h4 className="text-[11px] sm:text-xs font-bold flex items-center gap-2 text-amber-700 uppercase tracking-wider">
+                                                    <AlertTriangle className="w-4 h-4" /> Issue Log
+                                                </h4>
+                                                <span className="rounded bg-background/70 px-2 py-1 text-[10px] font-bold text-muted-foreground">
+                                                    {shipmentIssues.filter((item) => !["resolved", "closed", "not_required"].includes((item.status || "").toLowerCase())).length} open
+                                                </span>
+                                            </div>
+                                            {canManageShipments && (
+                                                <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-2">
+                                                    <input value={issueDraft.category} onChange={(e) => setIssueDraft({ ...issueDraft, category: e.target.value })} placeholder="Category" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <input value={issueDraft.impact} onChange={(e) => setIssueDraft({ ...issueDraft, impact: e.target.value })} placeholder="Impact" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <input value={issueDraft.action} onChange={(e) => setIssueDraft({ ...issueDraft, action: e.target.value })} placeholder="Action plan" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <input value={issueDraft.pic} onChange={(e) => setIssueDraft({ ...issueDraft, pic: e.target.value })} placeholder="PIC" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <input type="date" value={issueDraft.targetDate} onChange={(e) => setIssueDraft({ ...issueDraft, targetDate: e.target.value })} className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <select value={issueDraft.status} onChange={(e) => setIssueDraft({ ...issueDraft, status: e.target.value })} className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs">
+                                                        <option value="open">Open</option>
+                                                        <option value="monitoring">Monitoring</option>
+                                                        <option value="resolved">Resolved</option>
+                                                        <option value="closed">Closed</option>
+                                                    </select>
+                                                    <input value={issueDraft.evidence} onChange={(e) => setIssueDraft({ ...issueDraft, evidence: e.target.value })} placeholder="Evidence / link" className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs" />
+                                                    <button onClick={saveShipmentIssue} disabled={issueAction === "create"} className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60">
+                                                        {issueAction === "create" ? "Saving..." : "Add Issue"}
+                                                    </button>
+                                                </div>
+                                            )}
+                                            <div className="mt-3 space-y-2">
+                                                {shipmentIssues.length === 0 ? (
+                                                    <p className="text-xs text-muted-foreground">No structured issue has been logged.</p>
+                                                ) : shipmentIssues.slice(0, 8).map((issue) => (
+                                                    <div key={issue.id} className="rounded-lg border border-border/50 bg-background/70 p-3 text-xs">
+                                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                                            <div>
+                                                                <p className="font-bold text-foreground">{issue.category}</p>
+                                                                <p className="text-muted-foreground">{issue.impact || "-"} {issue.action ? `| ${issue.action}` : ""}</p>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="rounded bg-accent px-2 py-1 text-[10px] font-bold uppercase">{issue.status}</span>
+                                                                {canManageShipments && (
+                                                                    <select value={issue.status} disabled={issueAction === issue.id} onChange={(e) => updateShipmentIssueStatus(issue, e.target.value)} className="rounded-md border border-border bg-background px-2 py-1 text-[10px]">
+                                                                        <option value="open">Open</option>
+                                                                        <option value="monitoring">Monitoring</option>
+                                                                        <option value="resolved">Resolved</option>
+                                                                        <option value="closed">Closed</option>
+                                                                        <option value="not_required">Not Required</option>
+                                                                    </select>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+                                                            <span>PIC: {issue.pic || "-"}</span>
+                                                            <span>Target: {issue.targetDate ? new Date(issue.targetDate).toLocaleDateString("id-ID") : "-"}</span>
+                                                            {issue.evidence && <span>Evidence: {issue.evidence}</span>}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 
@@ -2201,16 +3702,148 @@ export default function ShipmentMonitorPage() {
                                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                                                         {SHIPMENT_REQUIRED_DOCUMENTS.map((req) => {
                                                             const docs = shipmentDocuments.filter((doc) => doc.documentGroup === "required" && doc.requirementCode === req.code);
+                                                            const checklistItem = shipmentDocumentChecklist.find((item) => item.documentGroup === "required" && item.requirementCode === req.code);
+                                                            const checklistPayload = checklistItem || {
+                                                                documentGroup: "required" as ShipmentDocumentGroup,
+                                                                requirementCode: req.code,
+                                                                requirementLabel: req.label,
+                                                                title: req.label,
+                                                            };
                                                             const inputId = `shipment-required-${detailShipment.id}-${req.code}`;
                                                             const actionKey = `required:${req.code}`;
+                                                            const checklistActionKey = `checklist:${checklistItem?.id || req.code}`;
+                                                            const aging = getChecklistAging(checklistItem);
                                                             return (
                                                                 <div key={req.code} className="rounded-lg border border-border/50 bg-card/60 p-3 space-y-2">
                                                                     <div className="flex items-start justify-between gap-3">
                                                                         <div className="min-w-0">
                                                                             <p className="text-xs font-bold text-foreground break-words">{req.code}. {req.label}</p>
-                                                                            <p className="text-[10px] text-muted-foreground">{docs.length} uploaded</p>
+                                                                            <p className="text-[10px] text-muted-foreground">
+                                                                                {docs.length} uploaded
+                                                                                {checklistItem?.ownerRole ? ` | Owner: ${checklistItem.ownerRole}` : ""}
+                                                                                {checklistItem?.responsibleParty ? ` | PIC: ${checklistItem.responsibleParty}` : ""}
+                                                                            </p>
                                                                         </div>
+                                                                        <span className={cn(
+                                                                            "shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase",
+                                                                            (checklistItem?.status || "pending") === "completed" ? "bg-emerald-500/10 text-emerald-600" :
+                                                                                (checklistItem?.status || "pending") === "received" || (checklistItem?.status || "pending") === "submitted" ? "bg-blue-500/10 text-blue-600" :
+                                                                                    (checklistItem?.status || "pending") === "rejected" ? "bg-red-500/10 text-red-600" :
+                                                                                        "bg-amber-500/10 text-amber-600"
+                                                                        )}>
+                                                                            {(checklistItem?.status || "pending").replace("_", " ")}
+                                                                        </span>
                                                                     </div>
+                                                                    <div className={cn(
+                                                                        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                                                                        aging.tone === "danger" ? "bg-red-500/10 text-red-600" :
+                                                                            aging.tone === "warn" ? "bg-amber-500/10 text-amber-600" :
+                                                                                aging.tone === "ok" ? "bg-emerald-500/10 text-emerald-600" :
+                                                                                    "bg-accent text-muted-foreground"
+                                                                    )}>
+                                                                        <Clock className="mr-1 h-3 w-3" /> {aging.label}
+                                                                    </div>
+                                                                    {canManageShipments && (
+                                                                        <div className="space-y-2">
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-[150px_1fr] gap-2">
+                                                                            <select
+                                                                                value={checklistItem?.status || "pending"}
+                                                                                disabled={documentAction === checklistActionKey}
+                                                                                onChange={(e) => updateChecklistItem(checklistPayload, { status: e.target.value })}
+                                                                                className="px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs"
+                                                                            >
+                                                                                {CHECKLIST_STATUS_OPTIONS.map((option) => (
+                                                                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                                                                ))}
+                                                                            </select>
+                                                                            <input
+                                                                                value={checklistItem?.notes || ""}
+                                                                                disabled={documentAction === checklistActionKey}
+                                                                                onBlur={(e) => {
+                                                                                    if ((checklistItem?.notes || "") !== e.currentTarget.value) {
+                                                                                        updateChecklistItem(checklistPayload, { notes: e.currentTarget.value });
+                                                                                    }
+                                                                                }}
+                                                                                onChange={(e) => {
+                                                                                    const value = e.currentTarget.value;
+                                                                                    setShipmentDocumentChecklist((current) => {
+                                                                                        if (!checklistItem) return current;
+                                                                                        return current.map((item) => item.id === checklistItem.id ? { ...item, notes: value } : item);
+                                                                                    });
+                                                                                }}
+                                                                                placeholder="Checklist notes"
+                                                                                className="px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs"
+                                                                            />
+                                                                            </div>
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                                                <label className="space-y-1">
+                                                                                    <span className="block text-[9px] font-bold uppercase text-muted-foreground">Expected</span>
+                                                                                    <input
+                                                                                        type="date"
+                                                                                        value={toDateInputValue(checklistItem?.expectedDate)}
+                                                                                        disabled={documentAction === checklistActionKey}
+                                                                                        onChange={(e) => updateChecklistItem(checklistPayload, { expectedDate: e.target.value || null })}
+                                                                                        className="w-full px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs"
+                                                                                    />
+                                                                                </label>
+                                                                                <label className="space-y-1">
+                                                                                    <span className="block text-[9px] font-bold uppercase text-muted-foreground">Received</span>
+                                                                                    <input
+                                                                                        type="date"
+                                                                                        value={toDateInputValue(checklistItem?.receivedDate)}
+                                                                                        disabled={documentAction === checklistActionKey}
+                                                                                        onChange={(e) => updateChecklistItem(checklistPayload, { receivedDate: e.target.value || null, status: e.target.value ? "received" : checklistItem?.status || "pending" })}
+                                                                                        className="w-full px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs"
+                                                                                    />
+                                                                                </label>
+                                                                                <label className="space-y-1">
+                                                                                    <span className="block text-[9px] font-bold uppercase text-muted-foreground">Submitted</span>
+                                                                                    <input
+                                                                                        type="date"
+                                                                                        value={toDateInputValue(checklistItem?.submittedDate)}
+                                                                                        disabled={documentAction === checklistActionKey}
+                                                                                        onChange={(e) => updateChecklistItem(checklistPayload, { submittedDate: e.target.value || null, status: e.target.value ? "submitted" : checklistItem?.status || "pending" })}
+                                                                                        className="w-full px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs"
+                                                                                    />
+                                                                                </label>
+                                                                            </div>
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                                                <label className="space-y-1">
+                                                                                    <span className="block text-[9px] font-bold uppercase text-muted-foreground">Owner</span>
+                                                                                    <input
+                                                                                        defaultValue={checklistItem?.ownerRole || "Traffic"}
+                                                                                        disabled={documentAction === checklistActionKey}
+                                                                                        onBlur={(e) => updateChecklistItem(checklistPayload, { ownerRole: e.currentTarget.value })}
+                                                                                        placeholder="Owner role"
+                                                                                        className="w-full px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs"
+                                                                                    />
+                                                                                </label>
+                                                                                <label className="space-y-1">
+                                                                                    <span className="block text-[9px] font-bold uppercase text-muted-foreground">PIC</span>
+                                                                                    <input
+                                                                                        defaultValue={checklistItem?.responsibleParty || ""}
+                                                                                        disabled={documentAction === checklistActionKey}
+                                                                                        onBlur={(e) => updateChecklistItem(checklistPayload, { responsibleParty: e.currentTarget.value })}
+                                                                                        placeholder="Responsible party"
+                                                                                        className="w-full px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs"
+                                                                                    />
+                                                                                </label>
+                                                                                <label className="space-y-1">
+                                                                                    <span className="block text-[9px] font-bold uppercase text-muted-foreground">Hardcopy</span>
+                                                                                    <select
+                                                                                        value={checklistItem?.hardcopyStatus || ""}
+                                                                                        disabled={documentAction === checklistActionKey}
+                                                                                        onChange={(e) => updateChecklistItem(checklistPayload, { hardcopyStatus: e.target.value || null })}
+                                                                                        className="w-full px-2 py-1.5 rounded-md bg-accent/50 border border-border text-xs"
+                                                                                    >
+                                                                                        {HARDCOPY_STATUS_OPTIONS.map((option) => (
+                                                                                            <option key={option.value || "empty"} value={option.value}>{option.label}</option>
+                                                                                        ))}
+                                                                                    </select>
+                                                                                </label>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
                                                                     {canManageShipments && renderDocumentDropzone({
                                                                         id: inputId,
                                                                         actionKey,
@@ -2590,12 +4223,24 @@ export default function ShipmentMonitorPage() {
                                     <h3 className="text-[10px] font-bold text-primary uppercase flex items-center gap-1.5"><Package className="w-3 h-3" /> Shipment Identity</h3>
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Select Project (Primary)</label>
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Select Forecast Sales (Primary)</label>
                                     <input
                                         list="shipment-project-options"
                                         type="text"
                                         value={editForm.mv_project_name || ""}
-                                        onChange={(e) => setEditForm({ ...editForm, mv_project_name: e.target.value })}
+                                        onChange={(e) => {
+                                            const name = e.target.value;
+                                            const selected = projects.find((p) => normalizeKey(p.name) === normalizeKey(name));
+                                            setEditForm({
+                                                ...editForm,
+                                                mv_project_name: name,
+                                                forecast_sales_id: selected?.id || editForm.forecast_sales_id,
+                                                forecast_sales_name: selected?.name || name,
+                                                fco_number: selected?.fco_number || editForm.fco_number,
+                                                commercial_mom_document_id: selected?.id === editForm.forecast_sales_id ? editForm.commercial_mom_document_id : undefined,
+                                                commercial_po_document_id: selected?.id === editForm.forecast_sales_id ? editForm.commercial_po_document_id : undefined,
+                                            });
+                                        }}
                                         placeholder="Type project name (e.g. SRE...)"
                                         className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs font-bold text-primary"
                                     />
@@ -2606,8 +4251,8 @@ export default function ShipmentMonitorPage() {
                                     </datalist>
                                     <p className="text-[10px] text-muted-foreground">
                                         {selectedProjectMeta
-                                            ? `Project found • Segment: ${selectedProjectMeta.segment || "-"} • Buyer: ${selectedProjectMeta.buyer || "-"} • Created: ${selectedProjectMeta.created_at ? new Date(selectedProjectMeta.created_at).toLocaleDateString("en-GB") : "-"}`
-                                            : "Project not found in master yet. You can still save, or add this project first in Projects module."}
+                                            ? `Forecast Sales found • Segment: ${selectedProjectMeta.segment || "-"} • Buyer: ${selectedProjectMeta.buyer || "-"} • Created: ${selectedProjectMeta.created_at ? new Date(selectedProjectMeta.created_at).toLocaleDateString("en-GB") : "-"}`
+                                            : "Forecast Sales not found in master yet. You can still save, or add this Forecast Sales first in Forecast Sales module."}
                                     </p>
                                 </div>
                                 <div className="space-y-1.5">
@@ -2615,6 +4260,15 @@ export default function ShipmentMonitorPage() {
                                     <select value={editForm.status || ""} onChange={(e) => setEditForm({ ...editForm, status: e.target.value as ShipmentStatus })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs">
                                         {SHIPMENT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                                     </select>
+                                    {isShipmentClosingStatus(editForm.status) && detailShipment?.id === editShipment?.id && (() => {
+                                        const blockers = getShipmentClosingBlockers(editForm, shipmentDocumentChecklist, shippingInstructions, shipmentIssues, sourceChanges, bargeChanges);
+                                        if (!blockers.length) return null;
+                                        return (
+                                            <p className="rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-semibold text-red-600">
+                                                Closing blocked by {blockers.length} item(s): {blockers.slice(0, 2).join("; ")}
+                                            </p>
+                                        );
+                                    })()}
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Buyer (End User)</label>
@@ -2623,6 +4277,43 @@ export default function ShipmentMonitorPage() {
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Source (Supplier)</label>
                                     <input type="text" value={editForm.source || ""} onChange={(e) => setEditForm({ ...editForm, source: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                    {editShipment?.source && (
+                                        <p className="text-[9px] text-blue-600">Existing source changes must use Source Change Request.</p>
+                                    )}
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Source Confirmation</label>
+                                    <select value={editForm.source_confirmation_status || "pending"} onChange={(e) => setEditForm({ ...editForm, source_confirmation_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs">
+                                        <option value="pending">Pending</option>
+                                        <option value="confirmed">Confirmed</option>
+                                        <option value="need_review">Need Review</option>
+                                        <option value="rejected">Rejected</option>
+                                        <option value="not_required">Not Required</option>
+                                    </select>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Legal Readiness</label>
+                                    <select value={editForm.source_legal_readiness_status || "pending"} onChange={(e) => setEditForm({ ...editForm, source_legal_readiness_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs">
+                                        <option value="pending">Pending</option>
+                                        <option value="ready">Ready</option>
+                                        <option value="cleared">Cleared</option>
+                                        <option value="need_review">Need Review</option>
+                                        <option value="not_required">Not Required</option>
+                                    </select>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Cargo Readiness</label>
+                                    <select value={editForm.source_cargo_readiness_status || "pending"} onChange={(e) => setEditForm({ ...editForm, source_cargo_readiness_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs">
+                                        <option value="pending">Pending</option>
+                                        <option value="ready">Ready</option>
+                                        <option value="cleared">Cleared</option>
+                                        <option value="need_review">Need Review</option>
+                                        <option value="not_required">Not Required</option>
+                                    </select>
+                                </div>
+                                <div className="space-y-1.5 col-span-2">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Source Confirmation Notes</label>
+                                    <textarea value={editForm.source_confirmation_notes || ""} onChange={(e) => setEditForm({ ...editForm, source_confirmation_notes: e.target.value })} rows={2} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs resize-none" />
                                 </div>
 
                                 {/* Logistics Section */}
@@ -2632,10 +4323,16 @@ export default function ShipmentMonitorPage() {
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Vessel Name</label>
                                     <input type="text" value={editForm.vessel_name || ""} onChange={(e) => setEditForm({ ...editForm, vessel_name: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                    {editShipment?.vessel_name && (
+                                        <p className="text-[9px] text-indigo-600">Existing MV changes must use Barge Change Log.</p>
+                                    )}
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Barge Name</label>
                                     <input type="text" value={editForm.barge_name || ""} onChange={(e) => setEditForm({ ...editForm, barge_name: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border focus:border-primary/50 text-xs" />
+                                    {editShipment?.barge_name && (
+                                        <p className="text-[9px] text-indigo-600">Existing TB/BG changes must use Barge Change Log.</p>
+                                    )}
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Loading Port</label>
@@ -2735,10 +4432,87 @@ export default function ShipmentMonitorPage() {
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Qty Actual / Loaded (MT)</label>
                                     <input type="number" value={editForm.quantity_loaded || 0} onChange={(e) => setEditForm({ ...editForm, quantity_loaded: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs font-bold text-primary" />
                                 </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Freight Cost (USD/MT)</label>
+                                    <input type="number" step="0.01" value={editForm.price_freight || 0} onChange={(e) => setEditForm({ ...editForm, price_freight: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Royalty Cost (USD/MT)</label>
+                                    <input type="number" step="0.01" value={editForm.royalty_cost || 0} onChange={(e) => setEditForm({ ...editForm, royalty_cost: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Tax/Export Levy Cost (USD/MT)</label>
+                                    <input type="number" step="0.01" value={editForm.tax_export_cost || 0} onChange={(e) => setEditForm({ ...editForm, tax_export_cost: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Survey Cost (USD/MT)</label>
+                                    <input type="number" step="0.01" value={editForm.survey_cost || 0} onChange={(e) => setEditForm({ ...editForm, survey_cost: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Payment/Finance Cost (USD/MT)</label>
+                                    <input type="number" step="0.01" value={editForm.payment_finance_cost || 0} onChange={(e) => setEditForm({ ...editForm, payment_finance_cost: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Payment Status</label>
+                                    <select value={editForm.payment_status || "pending"} onChange={(e) => setEditForm({ ...editForm, payment_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs">
+                                        <option value="pending">Pending</option>
+                                        <option value="partial">Partial</option>
+                                        <option value="paid">Paid</option>
+                                        <option value="settled">Settled</option>
+                                        <option value="not_required">Not Required</option>
+                                    </select>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Payment Due Date</label>
+                                    <input type="date" value={editForm.payment_due_date ? new Date(editForm.payment_due_date).toISOString().split("T")[0] : ""} onChange={(e) => setEditForm({ ...editForm, payment_due_date: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5 col-span-2">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Invoice Number</label>
+                                    <input type="text" value={editForm.no_invoice_mkls || ""} onChange={(e) => setEditForm({ ...editForm, no_invoice_mkls: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">MoM Reference</label>
+                                    <select
+                                        value={editForm.commercial_mom_document_id || ""}
+                                        onChange={(e) => setEditForm({ ...editForm, commercial_mom_document_id: e.target.value || undefined })}
+                                        disabled={!selectedProjectMeta || isLoadingProjectReferenceDocs}
+                                        className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs disabled:opacity-60"
+                                    >
+                                        <option value="">{selectedProjectMeta ? "No MoM linked" : "Select Forecast Sales first"}</option>
+                                        {projectReferenceDocs.map((doc) => (
+                                            <option key={doc.id} value={doc.id}>{doc.requirementLabel || "Document"} - {doc.fileName}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">PO Reference</label>
+                                    <select
+                                        value={editForm.commercial_po_document_id || ""}
+                                        onChange={(e) => setEditForm({ ...editForm, commercial_po_document_id: e.target.value || undefined })}
+                                        disabled={!selectedProjectMeta || isLoadingProjectReferenceDocs}
+                                        className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs disabled:opacity-60"
+                                    >
+                                        <option value="">{selectedProjectMeta ? "No PO linked" : "Select Forecast Sales first"}</option>
+                                        {projectReferenceDocs.map((doc) => (
+                                            <option key={doc.id} value={doc.id}>{doc.requirementLabel || "Document"} - {doc.fileName}</option>
+                                        ))}
+                                    </select>
+                                </div>
 
                                 {/* Quality Section */}
                                 <div className="col-span-2 border-b border-border/30 pb-2 mb-1 mt-3">
                                     <h3 className="text-[10px] font-bold text-amber-500 uppercase flex items-center gap-1.5"><Beaker className="w-3 h-3" /> Quality Parameters</h3>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Quality Status</label>
+                                    <select value={editForm.quality_status || "pending"} onChange={(e) => setEditForm({ ...editForm, quality_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs">
+                                        <option value="pending">Pending</option>
+                                        <option value="passed">Passed</option>
+                                        <option value="approved">Approved</option>
+                                        <option value="on_hold">On Hold</option>
+                                        <option value="rejected">Rejected</option>
+                                        <option value="not_required">Not Required</option>
+                                    </select>
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Result GAR</label>
@@ -2767,6 +4541,16 @@ export default function ShipmentMonitorPage() {
                                     {["upcoming", "loading", "in_transit"].includes(editForm.status || "") && !editForm.status_reason && (
                                         <p className="text-[10px] text-amber-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Required for on-going shipments</p>
                                     )}
+                                </div>
+                                <div className="space-y-1.5 col-span-2">
+                                    <label className="text-[10px] font-semibold text-muted-foreground uppercase">Issue Status</label>
+                                    <select value={editForm.issue_status || "none"} onChange={(e) => setEditForm({ ...editForm, issue_status: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs">
+                                        <option value="none">No Issue</option>
+                                        <option value="open">Open</option>
+                                        <option value="monitoring">Monitoring</option>
+                                        <option value="resolved">Resolved</option>
+                                        <option value="closed">Closed</option>
+                                    </select>
                                 </div>
 
                                 <div className="col-span-2 border-b border-border/30 pb-2 mb-1 mt-3">
@@ -2805,6 +4589,9 @@ export default function ShipmentMonitorPage() {
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Nomination Number</label>
                                     <input type="text" value={editForm.nomination || ""} onChange={(e) => setEditForm({ ...editForm, nomination: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/50 border border-border text-xs" />
+                                    {editShipment?.nomination && (
+                                        <p className="text-[9px] text-indigo-600">Existing nomination changes must use Barge Change Log.</p>
+                                    )}
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-semibold text-muted-foreground uppercase">Product</label>

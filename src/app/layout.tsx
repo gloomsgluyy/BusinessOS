@@ -8,6 +8,9 @@ import "./globals.css";
 export const metadata: Metadata = {
     title: "Business OS – Management Dashboard",
     description: "Internal business management system for unified operations, finance, and task tracking.",
+    icons: {
+        icon: "/favicon.svg",
+    },
 };
 
 export default function RootLayout({

@@ -20,10 +20,68 @@ function parseDate(v: any): Date | null {
 }
 function fmtDate(d: Date | null): string { return d ? d.toISOString().split('T')[0] : ""; }
 
+const handoverDateColumns = [
+    "skabSupplierSentAt",
+    "skabOperationReceivedAt",
+    "skabOperationSentAt",
+    "skabTrafficReceivedAt",
+    "skabTrafficSentFinanceAt",
+    "skabFinanceReceivedAt",
+    "dsrSupplierSentAt",
+    "dsrOperationReceivedAt",
+    "dsrOperationSentAt",
+    "dsrTrafficReceivedAt",
+    "blCmOperationSentAt",
+    "blCmTrafficReceivedAt",
+    "blCmTrafficSentFinanceAt",
+    "blCmFinanceReceivedAt",
+    "coaPolDate",
+    "coaPolSurveyorSentAt",
+    "coaPolTrafficReceivedAt",
+    "coaPolFinanceReceivedAt",
+    "coaPodReceivedAt",
+    "financeSubmitFullSetAt",
+    "vendorReceivedFullSetAt",
+    "approvalDtAt",
+    "vendorPaidAt",
+];
+const handoverTextColumns = [
+    "skabEvidenceDocumentId",
+    "skabNotes",
+    "dsrEvidenceDocumentId",
+    "blCmEvidenceDocumentId",
+    "coaPolEvidenceDocumentId",
+    "coaPodEvidenceDocumentId",
+    "fullSetDocumentStatus",
+    "hardcopyStatus",
+    "softcopyStatus",
+];
+
+async function ensureDomesticHandoverColumns() {
+    for (const col of handoverDateColumns) {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "DailyDelivery" ADD COLUMN IF NOT EXISTS "${col}" TIMESTAMP(3);`);
+    }
+    for (const col of handoverTextColumns) {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "DailyDelivery" ADD COLUMN IF NOT EXISTS "${col}" TEXT;`);
+    }
+}
+
+function buildHandoverData(data: any, partial = false) {
+    const out: any = {};
+    for (const col of handoverDateColumns) {
+        if (!partial || data[col] !== undefined) out[col] = parseDate(data[col]);
+    }
+    for (const col of handoverTextColumns) {
+        if (!partial || data[col] !== undefined) out[col] = data[col];
+    }
+    return out;
+}
+
 export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureDomesticHandoverColumns();
 
         const url = new URL(req.url);
         const pagination = parsePaginationParams(url.searchParams);
@@ -50,6 +108,7 @@ export async function POST(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureDomesticHandoverColumns();
         const data = await req.json();
 
         const record = await prisma.dailyDelivery.create({
@@ -76,6 +135,7 @@ export async function POST(req: Request) {
                 specContract: data.specContract,
                 actualGcvGar: parseNum(data.actualGcvGar), actualTs: parseNum(data.actualTs),
                 actualAsh: parseNum(data.actualAsh), actualTm: parseNum(data.actualTm),
+                ...buildHandoverData(data),
             }
         });
 
@@ -103,6 +163,7 @@ export async function PUT(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureDomesticHandoverColumns();
         const data = await req.json();
         if (!data.id) return NextResponse.json({ error: "ID missing" }, { status: 400 });
 
@@ -139,6 +200,7 @@ export async function PUT(req: Request) {
                 actualTs: data.actualTs !== undefined ? parseNum(data.actualTs) : undefined,
                 actualAsh: data.actualAsh !== undefined ? parseNum(data.actualAsh) : undefined,
                 actualTm: data.actualTm !== undefined ? parseNum(data.actualTm) : undefined,
+                ...buildHandoverData(data, true),
             }
         });
 

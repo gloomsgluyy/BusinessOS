@@ -20,10 +20,26 @@ function parseDate(v: any): Date | null {
 }
 function fmtDate(d: Date | null): string { return d ? d.toISOString().split('T')[0] : ""; }
 
+let paymentColumnsReady = false;
+async function ensureOutstandingPaymentColumns() {
+    if (paymentColumnsReady) return;
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "shipmentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "shipmentName" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "invoiceNumber" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "invoiceDocumentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "paymentProofDocumentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "dueDate" TIMESTAMP(3);`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "disputeStatus" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "notes" TEXT;`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "OutstandingPayment_shipmentId_idx" ON "OutstandingPayment"("shipmentId");`);
+    paymentColumnsReady = true;
+}
+
 export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureOutstandingPaymentColumns();
 
         const url = new URL(req.url);
         const pagination = parsePaginationParams(url.searchParams);
@@ -50,15 +66,26 @@ export async function POST(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureOutstandingPaymentColumns();
         const data = await req.json();
 
         const record = await prisma.outstandingPayment.create({
             data: {
+                shipmentId: data.shipmentId ?? data.shipment_id,
+                shipmentName: data.shipmentName ?? data.shipment_name,
+                invoiceNumber: data.invoiceNumber ?? data.invoice_number,
+                invoiceDocumentId: data.invoiceDocumentId ?? data.invoice_document_id,
+                paymentProofDocumentId: data.paymentProofDocumentId ?? data.payment_proof_document_id,
                 perusahaan: data.perusahaan || "Unknown",
-                kodeBatu: data.kodeBatu, priceInclPph: parseNum(data.priceInclPph),
-                qty: parseNum(data.qty), totalDp: parseNum(data.totalDp),
-                calculationDate: parseDate(data.calculationDate),
-                dpToShipment: parseDate(data.dpToShipment),
+                kodeBatu: data.kodeBatu ?? data.kode_batu,
+                priceInclPph: parseNum(data.priceInclPph ?? data.price_incl_pph),
+                qty: parseNum(data.qty),
+                totalDp: parseNum(data.totalDp ?? data.total_dp),
+                calculationDate: parseDate(data.calculationDate ?? data.calculation_date),
+                dpToShipment: parseDate(data.dpToShipment ?? data.dp_to_shipment),
+                dueDate: parseDate(data.dueDate ?? data.due_date),
+                disputeStatus: data.disputeStatus ?? data.dispute_status,
+                notes: data.notes,
                 timeframeDays: data.timeframeDays,
                 status: data.status || "pending",
                 year: data.year || new Date().getFullYear(),
@@ -85,18 +112,28 @@ export async function PUT(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureOutstandingPaymentColumns();
         const data = await req.json();
         if (!data.id) return NextResponse.json({ error: "ID missing" }, { status: 400 });
 
         const record = await prisma.outstandingPayment.update({
             where: { id: data.id },
             data: {
-                perusahaan: data.perusahaan, kodeBatu: data.kodeBatu,
-                priceInclPph: data.priceInclPph !== undefined ? parseNum(data.priceInclPph) : undefined,
+                shipmentId: data.shipmentId !== undefined ? data.shipmentId : (data.shipment_id !== undefined ? data.shipment_id : undefined),
+                shipmentName: data.shipmentName !== undefined ? data.shipmentName : (data.shipment_name !== undefined ? data.shipment_name : undefined),
+                invoiceNumber: data.invoiceNumber !== undefined ? data.invoiceNumber : (data.invoice_number !== undefined ? data.invoice_number : undefined),
+                invoiceDocumentId: data.invoiceDocumentId !== undefined ? data.invoiceDocumentId : (data.invoice_document_id !== undefined ? data.invoice_document_id : undefined),
+                paymentProofDocumentId: data.paymentProofDocumentId !== undefined ? data.paymentProofDocumentId : (data.payment_proof_document_id !== undefined ? data.payment_proof_document_id : undefined),
+                perusahaan: data.perusahaan,
+                kodeBatu: data.kodeBatu !== undefined ? data.kodeBatu : (data.kode_batu !== undefined ? data.kode_batu : undefined),
+                priceInclPph: data.priceInclPph !== undefined ? parseNum(data.priceInclPph) : (data.price_incl_pph !== undefined ? parseNum(data.price_incl_pph) : undefined),
                 qty: data.qty !== undefined ? parseNum(data.qty) : undefined,
-                totalDp: data.totalDp !== undefined ? parseNum(data.totalDp) : undefined,
-                calculationDate: data.calculationDate !== undefined ? parseDate(data.calculationDate) : undefined,
-                dpToShipment: data.dpToShipment !== undefined ? parseDate(data.dpToShipment) : undefined,
+                totalDp: data.totalDp !== undefined ? parseNum(data.totalDp) : (data.total_dp !== undefined ? parseNum(data.total_dp) : undefined),
+                calculationDate: data.calculationDate !== undefined ? parseDate(data.calculationDate) : (data.calculation_date !== undefined ? parseDate(data.calculation_date) : undefined),
+                dpToShipment: data.dpToShipment !== undefined ? parseDate(data.dpToShipment) : (data.dp_to_shipment !== undefined ? parseDate(data.dp_to_shipment) : undefined),
+                dueDate: data.dueDate !== undefined ? parseDate(data.dueDate) : (data.due_date !== undefined ? parseDate(data.due_date) : undefined),
+                disputeStatus: data.disputeStatus !== undefined ? data.disputeStatus : (data.dispute_status !== undefined ? data.dispute_status : undefined),
+                notes: data.notes,
                 timeframeDays: data.timeframeDays, status: data.status, year: data.year,
             }
         });
@@ -121,6 +158,7 @@ export async function DELETE(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        await ensureOutstandingPaymentColumns();
         const url = new URL(req.url);
         const id = url.searchParams.get("id");
         if (!id) return NextResponse.json({ error: "ID missing" }, { status: 400 });

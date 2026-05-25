@@ -6,6 +6,12 @@ import { SheetsFirstService } from "@/lib/sheets-first-service";
 import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 import { canModifyOwnedRecord } from "@/lib/role-access";
 
+const parseMoney = (value: unknown): number => {
+    if (value === null || value === undefined || value === "") return 0;
+    const parsed = parseFloat(value.toString());
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
 export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
@@ -80,13 +86,17 @@ export async function POST(req: Request) {
         const data = await req.json();
 
         // Auto calculate GP
-        const quantity = data.quantity ? parseFloat(data.quantity.toString()) : 0;
-        const sellingPrice = data.selling_price ? parseFloat(data.selling_price.toString()) : 0;
-        const buyingPrice = data.buying_price ? parseFloat(data.buying_price.toString()) : 0;
-        const freightCost = data.freight_cost ? parseFloat(data.freight_cost.toString()) : 0;
-        const otherCost = data.other_cost ? parseFloat(data.other_cost.toString()) : 0;
+        const quantity = parseMoney(data.quantity);
+        const sellingPrice = parseMoney(data.sellingPrice ?? data.selling_price);
+        const buyingPrice = parseMoney(data.buyingPrice ?? data.buying_price);
+        const freightCost = parseMoney(data.freightCost ?? data.freight_cost);
+        const royaltyCost = parseMoney(data.royaltyCost ?? data.royalty_cost);
+        const taxCost = parseMoney(data.taxCost ?? data.tax_cost);
+        const surveyCost = parseMoney(data.surveyCost ?? data.survey_cost);
+        const paymentCost = parseMoney(data.paymentCost ?? data.payment_cost);
+        const otherCost = parseMoney(data.otherCost ?? data.other_cost);
 
-        const grossProfitMt = sellingPrice - buyingPrice - freightCost - otherCost;
+        const grossProfitMt = sellingPrice - buyingPrice - freightCost - royaltyCost - taxCost - surveyCost - paymentCost - otherCost;
         const totalGrossProfit = grossProfitMt * quantity;
 
         // SHEETS-FIRST WRITE: Write to Sheets, then DB
@@ -101,6 +111,10 @@ export async function POST(req: Request) {
             sellingPrice,
             buyingPrice,
             freightCost,
+            royaltyCost,
+            taxCost,
+            surveyCost,
+            paymentCost,
             otherCost,
             grossProfitMt,
             totalGrossProfit,
@@ -169,6 +183,10 @@ export async function PUT(req: Request) {
         if (data.sellingPrice !== undefined) updateData.sellingPrice = parseFloat(data.sellingPrice.toString());
         if (data.buyingPrice !== undefined) updateData.buyingPrice = parseFloat(data.buyingPrice.toString());
         if (data.freightCost !== undefined) updateData.freightCost = parseFloat(data.freightCost.toString());
+        if (data.royaltyCost !== undefined) updateData.royaltyCost = parseFloat(data.royaltyCost.toString());
+        if (data.taxCost !== undefined) updateData.taxCost = parseFloat(data.taxCost.toString());
+        if (data.surveyCost !== undefined) updateData.surveyCost = parseFloat(data.surveyCost.toString());
+        if (data.paymentCost !== undefined) updateData.paymentCost = parseFloat(data.paymentCost.toString());
         if (data.otherCost !== undefined) updateData.otherCost = parseFloat(data.otherCost.toString());
 
         // Calculate GP (will be recalculated in service)
@@ -176,14 +194,22 @@ export async function PUT(req: Request) {
         const sellingPrice = updateData.sellingPrice !== undefined ? updateData.sellingPrice : existingRecord.sellingPrice;
         const buyingPrice = updateData.buyingPrice !== undefined ? updateData.buyingPrice : existingRecord.buyingPrice;
         const freightCost = updateData.freightCost !== undefined ? updateData.freightCost : existingRecord.freightCost;
+        const royaltyCost = updateData.royaltyCost !== undefined ? updateData.royaltyCost : existingRecord.royaltyCost;
+        const taxCost = updateData.taxCost !== undefined ? updateData.taxCost : existingRecord.taxCost;
+        const surveyCost = updateData.surveyCost !== undefined ? updateData.surveyCost : existingRecord.surveyCost;
+        const paymentCost = updateData.paymentCost !== undefined ? updateData.paymentCost : existingRecord.paymentCost;
         const otherCost = updateData.otherCost !== undefined ? updateData.otherCost : existingRecord.otherCost;
 
-        updateData.grossProfitMt = sellingPrice - buyingPrice - freightCost - otherCost;
+        updateData.grossProfitMt = sellingPrice - buyingPrice - freightCost - royaltyCost - taxCost - surveyCost - paymentCost - otherCost;
         updateData.totalGrossProfit = updateData.grossProfitMt * quantity;
         updateData.quantity = quantity;
         updateData.sellingPrice = sellingPrice;
         updateData.buyingPrice = buyingPrice;
         updateData.freightCost = freightCost;
+        updateData.royaltyCost = royaltyCost;
+        updateData.taxCost = taxCost;
+        updateData.surveyCost = surveyCost;
+        updateData.paymentCost = paymentCost;
         updateData.otherCost = otherCost;
 
         console.log('[API PUT] Update data prepared:', JSON.stringify(updateData, null, 2));

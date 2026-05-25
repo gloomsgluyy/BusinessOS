@@ -140,14 +140,14 @@ export default function SalesMonitorPage() {
             cleanText(s.mv_project_name) ||
             cleanText(s.vessel_name) ||
             cleanText(s.shipment_number) ||
-            "Unmapped Project"
+            "Unmapped Forecast Sales"
         );
         const resolveDealProject = (d: SalesDeal): string => (
             cleanText(d.project_id) ||
             extractProjectName(d.vessel_name) ||
             cleanText(d.vessel_name) ||
             cleanText(d.deal_number) ||
-            "Unmapped Project"
+            "Unmapped Forecast Sales"
         );
         const shipStatusPriority = (rows: any[]): ProjectSalesStatus | null => {
             const joined = rows.map((r) => statusKey(r.status || r.shipment_status)).join(" ");
@@ -182,7 +182,7 @@ export default function SalesMonitorPage() {
         projects.forEach((p) => {
             const key = normalizeKey(p.name);
             if (!key) return;
-            const row = ensure(key, cleanText(p.name) || "Unmapped Project");
+            const row = ensure(key, cleanText(p.name) || "Unmapped Forecast Sales");
             row.projectName = cleanText(p.name) || row.projectName;
             row.buyer = cleanText(p.buyer) || row.buyer;
             row.segment = cleanText(p.segment) || row.segment;
@@ -416,7 +416,7 @@ export default function SalesMonitorPage() {
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 animate-fade-in relative z-20">
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight">Sales Monitor</h1>
-                        <p className="text-sm text-muted-foreground mt-1">Project-centric sales monitoring with deal-level tracking.</p>
+                        <p className="text-sm text-muted-foreground mt-1">Forecast Sales-centric monitoring with deal-level tracking.</p>
                     </div>
                     <div className="flex gap-2">
                         <button onClick={() => { setEditingDealId(null); setShowForm(true); }} className="btn-primary h-9"><Plus className="w-4 h-4 mr-1.5" /> New Sales Entry</button>
@@ -463,12 +463,12 @@ export default function SalesMonitorPage() {
                         className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-accent/50 border border-border text-sm outline-none focus:border-primary/50 transition-colors" />
                 </div>
 
-                {/* Project-Centric Sales Monitoring */}
+                {/* Forecast Sales-Centric Monitoring */}
                 <div className="card-elevated p-4 md:p-5 space-y-4 animate-slide-up">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                         <div>
-                            <h3 className="text-sm font-semibold">Project Sales Monitoring</h3>
-                            <p className="text-xs text-muted-foreground mt-0.5">Status sales per project (base on Project + Shipment + Deal)</p>
+                            <h3 className="text-sm font-semibold">Forecast Sales Monitoring</h3>
+                            <p className="text-xs text-muted-foreground mt-0.5">Status sales per Forecast Sales (base on Forecast Sales + Shipment + Deal)</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                             <button
@@ -492,7 +492,7 @@ export default function SalesMonitorPage() {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-border bg-accent/20">
-                                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Project</th>
+                                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Forecast Sales</th>
                                     <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Buyer / Segment</th>
                                     <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Sales Status</th>
                                     <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Deals</th>
@@ -525,7 +525,7 @@ export default function SalesMonitorPage() {
                                             <td className="px-3 py-2 text-right text-xs font-semibold">{Math.round(p.qty).toLocaleString()}</td>
                                             <td className="px-3 py-2 text-right text-xs font-semibold">${Math.round(p.revenue).toLocaleString()}</td>
                                             <td className="px-3 py-2 text-right">
-                                                <a href={`/projects?q=${encodeURIComponent(p.projectName)}`} className="text-[11px] text-primary hover:underline font-semibold">
+                                                <a href={`/forecast-sales?q=${encodeURIComponent(p.projectName)}`} className="text-[11px] text-primary hover:underline font-semibold">
                                                     View
                                                 </a>
                                             </td>
@@ -536,7 +536,7 @@ export default function SalesMonitorPage() {
                         </table>
                     </div>
                     {filteredProjectMonitoring.length === 0 && (
-                        <p className="text-xs text-muted-foreground text-center py-4">No project monitoring rows matched your filters.</p>
+                        <p className="text-xs text-muted-foreground text-center py-4">No Forecast Sales monitoring rows matched your filters.</p>
                     )}
                 </div>
 
@@ -550,12 +550,12 @@ export default function SalesMonitorPage() {
 
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                             <div className="space-y-1 md:col-span-2">
-                                <label className="text-[10px] font-bold text-muted-foreground uppercase">Project Name</label>
+                                <label className="text-[10px] font-bold text-muted-foreground uppercase">Forecast Sales Name</label>
                                 <input
                                     list="sales-project-options"
                                     value={form.project_name}
                                     onChange={e => setForm({ ...form, project_name: e.target.value })}
-                                    placeholder="Type/select project name"
+                                    placeholder="Type/select Forecast Sales name"
                                     className="w-full px-3 py-2 rounded-lg bg-background border border-border text-xs outline-none focus:border-primary/50"
                                 />
                                 <datalist id="sales-project-options">
@@ -645,7 +645,7 @@ export default function SalesMonitorPage() {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-border bg-accent/30">
-                                    <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Project</th>
+                                    <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Forecast Sales</th>
                                     <th className="text-left px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Buyer</th>
                                     <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Qty (MT)</th>
                                     <th className="text-right px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase">Price / MT</th>

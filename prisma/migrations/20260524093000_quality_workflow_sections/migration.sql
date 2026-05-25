@@ -1,0 +1,11 @@
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "contractSpec" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "sourceEstimate" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "qcResult" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "psiResult" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "coaPolResult" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "coaPodResult" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "comparisonStatus" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "warningNotes" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "reviewedBy" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "reviewedByName" TEXT;
+ALTER TABLE "QualityResult" ADD COLUMN IF NOT EXISTS "reviewedAt" TIMESTAMP(3);

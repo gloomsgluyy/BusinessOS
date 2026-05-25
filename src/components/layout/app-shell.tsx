@@ -11,6 +11,7 @@ import { useCommercialStore } from "@/store/commercial-store";
 import { useSession } from "next-auth/react";
 import { useAuthStore } from "@/store/auth-store";
 import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DISABLE_SKELETON_LOADERS } from "@/lib/feature-flags";
 
@@ -116,6 +117,7 @@ interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
+    const { data: session } = useSession();
     const [isBootSyncing, setIsBootSyncing] = React.useState(true);
     const taskCount = useTaskStore((s) => s.tasks.length);
     const salesCount = useSalesStore((s) => s.orders.length);
@@ -123,9 +125,38 @@ export function AppShell({ children }: AppShellProps) {
     const shipmentCount = useCommercialStore((s) => s.shipments.length);
     const dealCount = useCommercialStore((s) => s.deals.length);
     const sourceCount = useCommercialStore((s) => s.sources.length);
+    const { currentUser, hasPermission } = useAuthStore();
+    const pathname = usePathname();
+    const sessionRole = String((session?.user as any)?.role || "").toUpperCase();
 
+    const hasDocumentDriveAccess = hasPermission("document_drive") || sessionRole === "STAFF";
+    const documentOnlyUser = Boolean(
+        (currentUser || sessionRole === "STAFF") &&
+        hasDocumentDriveAccess &&
+        ![
+            "dashboard",
+            "approval_inbox",
+            "my_tasks",
+            "all_tasks",
+            "sales_orders",
+            "purchase_requests",
+            "profit_loss",
+            "manage_roles",
+            "audit_logs",
+            "sales_monitor",
+            "shipment_monitor",
+            "source_management",
+            "quality",
+            "blending_simulation",
+            "market_price",
+            "meetings",
+            "transshipment",
+            "outstanding_payment",
+        ].some((permission) => hasPermission(permission as any)),
+    );
     const hasAnyData = (taskCount + salesCount + purchaseCount + shipmentCount + dealCount + sourceCount) > 0;
-    const showBootSkeleton = !DISABLE_SKELETON_LOADERS && isBootSyncing && !hasAnyData;
+    const showBootSkeleton = !documentOnlyUser && !DISABLE_SKELETON_LOADERS && isBootSyncing && !hasAnyData;
+    const blockedDocumentOnlyRoute = documentOnlyUser && pathname !== "/document-drive";
 
     return (
         <div className="flex h-screen overflow-hidden bg-background text-foreground">
@@ -133,7 +164,17 @@ export function AppShell({ children }: AppShellProps) {
             <div className="flex-1 flex flex-col overflow-hidden min-w-0">
                 <Header />
                 <main className="flex-1 overflow-y-auto custom-scrollbar pb-16 md:pb-0">
-                    {showBootSkeleton ? (
+                    {blockedDocumentOnlyRoute ? (
+                        <div className="flex min-h-[60vh] items-center justify-center p-6">
+                            <div className="max-w-sm rounded-lg border border-border bg-card p-6 text-center shadow-sm">
+                                <p className="text-sm font-bold">Document Drive Access</p>
+                                <p className="mt-2 text-xs text-muted-foreground">Akun ini hanya dapat membuka module dokumen.</p>
+                                <Link href="/document-drive" className="mt-4 inline-flex rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground">
+                                    Open Document Drive
+                                </Link>
+                            </div>
+                        </div>
+                    ) : showBootSkeleton ? (
                         <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto space-y-6 w-full animate-fade-in">
                             <div className="space-y-2">
                                 <Skeleton className="h-8 w-48" />
@@ -159,8 +200,8 @@ export function AppShell({ children }: AppShellProps) {
                     ) : children}
                 </main>
             </div>
-            <AIChatbot />
-            <AutoSyncListener onBootSyncChange={setIsBootSyncing} />
+            {!documentOnlyUser && <AIChatbot />}
+            {!documentOnlyUser && <AutoSyncListener onBootSyncChange={setIsBootSyncing} />}
             <SessionWatcher />
         </div>
     );

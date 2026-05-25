@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useOutstandingPaymentStore } from "@/store/outstanding-payment-store";
-import { FileText, Search, CreditCard, ChevronRight, Calculator, CheckCircle2, AlertCircle, Plus, X, Edit, Trash2, Loader2 } from "lucide-react";
+import { useCommercialStore } from "@/store/commercial-store";
+import { FileText, Search, CreditCard, Calculator, CheckCircle2, AlertCircle, Plus, X, Edit, Trash2, Loader2, Upload, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Toast } from "@/components/shared/toast";
 import { usePagination } from "@/hooks/use-pagination";
@@ -14,20 +15,28 @@ const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(
 
 export default function OutstandingPaymentPage() {
     const { outstandingPayments, syncPayments, updatePayment } = useOutstandingPaymentStore();
+    const { shipments, syncFromMemory } = useCommercialStore();
     const [searchQuery, setSearchQuery] = useState("");
     const [activeTab, setActiveTab] = useState<"all" | "pending" | "partial" | "paid">("all");
     const [showForm, setShowForm] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
     const [editData, setEditData] = useState<any>(null);
+    const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+    const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
 
-    const initialForm = { perusahaan: "", kode_batu: "", price_incl_pph: 0, qty: 0, total_dp: 0, calculation_date: "", dp_to_shipment: "", timeframe_days: "", status: "pending", year: 2026 };
+    const initialForm = { shipment_id: "", shipment_name: "", invoice_number: "", invoice_document_id: "", payment_proof_document_id: "", perusahaan: "", kode_batu: "", price_incl_pph: 0, qty: 0, total_dp: 0, calculation_date: "", dp_to_shipment: "", due_date: "", dispute_status: "", notes: "", timeframe_days: "", status: "pending", year: 2026 };
     const [form, setForm] = useState(initialForm);
 
     const handleOpenForm = (data?: any) => {
         if (data) {
             setEditData(data);
             setForm({
+                shipment_id: data.shipment_id || "",
+                shipment_name: data.shipment_name || "",
+                invoice_number: data.invoice_number || "",
+                invoice_document_id: data.invoice_document_id || "",
+                payment_proof_document_id: data.payment_proof_document_id || "",
                 perusahaan: data.perusahaan,
                 kode_batu: data.kode_batu || "",
                 price_incl_pph: data.price_incl_pph || 0,
@@ -35,6 +44,9 @@ export default function OutstandingPaymentPage() {
                 total_dp: data.total_dp || 0,
                 calculation_date: data.calculation_date ? new Date(data.calculation_date).toISOString().split('T')[0] : "",
                 dp_to_shipment: data.dp_to_shipment ? new Date(data.dp_to_shipment).toISOString().split('T')[0] : "",
+                due_date: data.due_date ? new Date(data.due_date).toISOString().split('T')[0] : "",
+                dispute_status: data.dispute_status || "",
+                notes: data.notes || "",
                 timeframe_days: data.timeframe_days || "",
                 status: data.status || "pending",
                 year: data.year || 2026
@@ -43,7 +55,26 @@ export default function OutstandingPaymentPage() {
             setEditData(null);
             setForm(initialForm);
         }
+        setInvoiceFile(null);
+        setPaymentProofFile(null);
         setShowForm(true);
+    };
+
+    const uploadPaymentDocument = async (file: File, kind: "invoice" | "payment_proof", shipmentId: string) => {
+        const formData = new FormData();
+        const invoiceSuffix = form.invoice_number ? ` - ${form.invoice_number}` : "";
+        formData.append("file", file);
+        formData.append("documentGroup", "additional");
+        formData.append("requirementCode", kind === "invoice" ? "PAYMENT_INVOICE" : "PAYMENT_PROOF");
+        formData.append("requirementLabel", kind === "invoice" ? "Payment Invoice" : "Payment Proof");
+        formData.append("title", `${kind === "invoice" ? "Payment Invoice" : "Payment Proof"}${invoiceSuffix}`);
+        formData.append("status", kind === "invoice" ? "received" : "submitted");
+        formData.append("notes", `Linked from Outstanding Payment${invoiceSuffix}`);
+
+        const res = await fetch(`/api/shipments/${shipmentId}/documents`, { method: "POST", body: formData });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Failed to upload payment document");
+        return data.document?.id as string | undefined;
     };
 
     const handleSave = async () => {
@@ -53,10 +84,27 @@ export default function OutstandingPaymentPage() {
         }
         setIsSaving(true);
         try {
+            if ((invoiceFile || paymentProofFile) && !form.shipment_id) {
+                setToast({ message: "Linked shipment is required before uploading payment documents", type: "error" });
+                setIsSaving(false);
+                return;
+            }
+            let invoiceDocumentId = form.invoice_document_id;
+            let paymentProofDocumentId = form.payment_proof_document_id;
+            if (invoiceFile && form.shipment_id) {
+                invoiceDocumentId = await uploadPaymentDocument(invoiceFile, "invoice", form.shipment_id) || invoiceDocumentId;
+            }
+            if (paymentProofFile && form.shipment_id) {
+                paymentProofDocumentId = await uploadPaymentDocument(paymentProofFile, "payment_proof", form.shipment_id) || paymentProofDocumentId;
+            }
             const payload = {
                 ...form,
+                invoice_document_id: invoiceDocumentId,
+                payment_proof_document_id: paymentProofDocumentId,
+                shipment_name: form.shipment_id ? (shipments.find((s) => s.id === form.shipment_id)?.mv_project_name || shipments.find((s) => s.id === form.shipment_id)?.vessel_name || form.shipment_name) : form.shipment_name,
                 calculation_date: form.calculation_date ? new Date(form.calculation_date).toISOString() : null as unknown as string,
                 dp_to_shipment: form.dp_to_shipment ? new Date(form.dp_to_shipment).toISOString() : null as unknown as string,
+                due_date: form.due_date ? new Date(form.due_date).toISOString() : null as unknown as string,
             };
 
             if (editData) {
@@ -66,9 +114,11 @@ export default function OutstandingPaymentPage() {
                 await useOutstandingPaymentStore.getState().addPayment(payload as any);
                 setToast({ message: "Payment added successfully", type: "success" });
             }
+            setInvoiceFile(null);
+            setPaymentProofFile(null);
             setShowForm(false);
-        } catch (error) {
-            setToast({ message: "Failed to save payment record", type: "error" });
+        } catch (error: any) {
+            setToast({ message: error?.message || "Failed to save payment record", type: "error" });
         } finally {
             setIsSaving(false);
         }
@@ -86,7 +136,8 @@ export default function OutstandingPaymentPage() {
 
     useEffect(() => {
         syncPayments();
-    }, [syncPayments]);
+        syncFromMemory();
+    }, [syncPayments, syncFromMemory]);
 
     const filtered = outstandingPayments.filter(p => {
         const matchesSearch = p.perusahaan.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -187,7 +238,9 @@ export default function OutstandingPaymentPage() {
                             <thead className="text-[10px] text-muted-foreground uppercase bg-muted/50 border-b border-border">
                                 <tr>
                                     <th className="px-6 py-4 font-semibold">Tahun</th>
+                                    <th className="px-6 py-4 font-semibold">Shipment</th>
                                     <th className="px-6 py-4 font-semibold">Perusahaan</th>
+                                    <th className="px-6 py-4 font-semibold">Invoice</th>
                                     <th className="px-6 py-4 font-semibold">Kode Batu</th>
                                     <th className="px-6 py-4 font-semibold text-right">Price Incl PPh</th>
                                     <th className="px-6 py-4 font-semibold text-right">Qty (MT)</th>
@@ -195,6 +248,7 @@ export default function OutstandingPaymentPage() {
                                     <th className="px-6 py-4 font-semibold">Start Date (Calc)</th>
                                     <th className="px-6 py-4 font-semibold">DP To Shipment</th>
                                     <th className="px-6 py-4 font-semibold">Timeframe (Days)</th>
+                                    <th className="px-6 py-4 font-semibold">Evidence</th>
                                     <th className="px-6 py-4 font-semibold text-center">Status</th>
                                     <th className="px-6 py-4 font-semibold text-right">Actions</th>
                                 </tr>
@@ -202,7 +256,7 @@ export default function OutstandingPaymentPage() {
                             <tbody className="divide-y divide-border/50">
                                 {filtered.length === 0 ? (
                                     <tr>
-                                        <td colSpan={10} className="px-6 py-12 text-center text-xs text-muted-foreground bg-accent/20">
+                                        <td colSpan={14} className="px-6 py-12 text-center text-xs text-muted-foreground bg-accent/20">
                                             <div className="flex flex-col items-center justify-center gap-2">
                                                 <CreditCard className="w-8 h-8 text-muted-foreground/30" />
                                                 <p>No outstanding payment records found matching the criteria.</p>
@@ -212,7 +266,9 @@ export default function OutstandingPaymentPage() {
                                 ) : paginatedData.map(item => (
                                     <tr key={item.id} className="hover:bg-accent/40 transition-colors group cursor-pointer">
                                         <td className="px-6 py-4"><span className="text-xs font-semibold py-1 px-2 bg-accent/60 rounded text-foreground">{item.year}</span></td>
+                                        <td className="px-6 py-4 text-xs font-semibold text-muted-foreground">{item.shipment_name || item.shipment_id || "-"}</td>
                                         <td className="px-6 py-4 font-bold text-foreground">{item.perusahaan}</td>
+                                        <td className="px-6 py-4 font-mono text-xs">{item.invoice_number || "-"}</td>
                                         <td className="px-6 py-4 font-mono text-xs">{item.kode_batu || "-"}</td>
                                         <td className="px-6 py-4 text-right font-mono text-xs">Rp {item.price_incl_pph?.toLocaleString() || "0"}</td>
                                         <td className="px-6 py-4 text-right font-bold text-blue-500">{item.qty?.toLocaleString() || "0"}</td>
@@ -220,6 +276,20 @@ export default function OutstandingPaymentPage() {
                                         <td className="px-6 py-4 text-xs font-semibold">{item.calculation_date ? new Date(item.calculation_date).toLocaleDateString() : "-"}</td>
                                         <td className="px-6 py-4 text-xs">{item.dp_to_shipment || "-"}</td>
                                         <td className="px-6 py-4 text-xs font-semibold">{item.timeframe_days || "-"}</td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex flex-col gap-1 text-[11px]">
+                                                {item.shipment_id && item.invoice_document_id ? (
+                                                    <a href={`/api/shipments/${item.shipment_id}/documents/${item.invoice_document_id}`} target="_blank" className="inline-flex items-center gap-1 text-emerald-600 hover:underline">
+                                                        Invoice <ExternalLink className="w-3 h-3" />
+                                                    </a>
+                                                ) : <span className="text-muted-foreground">Invoice -</span>}
+                                                {item.shipment_id && item.payment_proof_document_id ? (
+                                                    <a href={`/api/shipments/${item.shipment_id}/documents/${item.payment_proof_document_id}`} target="_blank" className="inline-flex items-center gap-1 text-blue-600 hover:underline">
+                                                        Proof <ExternalLink className="w-3 h-3" />
+                                                    </a>
+                                                ) : <span className="text-muted-foreground">Proof -</span>}
+                                            </div>
+                                        </td>
                                         <td className="px-6 py-4 text-center">
                                             {item.status.toLowerCase() === "paid" ? (
                                                 <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-500 bg-emerald-500/10 py-1 px-2 rounded-lg">
@@ -273,6 +343,21 @@ export default function OutstandingPaymentPage() {
                                 <button onClick={() => setShowForm(false)} className="p-2 hover:bg-accent rounded-lg transition-colors"><X className="w-4 h-4" /></button>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-1 md:col-span-2"><label className="text-[10px] font-bold text-muted-foreground uppercase">Linked Shipment</label>
+                                    <select value={form.shipment_id} onChange={e => {
+                                        const selected = shipments.find((s) => s.id === e.target.value);
+                                        setForm({ ...form, shipment_id: e.target.value, shipment_name: selected ? (selected.mv_project_name || selected.vessel_name || selected.nomination || selected.id) : "" });
+                                    }} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-emerald-500/50">
+                                        <option value="">No linked shipment</option>
+                                        {shipments.slice(0, 300).map((shipment) => (
+                                            <option key={shipment.id} value={shipment.id}>
+                                                {shipment.mv_project_name || shipment.vessel_name || shipment.nomination || shipment.id} - {shipment.buyer || shipment.source || "-"}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Invoice Number</label>
+                                    <input value={form.invoice_number} onChange={e => setForm({ ...form, invoice_number: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-emerald-500/50" /></div>
                                 <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Perusahaan</label>
                                     <input value={form.perusahaan} onChange={e => setForm({ ...form, perusahaan: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-emerald-500/50" /></div>
                                 <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Kode Batu (Optional)</label>
@@ -289,6 +374,10 @@ export default function OutstandingPaymentPage() {
                                     <input type="date" value={form.calculation_date} onChange={e => setForm({ ...form, calculation_date: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-emerald-500/50" /></div>
                                 <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">DP to Shipment Date</label>
                                     <input type="date" value={form.dp_to_shipment} onChange={e => setForm({ ...form, dp_to_shipment: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-emerald-500/50" /></div>
+                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Due Date</label>
+                                    <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-emerald-500/50" /></div>
+                                <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Dispute Status</label>
+                                    <input value={form.dispute_status} onChange={e => setForm({ ...form, dispute_status: e.target.value })} placeholder="none / disputed / under review" className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-emerald-500/50" /></div>
                                 <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Timeframe (Days/Notes)</label>
                                     <input value={form.timeframe_days} onChange={e => setForm({ ...form, timeframe_days: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-emerald-500/50" /></div>
                                 <div className="space-y-1"><label className="text-[10px] font-bold text-muted-foreground uppercase">Status</label>
@@ -297,6 +386,28 @@ export default function OutstandingPaymentPage() {
                                         <option value="partial">Partial</option>
                                         <option value="paid">Paid</option>
                                     </select>
+                                </div>
+                                <div className="space-y-1 md:col-span-2"><label className="text-[10px] font-bold text-muted-foreground uppercase">Notes</label>
+                                    <input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm outline-none focus:border-emerald-500/50" /></div>
+                                <div className="space-y-2 rounded-lg border border-border bg-accent/20 p-3">
+                                    <label className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Upload className="w-3.5 h-3.5" /> Invoice Document</label>
+                                    {form.shipment_id && form.invoice_document_id && (
+                                        <a href={`/api/shipments/${form.shipment_id}/documents/${form.invoice_document_id}`} target="_blank" className="text-xs text-emerald-600 hover:underline inline-flex items-center gap-1">
+                                            Current invoice file <ExternalLink className="w-3 h-3" />
+                                        </a>
+                                    )}
+                                    <input type="file" accept="image/*,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(e) => setInvoiceFile(e.target.files?.[0] || null)} className="w-full text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-500 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white" />
+                                    <p className="text-[10px] text-muted-foreground">Stored under the linked shipment as PAYMENT_INVOICE.</p>
+                                </div>
+                                <div className="space-y-2 rounded-lg border border-border bg-accent/20 p-3">
+                                    <label className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Upload className="w-3.5 h-3.5" /> Payment Proof</label>
+                                    {form.shipment_id && form.payment_proof_document_id && (
+                                        <a href={`/api/shipments/${form.shipment_id}/documents/${form.payment_proof_document_id}`} target="_blank" className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1">
+                                            Current payment proof <ExternalLink className="w-3 h-3" />
+                                        </a>
+                                    )}
+                                    <input type="file" accept="image/*,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(e) => setPaymentProofFile(e.target.files?.[0] || null)} className="w-full text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-blue-500 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white" />
+                                    <p className="text-[10px] text-muted-foreground">Stored under the linked shipment as PAYMENT_PROOF.</p>
                                 </div>
                             </div>
                             <div className="mt-6 flex justify-end gap-2">

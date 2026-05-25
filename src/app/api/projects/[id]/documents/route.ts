@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import prisma from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { canReadModuleForRole, canWriteModuleForRole } from "@/lib/role-access";
+import { storeDocumentObject } from "@/lib/document-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,9 @@ async function ensureProjectDocumentTable() {
       "mimeType" TEXT,
       "sizeBytes" INTEGER NOT NULL DEFAULT 0,
       "data" BYTEA NOT NULL,
+      "storageProvider" TEXT,
+      "storageKey" TEXT,
+      "storageUrl" TEXT,
       "uploadedBy" TEXT,
       "uploadedByName" TEXT,
       "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -25,6 +29,9 @@ async function ensureProjectDocumentTable() {
     );
   `);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectDocument_projectId_idx" ON "ProjectDocument"("projectId");`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectDocument" ADD COLUMN IF NOT EXISTS "storageProvider" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectDocument" ADD COLUMN IF NOT EXISTS "storageKey" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectDocument" ADD COLUMN IF NOT EXISTS "storageUrl" TEXT;`);
 }
 
 function sanitizeFileName(value: string) {
@@ -50,6 +57,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       fileName: true,
       mimeType: true,
       sizeBytes: true,
+      storageProvider: true,
+      storageKey: true,
+      storageUrl: true,
       uploadedBy: true,
       uploadedByName: true,
       createdAt: true,
@@ -69,12 +79,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   await ensureProjectDocumentTable();
 
   const project = await prisma.projectItem.findUnique({ where: { id: params.id } });
-  if (!project || project.isDeleted) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  if (!project || project.isDeleted) return NextResponse.json({ error: "Forecast Sales not found" }, { status: 404 });
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   const requirementCode = String(formData.get("requirementCode") || "").trim() || null;
-  const requirementLabel = String(formData.get("requirementLabel") || "").trim() || "Project document";
+  const requirementLabel = String(formData.get("requirementLabel") || "").trim() || "Forecast Sales document";
 
   if (!file) return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
 
@@ -97,6 +107,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: "File MIME type not allowed" }, { status: 400 });
   }
 
+  const storedFile = await storeDocumentObject({
+    scope: "project",
+    ownerId: params.id,
+    fileName: file.name || "project-document",
+    mimeType: file.type || "application/octet-stream",
+    buffer,
+  });
+
   const doc = await prisma.projectDocument.create({
     data: {
       projectId: params.id,
@@ -105,7 +123,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       fileName: sanitizeFileName(file.name || "project-document"),
       mimeType: file.type || "application/octet-stream",
       sizeBytes: buffer.length,
-      data: buffer,
+      data: storedFile.data,
+      storageProvider: storedFile.provider,
+      storageKey: storedFile.key,
+      storageUrl: storedFile.url,
       uploadedBy: session.user.id,
       uploadedByName: session.user.name || session.user.email || null,
     },
@@ -117,6 +138,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       fileName: true,
       mimeType: true,
       sizeBytes: true,
+      storageProvider: true,
+      storageKey: true,
+      storageUrl: true,
       uploadedBy: true,
       uploadedByName: true,
       createdAt: true,

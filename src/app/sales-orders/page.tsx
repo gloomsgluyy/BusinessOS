@@ -218,7 +218,7 @@ export default function SalesOrdersPage() {
                             <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
                                 <div className="space-y-1">
                                     <label className="text-xs font-semibold text-muted-foreground uppercase">Description</label>
-                                    <input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Project description..." className="w-full px-3 py-2.5 rounded-xl border border-border bg-transparent text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-shadow" />
+                                    <input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Forecast Sales description..." className="w-full px-3 py-2.5 rounded-xl border border-border bg-transparent text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-shadow" />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-1">

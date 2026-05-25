@@ -88,13 +88,13 @@ function buildProjectReport(input: {
 
   if (status.includes("WAIT") || status.includes("PENDING")) {
     score += 15;
-    factors.push("Project masih waiting approval.");
+    factors.push("Forecast Sales masih waiting approval.");
   }
 
   const activeShipments = shipments.filter((s) => !["completed", "cancelled", "done_shipment"].includes(String(s.status || "").toLowerCase()));
   if (activeShipments.length > 0) {
     score += Math.min(25, activeShipments.length * 8);
-    factors.push(`${activeShipments.length} shipment aktif terkait project.`);
+    factors.push(`${activeShipments.length} shipment aktif terkait Forecast Sales.`);
   }
 
   const pendingShipments = activeShipments.filter((s) => {
@@ -132,7 +132,7 @@ function buildProjectReport(input: {
     if (missingDocs.length > 0) {
       score += Math.min(22, Math.round(missingPct * 22));
       documentGaps.push(...missingDocs.slice(0, 6).map((item) => `${item.label} (${item.owner})`));
-      factors.push(`${missingDocs.length}/${requiredDocs.length} required project documents belum complete/uploaded.`);
+      factors.push(`${missingDocs.length}/${requiredDocs.length} required Forecast Sales documents belum complete/uploaded.`);
     }
   }
 
@@ -179,13 +179,13 @@ function buildProjectReport(input: {
   const level = scoreToLevel(score);
   const recommendedAction = level === "HIGH" || level === "CRITICAL"
     ? documentGaps.length > 0
-      ? "Prioritaskan project ini hari ini: tuntaskan document gaps, assign owner per dokumen, lalu eskalasi blocker shipment dan keputusan commercial ke executive."
-      : "Prioritaskan project ini hari ini: eskalasi blocker shipment, cek commercial spread, dan putuskan proceed/hold dengan executive."
+      ? "Prioritaskan Forecast Sales ini hari ini: tuntaskan document gaps, assign owner per dokumen, lalu eskalasi blocker shipment dan keputusan commercial ke executive."
+      : "Prioritaskan Forecast Sales ini hari ini: eskalasi blocker shipment, cek commercial spread, dan putuskan proceed/hold dengan executive."
     : "Monitor normal, namun jalankan ulang analisis saat dokumen/market/shipment berubah.";
   const dataQuality = calculateDataQuality([
-    { label: "Project name", value: project.name, critical: true },
+    { label: "Forecast Sales name", value: project.name, critical: true },
     { label: "Buyer", value: project.buyer, critical: true },
-    { label: "Project status", value: project.status },
+    { label: "Forecast Sales status", value: project.status },
     { label: "Required document checklist", value: requiredDocs },
     { label: "Related shipments", value: shipments },
     { label: "Market price benchmark", value: latestMarket },
@@ -196,14 +196,14 @@ function buildProjectReport(input: {
   const sources = [
     buildSource({
       type: "internal",
-      label: "Project record",
+      label: "Forecast Sales record",
       source: "ProjectItem",
       detail: `${project.name || project.id} - ${project.status || "no status"}`,
       reliability: "INTERNAL_SYSTEM",
     }),
     buildSource({
       type: "document",
-      label: "Project document checklist",
+      label: "Forecast Sales document checklist",
       source: "ProjectItem.templateChecklist",
       detail: `${requiredDocs.length - missingDocs.length}/${requiredDocs.length || 0} required documents complete`,
       reliability: "INTERNAL_SYSTEM",
@@ -250,7 +250,7 @@ function buildProjectReport(input: {
     commercialSignals: commercialSignals.length ? commercialSignals : ["Belum ada data market/P&L/deal yang cukup untuk commercial signal."],
     decisionMemo: {
       suggestedDecision: level === "CRITICAL" ? "HOLD / EXECUTIVE REVIEW" : level === "HIGH" ? "FAST REVIEW" : "MONITOR",
-      owner: level === "HIGH" || level === "CRITICAL" ? "CEO / DIRUT / ASS_DIRUT" : "Project owner",
+      owner: level === "HIGH" || level === "CRITICAL" ? "CEO / DIRUT / ASS_DIRUT" : "Forecast Sales owner",
       nextStep: recommendedAction,
     },
     relatedShipments: activeShipments.slice(0, 6).map((s) => ({
@@ -275,10 +275,10 @@ function buildProjectReport(input: {
   return normalizeDecisionReport(report, {
     level,
     score,
-    reason: factors[0] || "No urgent blocker detected from current project context.",
-    owner: level === "HIGH" || level === "CRITICAL" ? "CEO / DIRUT / ASS_DIRUT" : "Project owner",
+    reason: factors[0] || "No urgent blocker detected from current Forecast Sales context.",
+    owner: level === "HIGH" || level === "CRITICAL" ? "CEO / DIRUT / ASS_DIRUT" : "Forecast Sales owner",
     nextAction: recommendedAction,
-    deadline: level === "CRITICAL" || level === "HIGH" ? "Today before executive close" : "Next project review",
+    deadline: level === "CRITICAL" || level === "HIGH" ? "Today before executive close" : "Next Forecast Sales review",
     approverRoles: ["CEO", "DIRUT", "ASS_DIRUT"],
     holdOnCritical: false,
     sources,
@@ -312,7 +312,7 @@ export async function POST(req: Request) {
     const rate = checkAiRateLimit(`project-urgency:${session.user.id}`, 10, 60 * 60 * 1000);
     if (!rate.allowed) {
       return NextResponse.json(
-        { error: "Too many project urgency analyses. Please retry later." },
+        { error: "Too many Forecast Sales urgency analyses. Please retry later." },
         { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } },
       );
     }
@@ -403,7 +403,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("POST /api/projects/urgent-analysis error:", error);
     return NextResponse.json(
-      { error: "Failed to analyze project urgency", details: error instanceof Error ? error.message : String(error) },
+      { error: "Failed to analyze Forecast Sales urgency", details: error instanceof Error ? error.message : String(error) },
       { status: 500 },
     );
   }

@@ -187,6 +187,50 @@ function getShipmentMargin(sh: any): number {
 
 type CanonicalShipmentStatus = "upcoming" | "loading" | "in_transit" | "completed" | "cancelled" | "unknown";
 
+type DocumentAgingAlert = {
+    id: string;
+    shipmentId: string;
+    shipmentName: string;
+    buyer?: string | null;
+    requirementCode?: string | null;
+    requirementLabel: string;
+    status: string;
+    ownerRole?: string | null;
+    responsibleParty?: string | null;
+    hardcopyStatus?: string | null;
+    expectedDate?: string | null;
+    receivedDate?: string | null;
+    submittedDate?: string | null;
+    agingDays: number;
+    severity: "critical" | "warning" | "info";
+    message: string;
+};
+
+type DashboardBlockerAlert = {
+    id: string;
+    category: "payment" | "quality" | "source" | "barge" | "closing" | "domestic";
+    severity: "critical" | "warning" | "info";
+    shipmentId?: string | null;
+    shipmentName?: string | null;
+    title: string;
+    message: string;
+    owner?: string | null;
+    dueDate?: string | null;
+    href: string;
+    createdAt?: string | null;
+};
+
+type DashboardBlockerSummary = {
+    critical: number;
+    warning: number;
+    payment: number;
+    quality: number;
+    source: number;
+    barge: number;
+    closing: number;
+    domestic: number;
+};
+
 function normalizeShipmentStatus(raw?: string): CanonicalShipmentStatus {
     const src = normalizeStatus(raw);
     if (!src) return "unknown";
@@ -895,9 +939,9 @@ function ProjectApprovalAlerts({ projects }: { projects: any[] }) {
     return (
         <div className="card-elevated p-5 animate-slide-up">
             <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold">Waiting Approval for Project</h3>
-                <a href="/projects" className="text-[10px] text-primary hover:underline flex items-center gap-1 group">
-                    Open Projects
+                <h3 className="text-sm font-semibold">Waiting Approval for Forecast Sales</h3>
+                <a href="/forecast-sales" className="text-[10px] text-primary hover:underline flex items-center gap-1 group">
+                    Open Forecast Sales
                     <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
                 </a>
             </div>
@@ -909,7 +953,7 @@ function ProjectApprovalAlerts({ projects }: { projects: any[] }) {
                         <div key={p.id} className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2">
                             <div className="flex items-center justify-between gap-2">
                                 <div className="min-w-0">
-                                    <p className="text-xs font-semibold truncate">{cleanText(p.name) || "Unnamed Project"}</p>
+                                    <p className="text-xs font-semibold truncate">{cleanText(p.name) || "Unnamed Forecast Sales"}</p>
                                     <p className="text-[10px] text-muted-foreground">
                                         Buyer: {cleanText(p.buyer) || "-"} · Segment: {cleanText(p.segment) || "-"}
                                     </p>
@@ -918,7 +962,7 @@ function ProjectApprovalAlerts({ projects }: { projects: any[] }) {
                                     </p>
                                 </div>
                                 <a
-                                    href={`/projects?q=${encodeURIComponent(cleanText(p.name) || "")}`}
+                                    href={`/forecast-sales?q=${encodeURIComponent(cleanText(p.name) || "")}`}
                                     className="shrink-0 text-[10px] font-semibold text-primary hover:underline"
                                 >
                                     Detail
@@ -933,6 +977,187 @@ function ProjectApprovalAlerts({ projects }: { projects: any[] }) {
 }
 
 /* ─── Quantity per Month Chart ────────────────────────────── */
+function DocumentAgingAlerts({
+    alerts,
+    isLoading,
+}: {
+    alerts: DocumentAgingAlert[];
+    isLoading: boolean;
+}) {
+    const criticalCount = alerts.filter((alert) => alert.severity === "critical").length;
+    const warningCount = alerts.filter((alert) => alert.severity === "warning").length;
+    const formatDate = (value?: string | null) => {
+        if (!value) return "-";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "-";
+        return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    };
+
+    return (
+        <div className="card-elevated p-5 animate-slide-up">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                        <ScrollText className="w-4 h-4 text-amber-500" />
+                        Document Aging Alerts
+                    </h3>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Required shipment documents that need follow-up.</p>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] font-bold">
+                    <span className="rounded-full bg-red-500/10 px-2 py-1 text-red-600">{criticalCount} critical</span>
+                    <span className="rounded-full bg-amber-500/10 px-2 py-1 text-amber-600">{warningCount} warning</span>
+                </div>
+            </div>
+
+            {isLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading document aging...
+                </div>
+            ) : alerts.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No overdue required document detected.</p>
+            ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                    {alerts.slice(0, 8).map((alert) => {
+                        const detailUrl = `/shipment-monitor?open=${encodeURIComponent(alert.shipmentId)}&tab=all&detail=documents`;
+                        return (
+                            <a
+                                key={alert.id}
+                                href={detailUrl}
+                                className={cn(
+                                    "rounded-xl border px-3 py-2 transition-colors hover:bg-accent/40",
+                                    alert.severity === "critical" ? "border-red-500/30 bg-red-500/5" : "border-amber-500/30 bg-amber-500/5",
+                                )}
+                            >
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <p className="text-xs font-semibold truncate">{alert.shipmentName}</p>
+                                        <p className="text-[10px] text-muted-foreground truncate">
+                                            {alert.requirementCode ? `${alert.requirementCode}. ` : ""}{alert.requirementLabel}
+                                        </p>
+                                        <p className="text-[10px] text-muted-foreground">
+                                            Owner: {alert.ownerRole || "-"} | PIC: {alert.responsibleParty || "-"} | Hardcopy: {(alert.hardcopyStatus || "-").replace("_", " ")}
+                                        </p>
+                                    </div>
+                                    <span className={cn(
+                                        "shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase",
+                                        alert.severity === "critical" ? "bg-red-500/10 text-red-600" : "bg-amber-500/10 text-amber-600",
+                                    )}>
+                                        {alert.message}
+                                    </span>
+                                </div>
+                                <div className="mt-1 flex flex-wrap gap-2 text-[9px] text-muted-foreground">
+                                    <span>Status: {alert.status.replace("_", " ")}</span>
+                                    <span>Expected: {formatDate(alert.expectedDate)}</span>
+                                    {alert.receivedDate && <span>Received: {formatDate(alert.receivedDate)}</span>}
+                                    {alert.submittedDate && <span>Submitted: {formatDate(alert.submittedDate)}</span>}
+                                </div>
+                            </a>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function DashboardBlockerControlTower({
+    alerts,
+    summary,
+    isLoading,
+}: {
+    alerts: DashboardBlockerAlert[];
+    summary: DashboardBlockerSummary;
+    isLoading: boolean;
+}) {
+    const categoryConfig: Record<DashboardBlockerAlert["category"], { label: string; icon: React.ElementType; color: string }> = {
+        payment: { label: "Payment", icon: DollarSign, color: "text-emerald-600 bg-emerald-500/10 border-emerald-500/30" },
+        quality: { label: "Quality", icon: AlertCircle, color: "text-violet-600 bg-violet-500/10 border-violet-500/30" },
+        source: { label: "Source", icon: Layers, color: "text-blue-600 bg-blue-500/10 border-blue-500/30" },
+        barge: { label: "Barge", icon: Anchor, color: "text-cyan-600 bg-cyan-500/10 border-cyan-500/30" },
+        closing: { label: "Closing", icon: Ship, color: "text-amber-600 bg-amber-500/10 border-amber-500/30" },
+        domestic: { label: "Domestic", icon: ScrollText, color: "text-orange-600 bg-orange-500/10 border-orange-500/30" },
+    };
+    const summaryItems = [
+        { label: "Critical", value: summary.critical, className: "text-red-600 bg-red-500/10" },
+        { label: "Warning", value: summary.warning, className: "text-amber-600 bg-amber-500/10" },
+        { label: "Payment", value: summary.payment, className: "text-emerald-600 bg-emerald-500/10" },
+        { label: "Quality", value: summary.quality, className: "text-violet-600 bg-violet-500/10" },
+        { label: "Source", value: summary.source + summary.barge, className: "text-blue-600 bg-blue-500/10" },
+        { label: "Domestic", value: summary.domestic || 0, className: "text-orange-600 bg-orange-500/10" },
+        { label: "Closing", value: summary.closing, className: "text-orange-600 bg-orange-500/10" },
+    ];
+
+    return (
+        <div className="card-elevated p-5 animate-slide-up space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-500" />
+                        Blocker Control Tower
+                    </h3>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Payment, quality, source, barge, domestic handover, and closing blockers that need management attention.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {summaryItems.map((item) => (
+                        <span key={item.label} className={cn("rounded-full px-2 py-1 text-[10px] font-bold", item.className)}>
+                            {item.value} {item.label}
+                        </span>
+                    ))}
+                </div>
+            </div>
+
+            {isLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading blockers...
+                </div>
+            ) : alerts.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No cross-module blocker detected.</p>
+            ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                    {alerts.slice(0, 10).map((alert) => {
+                        const cfg = categoryConfig[alert.category] || categoryConfig.closing;
+                        const Icon = cfg.icon;
+                        return (
+                            <a
+                                key={alert.id}
+                                href={alert.href}
+                                className={cn(
+                                    "rounded-xl border px-3 py-2 transition-colors hover:bg-accent/40",
+                                    alert.severity === "critical" ? "border-red-500/30 bg-red-500/5" : "border-amber-500/30 bg-amber-500/5",
+                                )}
+                            >
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[9px] font-bold uppercase", cfg.color)}>
+                                                <Icon className="w-3 h-3" /> {cfg.label}
+                                            </span>
+                                            <span className={cn(
+                                                "rounded-md px-2 py-0.5 text-[9px] font-bold uppercase",
+                                                alert.severity === "critical" ? "bg-red-500/10 text-red-600" : "bg-amber-500/10 text-amber-600",
+                                            )}>
+                                                {alert.severity}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs font-semibold truncate mt-1">{alert.title}</p>
+                                        <p className="text-[10px] text-muted-foreground truncate">{alert.shipmentName || "No shipment link"}</p>
+                                        <p className="text-[10px] text-muted-foreground line-clamp-2">{alert.message}</p>
+                                    </div>
+                                    <ArrowUpRight className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                                </div>
+                                <div className="mt-1 flex flex-wrap gap-2 text-[9px] text-muted-foreground">
+                                    {alert.owner && <span>Owner: {alert.owner}</span>}
+                                    {alert.dueDate && <span>Due: {new Date(alert.dueDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>}
+                                </div>
+                            </a>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function ProjectUrgencyPanel({
     projects,
     onAnalyze,
@@ -963,7 +1188,7 @@ function ProjectUrgencyPanel({
                 <div>
                     <h3 className="text-sm font-semibold flex items-center gap-2">
                         <AlertCircle className="w-4 h-4 text-amber-500" />
-                        AI Project Urgency
+                        AI Forecast Sales Urgency
                     </h3>
                     <p className="text-[10px] text-muted-foreground mt-0.5">Visible only for CEO, DIRUT, and ASS_DIRUT.</p>
                 </div>
@@ -973,7 +1198,7 @@ function ProjectUrgencyPanel({
                 </button>
             </div>
             {urgentProjects.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No urgency analysis yet. Run analysis to compare projects with shipment blockers and news signals.</p>
+                <p className="text-xs text-muted-foreground">No urgency analysis yet. Run analysis to compare Forecast Sales with shipment blockers and news signals.</p>
             ) : (
                 <div className="space-y-2">
                     {urgentProjects.map((p) => {
@@ -989,7 +1214,7 @@ function ProjectUrgencyPanel({
                             <div key={p.id} className="rounded-xl border border-border/60 bg-background/60 px-3 py-2">
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
-                                        <p className="text-xs font-semibold truncate">{cleanText(p.name) || "Unnamed Project"}</p>
+                                        <p className="text-xs font-semibold truncate">{cleanText(p.name) || "Unnamed Forecast Sales"}</p>
                                         <p className="text-[10px] text-muted-foreground line-clamp-2">
                                             {report?.summary || "Urgency score generated from internal project and shipment data."}
                                         </p>
@@ -1427,6 +1652,20 @@ export default function DashboardPage() {
     const [userActivityLoading, setUserActivityLoading] = React.useState(false);
     const [userActivityError, setUserActivityError] = React.useState<string | null>(null);
     const [projectUrgencyAnalyzing, setProjectUrgencyAnalyzing] = React.useState(false);
+    const [documentAgingAlerts, setDocumentAgingAlerts] = React.useState<DocumentAgingAlert[]>([]);
+    const [documentAgingLoading, setDocumentAgingLoading] = React.useState(false);
+    const [blockerAlerts, setBlockerAlerts] = React.useState<DashboardBlockerAlert[]>([]);
+    const [blockerSummary, setBlockerSummary] = React.useState<DashboardBlockerSummary>({
+        critical: 0,
+        warning: 0,
+        payment: 0,
+        quality: 0,
+        source: 0,
+        barge: 0,
+        closing: 0,
+        domestic: 0,
+    });
+    const [blockerLoading, setBlockerLoading] = React.useState(false);
     const regionOptions = React.useMemo(() => {
         const bag = new Set<string>();
         const push = (v: unknown) => {
@@ -1522,6 +1761,55 @@ export default function DashboardPage() {
             cancelled = true;
         };
     }, [sessionStatus, isCeo]);
+
+    React.useEffect(() => {
+        if (sessionStatus !== "authenticated" || !isExecutive) {
+            setDocumentAgingAlerts([]);
+            setDocumentAgingLoading(false);
+            setBlockerAlerts([]);
+            setBlockerSummary({ critical: 0, warning: 0, payment: 0, quality: 0, source: 0, barge: 0, closing: 0, domestic: 0 });
+            setBlockerLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+
+        const fetchExecutiveAlerts = async () => {
+            setDocumentAgingLoading(true);
+            setBlockerLoading(true);
+            try {
+                const [documentResponse, blockerResponse] = await Promise.all([
+                    fetch("/api/shipments/documents/aging-alerts?limit=12", { method: "GET", cache: "no-store" }),
+                    fetch("/api/dashboard/blockers", { method: "GET", cache: "no-store" }),
+                ]);
+                const documentPayload = await documentResponse.json();
+                const blockerPayload = await blockerResponse.json();
+                if (!documentResponse.ok || !documentPayload?.success) throw new Error(documentPayload?.error || "Failed to fetch document aging alerts");
+                if (!cancelled) {
+                    setDocumentAgingAlerts(Array.isArray(documentPayload.alerts) ? documentPayload.alerts : []);
+                    setBlockerAlerts(blockerResponse.ok && Array.isArray(blockerPayload.alerts) ? blockerPayload.alerts : []);
+                    setBlockerSummary(blockerResponse.ok && blockerPayload.summary ? blockerPayload.summary : { critical: 0, warning: 0, payment: 0, quality: 0, source: 0, barge: 0, closing: 0, domestic: 0 });
+                }
+            } catch {
+                if (!cancelled) {
+                    setDocumentAgingAlerts([]);
+                    setBlockerAlerts([]);
+                    setBlockerSummary({ critical: 0, warning: 0, payment: 0, quality: 0, source: 0, barge: 0, closing: 0, domestic: 0 });
+                }
+            } finally {
+                if (!cancelled) {
+                    setDocumentAgingLoading(false);
+                    setBlockerLoading(false);
+                }
+            }
+        };
+
+        fetchExecutiveAlerts();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [sessionStatus, isExecutive]);
 
     const canViewProjectUrgency = ["CEO", "DIRUT", "ASS_DIRUT"].includes(normalizedRole);
     const analyzeProjectUrgency = React.useCallback(async () => {
@@ -1754,7 +2042,7 @@ export default function DashboardPage() {
     ).size;
     const hasDealRows = filteredDeals.length > 0;
     const metricActiveDeals = hasDealRows ? (preSaleCount + confirmedCount + forecastCount) : fallbackActiveDeals;
-    const metricActiveDealsSub = hasDealRows ? `${confirmedCount} confirmed` : `${fallbackActiveDeals} MV/Project active`;
+    const metricActiveDealsSub = hasDealRows ? `${confirmedCount} confirmed` : `${fallbackActiveDeals} MV/Forecast Sales active`;
 
     const pendingTasks = tasks.filter((t) => t.status === "review").length;
     const waitingApprovalProjects = projects
@@ -1914,6 +2202,13 @@ export default function DashboardPage() {
                         {isCeo && (
                             <div className="grid grid-cols-1 gap-4">
                                 <ProjectApprovalAlerts projects={waitingApprovalProjects} />
+                            </div>
+                        )}
+
+                        {isExecutive && (
+                            <div className="grid grid-cols-1 gap-4">
+                                <DashboardBlockerControlTower alerts={blockerAlerts} summary={blockerSummary} isLoading={blockerLoading} />
+                                <DocumentAgingAlerts alerts={documentAgingAlerts} isLoading={documentAgingLoading} />
                             </div>
                         )}
 

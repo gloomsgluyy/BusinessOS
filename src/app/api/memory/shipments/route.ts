@@ -7,12 +7,44 @@ import { parsePaginationParams, buildPaginationMeta } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
+const DEFAULT_REQUIRED_DOCUMENTS = [
+    { code: "a", label: "COPY OF LAPORAN HASIL VERIFIKASI" },
+    { code: "b", label: "1 ORIGINAL DRAUGHT SURVEY REPORT" },
+    { code: "c", label: "1 ORIGINAL SURAT KETERANGAN ASAL BARANG" },
+    { code: "d", label: "1 ORIGINAL SURAT KEBENARAN DOKUMEN" },
+    { code: "e", label: "1 ORIGINAL SURAT KIRIM BARANG" },
+    { code: "f", label: "1 ORIGINAL BUKTI BAYAR ROYALTI" },
+    { code: "g", label: "3/3 ORIGINAL BILL OF LADING ISSUED BY LOADPORT AGENT" },
+    { code: "h", label: "3/3 COPIES NON NEGOTIABLE BILL OF LADING ISSUED BY LOADPORT AGENT" },
+    { code: "i", label: "1 ORIGINAL AND 4 COPIES OF CERTIFICATE OF SAMPLING AND ANALYSIS ISSUED BY INDEPENDENT SURVEYOR AT LOADING PORT (IF ANY)" },
+    { code: "j", label: "1 ORIGINAL AND 4 COPIES OF CERTIFICATE OF WEIGHT ISSUED BY INDEPENDENT SURVEYOR AT LOADING PORT (IF ANY)" },
+    { code: "k", label: "1 ORIGINAL AND 2 COPIES OF CERTIFICATE OF DRAUGHT SURVEY REPORT BY INDEPENDENT SURVEYOR AT LOADING PORT" },
+];
+
 async function triggerPush() {
     PushService.debouncedPush("shipmentDetail").catch(err => console.error("Optional Sheet push failed:", err));
 }
 
 async function ensureShipmentDetailExtendedColumns() {
     await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "buyingPrice" DOUBLE PRECISION;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "forecastSalesId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "forecastSalesName" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "fcoNumber" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "commercialMomDocumentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "commercialPoDocumentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "sourceConfirmationStatus" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "sourceConfirmationDocumentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "sourceConfirmationNotes" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "sourceConfirmedBy" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "sourceConfirmedByName" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "sourceConfirmedAt" TIMESTAMP(3);`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "sourceLegalReadinessStatus" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "sourceCargoReadinessStatus" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "paymentStatus" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "paymentDueDate" TIMESTAMP(3);`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "paymentFinanceCost" DOUBLE PRECISION;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "qualityStatus" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "issueStatus" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "siTo" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "siShipper" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "consignee" TEXT;`);
@@ -21,6 +53,429 @@ async function ensureShipmentDetailExtendedColumns() {
     await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "notifyPartyAddress" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "siMarked" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "quantityTolerance" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "royaltyCost" DOUBLE PRECISION;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "taxExportCost" DOUBLE PRECISION;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDetail" ADD COLUMN IF NOT EXISTS "surveyCost" DOUBLE PRECISION;`);
+}
+
+async function ensureShipmentDocumentChecklistTable() {
+    await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "ShipmentDocumentChecklistItem" (
+          "id" TEXT NOT NULL,
+          "shipmentId" TEXT NOT NULL,
+          "documentGroup" TEXT NOT NULL DEFAULT 'required',
+          "requirementCode" TEXT,
+          "requirementLabel" TEXT NOT NULL,
+          "title" TEXT NOT NULL,
+          "required" BOOLEAN NOT NULL DEFAULT true,
+          "ownerRole" TEXT,
+          "responsibleParty" TEXT,
+          "status" TEXT NOT NULL DEFAULT 'pending',
+          "expectedDate" TIMESTAMP(3),
+          "receivedDate" TIMESTAMP(3),
+          "submittedDate" TIMESTAMP(3),
+          "submittedTo" TEXT,
+          "hardcopyStatus" TEXT,
+          "notes" TEXT,
+          "createdBy" TEXT,
+          "createdByName" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+          CONSTRAINT "ShipmentDocumentChecklistItem_pkey" PRIMARY KEY ("id")
+        );
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentDocumentChecklistItem_shipmentId_idx" ON "ShipmentDocumentChecklistItem"("shipmentId");`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "ShipmentDocumentChecklistItem_required_code_uidx" ON "ShipmentDocumentChecklistItem"("shipmentId", "documentGroup", "requirementCode") WHERE "requirementCode" IS NOT NULL;`);
+}
+
+async function ensureShippingInstructionTable() {
+    await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "ShippingInstructionRecord" (
+          "id" TEXT NOT NULL,
+          "shipmentId" TEXT NOT NULL,
+          "siNumber" TEXT NOT NULL,
+          "version" INTEGER NOT NULL DEFAULT 1,
+          "status" TEXT NOT NULL DEFAULT 'generated',
+          "reason" TEXT,
+          "earlyApprovalReason" TEXT,
+          "approvedBy" TEXT,
+          "approvedByName" TEXT,
+          "approvedAt" TIMESTAMP(3),
+          "approvalComment" TEXT,
+          "cancellationReason" TEXT,
+          "cancelledBy" TEXT,
+          "cancelledByName" TEXT,
+          "cancelledAt" TIMESTAMP(3),
+          "pdfFileName" TEXT,
+          "pdfGeneratedAt" TIMESTAMP(3),
+          "snapshot" TEXT NOT NULL DEFAULT '{}',
+          "generatedBy" TEXT,
+          "generatedByName" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+          CONSTRAINT "ShippingInstructionRecord_pkey" PRIMARY KEY ("id")
+        );
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShippingInstructionRecord_shipmentId_idx" ON "ShippingInstructionRecord"("shipmentId");`);
+}
+
+async function ensureShipmentIssueTable() {
+    await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "ShipmentIssueLog" (
+          "id" TEXT NOT NULL,
+          "shipmentId" TEXT NOT NULL,
+          "category" TEXT NOT NULL,
+          "impact" TEXT,
+          "action" TEXT,
+          "pic" TEXT,
+          "targetDate" TIMESTAMP(3),
+          "status" TEXT NOT NULL DEFAULT 'open',
+          "evidence" TEXT,
+          "notes" TEXT,
+          "createdBy" TEXT,
+          "createdByName" TEXT,
+          "resolvedAt" TIMESTAMP(3),
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+          CONSTRAINT "ShipmentIssueLog_pkey" PRIMARY KEY ("id")
+        );
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentIssueLog_shipmentId_idx" ON "ShipmentIssueLog"("shipmentId");`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentIssueLog_shipmentId_status_idx" ON "ShipmentIssueLog"("shipmentId", "status");`);
+}
+
+async function ensureShipmentSourceChangeTable() {
+    await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "ShipmentSourceChangeRequest" (
+          "id" TEXT NOT NULL,
+          "shipmentId" TEXT NOT NULL,
+          "oldSource" TEXT,
+          "newSource" TEXT NOT NULL,
+          "reason" TEXT NOT NULL,
+          "evidence" TEXT,
+          "impact" TEXT,
+          "status" TEXT NOT NULL DEFAULT 'pending',
+          "version" INTEGER NOT NULL DEFAULT 1,
+          "active" BOOLEAN NOT NULL DEFAULT false,
+          "requestedBy" TEXT,
+          "requestedByName" TEXT,
+          "approvedBy" TEXT,
+          "approvedByName" TEXT,
+          "approvedAt" TIMESTAMP(3),
+          "approvalComment" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+          CONSTRAINT "ShipmentSourceChangeRequest_pkey" PRIMARY KEY ("id")
+        );
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentSourceChangeRequest_shipmentId_idx" ON "ShipmentSourceChangeRequest"("shipmentId");`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentSourceChangeRequest_shipmentId_status_idx" ON "ShipmentSourceChangeRequest"("shipmentId", "status");`);
+}
+
+async function ensureShipmentBargeChangeTable() {
+    await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "ShipmentBargeChangeLog" (
+          "id" TEXT NOT NULL,
+          "shipmentId" TEXT NOT NULL,
+          "oldMv" TEXT,
+          "oldTb" TEXT,
+          "oldBg" TEXT,
+          "oldNomination" TEXT,
+          "newMv" TEXT,
+          "newTb" TEXT,
+          "newBg" TEXT,
+          "newNomination" TEXT,
+          "reason" TEXT NOT NULL,
+          "evidence" TEXT,
+          "impact" TEXT,
+          "status" TEXT NOT NULL DEFAULT 'pending',
+          "version" INTEGER NOT NULL DEFAULT 1,
+          "active" BOOLEAN NOT NULL DEFAULT false,
+          "requestedBy" TEXT,
+          "requestedByName" TEXT,
+          "approvedBy" TEXT,
+          "approvedByName" TEXT,
+          "approvedAt" TIMESTAMP(3),
+          "approvalComment" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+          CONSTRAINT "ShipmentBargeChangeLog_pkey" PRIMARY KEY ("id")
+        );
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentBargeChangeLog_shipmentId_idx" ON "ShipmentBargeChangeLog"("shipmentId");`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentBargeChangeLog_shipmentId_status_idx" ON "ShipmentBargeChangeLog"("shipmentId", "status");`);
+}
+
+async function ensureDefaultRequiredDocumentChecklist(shipmentId: string) {
+    await ensureShipmentDocumentChecklistTable();
+    await prisma.shipmentDocumentChecklistItem.createMany({
+        data: DEFAULT_REQUIRED_DOCUMENTS.map((item) => ({
+            shipmentId,
+            documentGroup: "required",
+            requirementCode: item.code,
+            requirementLabel: item.label,
+            title: item.label,
+            required: true,
+            ownerRole: "Traffic",
+            status: "pending",
+        })),
+        skipDuplicates: true,
+    });
+}
+
+function isClosingStatus(value: unknown): boolean {
+    const status = normalizeKey(value);
+    return status.includes("COMPLETED") || status.includes("DONE_SHIPMENT") || status.includes("DONE") || status.includes("CLOSED") || status.includes("DISCHARGED");
+}
+
+async function validateDocumentClosingReadiness(shipmentId: string) {
+    await ensureDefaultRequiredDocumentChecklist(shipmentId);
+    const checklist = await prisma.shipmentDocumentChecklistItem.findMany({
+        where: { shipmentId, documentGroup: "required", required: true, isDeleted: false },
+        select: { requirementCode: true, requirementLabel: true, status: true },
+        orderBy: { requirementCode: "asc" },
+    });
+    const readyStatuses = new Set(["submitted", "completed", "not_required"]);
+    const blockers = checklist
+        .filter((item) => !readyStatuses.has(String(item.status || "pending").toLowerCase()))
+        .map((item) => `${item.requirementCode ? `${item.requirementCode}. ` : ""}${item.requirementLabel} (${item.status || "pending"})`);
+    return blockers;
+}
+
+async function validateSiClosingReadiness(shipmentId: string) {
+    await ensureShippingInstructionTable();
+    const records = await prisma.shippingInstructionRecord.findMany({
+        where: { shipmentId, isDeleted: false },
+        select: { siNumber: true, version: true, status: true },
+        orderBy: { version: "desc" },
+        take: 5,
+    });
+    const activeReady = records.find((record) => ["approved", "generated"].includes(String(record.status || "").toLowerCase()));
+    if (activeReady) return [];
+    if (records.length === 0) return ["Shipping Instruction has not been recorded."];
+    const latest = records[0];
+    return [`Latest SI ${latest.siNumber} v${latest.version} is ${latest.status || "unknown"}.`];
+}
+
+function closingValue(data: any, camel: string, snake: string, fallback: any) {
+    if (data?.[camel] !== undefined) return data[camel];
+    if (data?.[snake] !== undefined) return data[snake];
+    return fallback;
+}
+
+function statusIsOneOf(value: unknown, allowed: string[]) {
+    const status = normalizeKey(value);
+    return allowed.some((item) => status.includes(item));
+}
+
+function validateCommercialClosingReadiness(shipment: any, data: any = {}) {
+    const blockers: string[] = [];
+    const paymentStatus = closingValue(data, "paymentStatus", "payment_status", shipment.paymentStatus);
+    const noInvoice = closingValue(data, "noInvoiceMkls", "no_invoice_mkls", shipment.noInvoiceMkls);
+    const salesPrice = parseNum(closingValue(data, "salesPrice", "sales_price", shipment.salesPrice));
+    const buyingPrice = parseNum(closingValue(data, "buyingPrice", "buying_price", shipment.buyingPrice));
+    const quantity = parseNum(closingValue(data, "quantityLoaded", "quantity_loaded", shipment.quantityLoaded)) ??
+        parseNum(closingValue(data, "qtyPlan", "qty_plan", shipment.qtyPlan));
+
+    if (!statusIsOneOf(paymentStatus, ["PAID", "SETTLED", "COMPLETED", "COMPLETE", "NOT_REQUIRED", "N/A"])) {
+        blockers.push(`Payment: status must be paid/settled/not required (current: ${paymentStatus || "empty"}).`);
+    }
+    if (!cleanText(noInvoice)) blockers.push("Payment: invoice number is missing.");
+    if (!quantity || quantity <= 0) blockers.push("Commercial: final/loaded quantity is missing.");
+    if (!salesPrice || salesPrice <= 0) blockers.push("Commercial: sales price is missing.");
+    if (!buyingPrice || buyingPrice <= 0) blockers.push("Commercial: buying price is missing.");
+    return blockers;
+}
+
+async function validateQualityClosingReadiness(shipment: any, data: any = {}) {
+    const blockers: string[] = [];
+    const qualityStatus = closingValue(data, "qualityStatus", "quality_status", shipment.qualityStatus);
+    const coaDate = closingValue(data, "coaDate", "coa_date", shipment.coaDate);
+    const resultGar = parseNum(closingValue(data, "resultGar", "result_gar", shipment.resultGar));
+
+    const linkedQuality = await prisma.qualityResult.findMany({
+        where: {
+            isDeleted: false,
+            OR: [
+                { cargoId: shipment.id },
+                ...(shipment.shipmentNumber ? [{ cargoId: shipment.shipmentNumber }] : []),
+                ...(shipment.vesselName ? [{ cargoName: { contains: shipment.vesselName, mode: "insensitive" as const } }] : []),
+                ...(shipment.mvProjectName ? [{ cargoName: { contains: shipment.mvProjectName, mode: "insensitive" as const } }] : []),
+                ...(shipment.nomination ? [{ cargoName: { contains: shipment.nomination, mode: "insensitive" as const } }] : []),
+            ],
+        },
+        select: { cargoName: true, status: true, comparisonStatus: true, warningNotes: true, coaPolDocumentId: true, coaPodDocumentId: true },
+        take: 5,
+    });
+
+    const badQuality = linkedQuality.find((item) => {
+        const status = item.comparisonStatus || item.status;
+        return !statusIsOneOf(status, ["PASSED", "APPROVED", "ACCEPTED", "COMPLETED", "COMPLETE", "NOT_REQUIRED"]);
+    });
+    if (badQuality) blockers.push(`Quality: linked result ${badQuality.cargoName || "record"} is ${badQuality.comparisonStatus || badQuality.status || "pending"}${badQuality.warningNotes ? ` (${badQuality.warningNotes})` : ""}.`);
+    const passedWithoutCoaDoc = linkedQuality.find((item) =>
+        statusIsOneOf(item.comparisonStatus || item.status, ["PASSED", "APPROVED", "ACCEPTED", "COMPLETED", "COMPLETE"]) &&
+        !item.coaPolDocumentId &&
+        !item.coaPodDocumentId
+    );
+    if (passedWithoutCoaDoc) blockers.push(`Quality: linked result ${passedWithoutCoaDoc.cargoName || "record"} has no COA document attached.`);
+    if (!linkedQuality.length && !statusIsOneOf(qualityStatus, ["PASSED", "APPROVED", "ACCEPTED", "COMPLETED", "COMPLETE", "NOT_REQUIRED"])) {
+        blockers.push(`Quality: status must be passed/approved/not required (current: ${qualityStatus || "empty"}).`);
+    }
+    if (!coaDate && !resultGar && !linkedQuality.length && !statusIsOneOf(qualityStatus, ["NOT_REQUIRED", "N/A"])) {
+        blockers.push("Quality: COA date, GAR result, or linked quality result is required.");
+    }
+    return blockers;
+}
+
+function validateIssueClosingReadiness(shipment: any, data: any = {}) {
+    const issueStatus = closingValue(data, "issueStatus", "issue_status", shipment.issueStatus);
+    const issueText = [
+        closingValue(data, "statusReason", "status_reason", shipment.statusReason),
+        closingValue(data, "issueNotes", "issue_notes", shipment.issueNotes),
+        closingValue(data, "remarks", "remarks", shipment.remarks),
+    ].map((item) => cleanText(item)).filter(Boolean).join(" ");
+    if (!issueText) return [];
+    const hasRiskSignal = /(pending|waiting|delay|issue|problem|hold|claim|dispute|short|loss|not clear|belum|menunggu|kendala)/i.test(issueText);
+    if (!hasRiskSignal) return [];
+    if (statusIsOneOf(issueStatus, ["RESOLVED", "CLOSED", "CLEARED", "DONE", "NOT_REQUIRED", "N/A"])) return [];
+    return [`Issue: pending issue/reason exists and issue status is ${issueStatus || "empty"}.`];
+}
+
+function traceValue(value: unknown): string {
+    return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function incomingValue(data: any, camel: string, snake?: string): { provided: boolean; value: string } {
+    if (data?.[camel] !== undefined) return { provided: true, value: traceValue(data[camel]) };
+    if (snake && data?.[snake] !== undefined) return { provided: true, value: traceValue(data[snake]) };
+    return { provided: false, value: "" };
+}
+
+function directChangeBlocker(label: string, oldValue: unknown, nextValue: { provided: boolean; value: string }, flowName: string) {
+    const oldText = traceValue(oldValue);
+    if (!nextValue.provided) return null;
+    if (!oldText) return null;
+    if (oldText.toLowerCase() === nextValue.value.toLowerCase()) return null;
+    return `${label}: ${oldText} -> ${nextValue.value || "(empty)"} must use ${flowName}.`;
+}
+
+function validateTraceabilityOverwriteGuard(existing: any, data: any) {
+    const blockers = [
+        directChangeBlocker("Source", existing.source, incomingValue(data, "source"), "Source Change Request"),
+        directChangeBlocker("Supplier", existing.supplier, incomingValue(data, "supplier"), "Source Change Request"),
+        directChangeBlocker("Vessel/MV", existing.vesselName, incomingValue(data, "vesselName", "vessel_name"), "Barge Change Log"),
+        directChangeBlocker("Barge/TB-BG", existing.bargeName, incomingValue(data, "bargeName", "barge_name"), "Barge Change Log"),
+        directChangeBlocker("Nomination", existing.nomination, incomingValue(data, "nomination"), "Barge Change Log"),
+    ].filter(Boolean) as string[];
+    return blockers;
+}
+
+async function validateStructuredIssueClosingReadiness(shipmentId: string) {
+    await ensureShipmentIssueTable();
+    const issues = await prisma.shipmentIssueLog.findMany({
+        where: {
+            shipmentId,
+            isDeleted: false,
+            NOT: { status: { in: ["resolved", "closed", "not_required"] } },
+        },
+        select: { category: true, status: true, pic: true, targetDate: true },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+    });
+    return issues.map((issue) => {
+        const due = issue.targetDate ? ` due ${issue.targetDate.toISOString().slice(0, 10)}` : "";
+        const pic = issue.pic ? ` PIC ${issue.pic}` : "";
+        return `Issue Log: ${issue.category} is ${issue.status || "open"}${pic}${due}.`;
+    });
+}
+
+async function validateSourceChangeClosingReadiness(shipmentId: string) {
+    await ensureShipmentSourceChangeTable();
+    const changes = await prisma.shipmentSourceChangeRequest.findMany({
+        where: {
+            shipmentId,
+            isDeleted: false,
+            status: "pending",
+        },
+        select: { oldSource: true, newSource: true, version: true, requestedByName: true },
+        orderBy: { version: "desc" },
+        take: 5,
+    });
+    return changes.map((change) => `Source Change: v${change.version} ${change.oldSource || "-"} -> ${change.newSource} is pending${change.requestedByName ? ` by ${change.requestedByName}` : ""}.`);
+}
+
+function validateSourceConfirmationClosingReadiness(shipment: any, data: any = {}) {
+    const status = closingValue(data, "sourceConfirmationStatus", "source_confirmation_status", shipment.sourceConfirmationStatus);
+    const legal = closingValue(data, "sourceLegalReadinessStatus", "source_legal_readiness_status", shipment.sourceLegalReadinessStatus);
+    const cargo = closingValue(data, "sourceCargoReadinessStatus", "source_cargo_readiness_status", shipment.sourceCargoReadinessStatus);
+    const evidence = closingValue(data, "sourceConfirmationDocumentId", "source_confirmation_document_id", shipment.sourceConfirmationDocumentId);
+    const blockers: string[] = [];
+    if (status && !statusIsOneOf(status, ["CONFIRMED", "APPROVED", "READY", "NOT_REQUIRED", "N/A"])) {
+        blockers.push(`Source Confirmation: status is ${status}.`);
+    }
+    if (legal && !statusIsOneOf(legal, ["READY", "CLEARED", "APPROVED", "NOT_REQUIRED", "N/A"])) {
+        blockers.push(`Source Legal: readiness is ${legal}.`);
+    }
+    if (cargo && !statusIsOneOf(cargo, ["READY", "CLEARED", "APPROVED", "NOT_REQUIRED", "N/A"])) {
+        blockers.push(`Source Cargo: readiness is ${cargo}.`);
+    }
+    if (statusIsOneOf(status, ["CONFIRMED", "APPROVED", "READY"]) && !evidence) {
+        blockers.push("Source Confirmation: confirmed source needs evidence document.");
+    }
+    return blockers;
+}
+
+async function validateLinkedPaymentClosingReadiness(shipmentId: string) {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "shipmentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "invoiceNumber" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "invoiceDocumentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "paymentProofDocumentId" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "dueDate" TIMESTAMP(3);`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "OutstandingPayment" ADD COLUMN IF NOT EXISTS "disputeStatus" TEXT;`);
+    const payments = await prisma.outstandingPayment.findMany({
+        where: { shipmentId, isDeleted: false },
+        select: { invoiceNumber: true, invoiceDocumentId: true, paymentProofDocumentId: true, status: true, disputeStatus: true, dueDate: true, perusahaan: true },
+        orderBy: { createdAt: "desc" },
+    });
+    if (!payments.length) return [];
+    return payments.flatMap((payment) => {
+        const blockers: string[] = [];
+        const label = payment.invoiceNumber || payment.perusahaan || "linked payment";
+        const isPaid = statusIsOneOf(payment.status, ["PAID", "SETTLED", "COMPLETED", "COMPLETE", "NOT_REQUIRED"]);
+        if (!isPaid) {
+            const due = payment.dueDate ? ` due ${payment.dueDate.toISOString().slice(0, 10)}` : "";
+            const dispute = payment.disputeStatus ? ` dispute ${payment.disputeStatus}` : "";
+            blockers.push(`Payment Record: ${label} is ${payment.status || "pending"}${due}${dispute}.`);
+        }
+        if (!payment.invoiceNumber) blockers.push(`Payment Record: ${label} invoice number is missing.`);
+        if (!payment.invoiceDocumentId) blockers.push(`Payment Record: ${label} invoice document is not attached.`);
+        if (isPaid && !payment.paymentProofDocumentId) blockers.push(`Payment Record: ${label} payment proof is not attached.`);
+        return blockers;
+    });
+}
+
+async function validateBargeChangeClosingReadiness(shipmentId: string) {
+    await ensureShipmentBargeChangeTable();
+    const changes = await prisma.shipmentBargeChangeLog.findMany({
+        where: {
+            shipmentId,
+            isDeleted: false,
+            status: "pending",
+        },
+        select: { newMv: true, newTb: true, newBg: true, newNomination: true, version: true, requestedByName: true },
+        orderBy: { version: "desc" },
+        take: 5,
+    });
+    return changes.map((change) => {
+        const target = [change.newMv, change.newTb, change.newBg, change.newNomination].filter(Boolean).join(" / ") || "barge data";
+        return `Barge Change: v${change.version} ${target} is pending${change.requestedByName ? ` by ${change.requestedByName}` : ""}.`;
+    });
 }
 
 async function tryAuditLog(userId: string, userName: string, action: string, entityId: string, details: string) {
@@ -252,6 +707,10 @@ export async function GET(req: Request) {
                         hargaActualFobMv: true,
                         hpb: true,
                         shipmentStatus: true,
+                        paymentStatus: true,
+                        paymentDueDate: true,
+                        qualityStatus: true,
+                        issueStatus: true,
                         issueNotes: true,
                         statusReason: true,
                         blDate: true,
@@ -402,6 +861,19 @@ export async function POST(req: Request) {
         const shipment = await prisma.shipmentDetail.create({
             data: {
                 no: data.no ? parseInt(data.no) : null,
+                forecastSalesId: data.forecastSalesId ?? data.forecast_sales_id,
+                forecastSalesName: data.forecastSalesName ?? data.forecast_sales_name,
+                fcoNumber: data.fcoNumber ?? data.fco_number,
+                commercialMomDocumentId: data.commercialMomDocumentId ?? data.commercial_mom_document_id,
+                commercialPoDocumentId: data.commercialPoDocumentId ?? data.commercial_po_document_id,
+                sourceConfirmationStatus: data.sourceConfirmationStatus ?? data.source_confirmation_status,
+                sourceConfirmationDocumentId: data.sourceConfirmationDocumentId ?? data.source_confirmation_document_id,
+                sourceConfirmationNotes: data.sourceConfirmationNotes ?? data.source_confirmation_notes,
+                sourceConfirmedBy: data.sourceConfirmedBy ?? data.source_confirmed_by,
+                sourceConfirmedByName: data.sourceConfirmedByName ?? data.source_confirmed_by_name,
+                sourceConfirmedAt: parseDate(data.sourceConfirmedAt ?? data.source_confirmed_at),
+                sourceLegalReadinessStatus: data.sourceLegalReadinessStatus ?? data.source_legal_readiness_status,
+                sourceCargoReadinessStatus: data.sourceCargoReadinessStatus ?? data.source_cargo_readiness_status,
                 exportDmo: data.exportDmo,
                 status: data.status || "upcoming",
                 origin: data.origin,
@@ -420,6 +892,10 @@ export async function POST(req: Request) {
                 hpb: parseNum(data.hpb),
                 statusHpb: data.statusHpb,
                 shipmentStatus: data.shipmentStatus,
+                paymentStatus: data.paymentStatus ?? data.payment_status ?? "pending",
+                paymentDueDate: parseDate(data.paymentDueDate ?? data.payment_due_date),
+                qualityStatus: data.qualityStatus ?? data.quality_status ?? "pending",
+                issueStatus: data.issueStatus ?? data.issue_status ?? (cleanText(data.issueNotes ?? data.issue_notes ?? data.statusReason ?? data.status_reason) ? "open" : "none"),
                 issueNotes: data.issueNotes,
                 statusReason: (() => {
                     let reason = data.statusReason ?? data.status_reason ?? null;
@@ -444,6 +920,10 @@ export async function POST(req: Request) {
                 shippingTerm: data.shippingTerm,
                 shippingRate: parseNum(data.shippingRate),
                 priceFreight: parseNum(data.priceFreight),
+                royaltyCost: parseNum(data.royaltyCost ?? data.royalty_cost),
+                taxExportCost: parseNum(data.taxExportCost ?? data.tax_export_cost),
+                surveyCost: parseNum(data.surveyCost ?? data.survey_cost),
+                paymentFinanceCost: parseNum(data.paymentFinanceCost ?? data.payment_finance_cost),
                 allowance: data.allowance,
                 demm: data.demm,
                 noSpal: data.noSpal,
@@ -517,11 +997,65 @@ export async function PUT(req: Request) {
         const existing = await prisma.shipmentDetail.findUnique({ where: { id: data.id } });
         if (!existing || existing.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+        const traceabilityBlockers = validateTraceabilityOverwriteGuard(existing, data);
+        if (traceabilityBlockers.length > 0) {
+            return NextResponse.json({
+                error: "Shipment traceability fields cannot be overwritten directly. Use the change request flow.",
+                code: "SHIPMENT_TRACEABILITY_GUARD",
+                blockers: traceabilityBlockers,
+            }, { status: 409 });
+        }
+
+        if (data.status !== undefined && isClosingStatus(data.status)) {
+            const documentBlockers = await validateDocumentClosingReadiness(existing.id);
+            const siBlockers = await validateSiClosingReadiness(existing.id);
+            const commercialBlockers = validateCommercialClosingReadiness(existing, data);
+            const qualityBlockers = await validateQualityClosingReadiness(existing, data);
+            const issueBlockers = validateIssueClosingReadiness(existing, data);
+            const structuredIssueBlockers = await validateStructuredIssueClosingReadiness(existing.id);
+            const linkedPaymentBlockers = await validateLinkedPaymentClosingReadiness(existing.id);
+            const sourceChangeBlockers = await validateSourceChangeClosingReadiness(existing.id);
+            const sourceConfirmationBlockers = validateSourceConfirmationClosingReadiness(existing, data);
+            const bargeChangeBlockers = await validateBargeChangeClosingReadiness(existing.id);
+            const blockers = [
+                ...documentBlockers.map((item) => `Document: ${item}`),
+                ...siBlockers.map((item) => `SI: ${item}`),
+                ...commercialBlockers,
+                ...linkedPaymentBlockers,
+                ...qualityBlockers,
+                ...issueBlockers,
+                ...structuredIssueBlockers,
+                ...sourceChangeBlockers,
+                ...sourceConfirmationBlockers,
+                ...bargeChangeBlockers,
+            ];
+            if (blockers.length > 0) {
+                return NextResponse.json({
+                    error: "Shipment cannot be closed because closing checklist is incomplete.",
+                    code: "SHIPMENT_CLOSING_BLOCKED",
+                    blockers: blockers.slice(0, 14),
+                }, { status: 409 });
+            }
+        }
+
         // DATABASE-FIRST: Update database as primary source
         const shipment = await prisma.shipmentDetail.update({
             where: { id: data.id },
             data: {
                 no: data.no !== undefined ? (data.no ? parseInt(data.no) : null) : undefined,
+                forecastSalesId: data.forecastSalesId !== undefined ? data.forecastSalesId : (data.forecast_sales_id !== undefined ? data.forecast_sales_id : undefined),
+                forecastSalesName: data.forecastSalesName !== undefined ? data.forecastSalesName : (data.forecast_sales_name !== undefined ? data.forecast_sales_name : undefined),
+                fcoNumber: data.fcoNumber !== undefined ? data.fcoNumber : (data.fco_number !== undefined ? data.fco_number : undefined),
+                commercialMomDocumentId: data.commercialMomDocumentId !== undefined ? data.commercialMomDocumentId : (data.commercial_mom_document_id !== undefined ? data.commercial_mom_document_id : undefined),
+                commercialPoDocumentId: data.commercialPoDocumentId !== undefined ? data.commercialPoDocumentId : (data.commercial_po_document_id !== undefined ? data.commercial_po_document_id : undefined),
+                sourceConfirmationStatus: data.sourceConfirmationStatus !== undefined ? data.sourceConfirmationStatus : (data.source_confirmation_status !== undefined ? data.source_confirmation_status : undefined),
+                sourceConfirmationDocumentId: data.sourceConfirmationDocumentId !== undefined ? data.sourceConfirmationDocumentId : (data.source_confirmation_document_id !== undefined ? data.source_confirmation_document_id : undefined),
+                sourceConfirmationNotes: data.sourceConfirmationNotes !== undefined ? data.sourceConfirmationNotes : (data.source_confirmation_notes !== undefined ? data.source_confirmation_notes : undefined),
+                sourceConfirmedBy: data.sourceConfirmedBy !== undefined ? data.sourceConfirmedBy : (data.source_confirmed_by !== undefined ? data.source_confirmed_by : undefined),
+                sourceConfirmedByName: data.sourceConfirmedByName !== undefined ? data.sourceConfirmedByName : (data.source_confirmed_by_name !== undefined ? data.source_confirmed_by_name : undefined),
+                sourceConfirmedAt: data.sourceConfirmedAt !== undefined ? parseDate(data.sourceConfirmedAt) : (data.source_confirmed_at !== undefined ? parseDate(data.source_confirmed_at) : undefined),
+                sourceLegalReadinessStatus: data.sourceLegalReadinessStatus !== undefined ? data.sourceLegalReadinessStatus : (data.source_legal_readiness_status !== undefined ? data.source_legal_readiness_status : undefined),
+                sourceCargoReadinessStatus: data.sourceCargoReadinessStatus !== undefined ? data.sourceCargoReadinessStatus : (data.source_cargo_readiness_status !== undefined ? data.source_cargo_readiness_status : undefined),
                 exportDmo: data.exportDmo, status: data.status, origin: data.origin,
                 mvProjectName: data.mvProjectName, source: data.source, iupOp: data.iupOp,
                 shipmentFlow: data.shipmentFlow, jettyLoadingPort: data.jettyLoadingPort,
@@ -531,7 +1065,13 @@ export async function PUT(req: Request) {
                 remarks: data.remarks, hargaActualFob: data.hargaActualFob !== undefined ? parseNum(data.hargaActualFob) : undefined,
                 hargaActualFobMv: data.hargaActualFobMv !== undefined ? parseNum(data.hargaActualFobMv) : undefined,
                 hpb: data.hpb !== undefined ? parseNum(data.hpb) : undefined,
-                statusHpb: data.statusHpb, shipmentStatus: data.shipmentStatus, issueNotes: data.issueNotes,
+                statusHpb: data.statusHpb,
+                shipmentStatus: data.shipmentStatus,
+                paymentStatus: data.paymentStatus !== undefined ? data.paymentStatus : (data.payment_status !== undefined ? data.payment_status : undefined),
+                paymentDueDate: data.paymentDueDate !== undefined ? parseDate(data.paymentDueDate) : (data.payment_due_date !== undefined ? parseDate(data.payment_due_date) : undefined),
+                qualityStatus: data.qualityStatus !== undefined ? data.qualityStatus : (data.quality_status !== undefined ? data.quality_status : undefined),
+                issueStatus: data.issueStatus !== undefined ? data.issueStatus : (data.issue_status !== undefined ? data.issue_status : undefined),
+                issueNotes: data.issueNotes,
                 statusReason: data.statusReason !== undefined ? (data.statusReason ? String(data.statusReason).slice(0, 500) : data.statusReason) : (data.status_reason !== undefined ? (data.status_reason ? String(data.status_reason).slice(0, 500) : data.status_reason) : undefined),
                 blDate: data.blDate !== undefined ? parseDate(data.blDate) : undefined,
                 pic: data.pic, kuotaExport: data.kuotaExport, surveyorLhv: data.surveyorLhv,
@@ -543,6 +1083,10 @@ export async function PUT(req: Request) {
                 jarak: data.jarak !== undefined ? parseNum(data.jarak) : undefined,
                 shippingTerm: data.shippingTerm, shippingRate: data.shippingRate !== undefined ? parseNum(data.shippingRate) : undefined,
                 priceFreight: data.priceFreight !== undefined ? parseNum(data.priceFreight) : undefined,
+                royaltyCost: data.royaltyCost !== undefined ? parseNum(data.royaltyCost) : (data.royalty_cost !== undefined ? parseNum(data.royalty_cost) : undefined),
+                taxExportCost: data.taxExportCost !== undefined ? parseNum(data.taxExportCost) : (data.tax_export_cost !== undefined ? parseNum(data.tax_export_cost) : undefined),
+                surveyCost: data.surveyCost !== undefined ? parseNum(data.surveyCost) : (data.survey_cost !== undefined ? parseNum(data.survey_cost) : undefined),
+                paymentFinanceCost: data.paymentFinanceCost !== undefined ? parseNum(data.paymentFinanceCost) : (data.payment_finance_cost !== undefined ? parseNum(data.payment_finance_cost) : undefined),
                 allowance: data.allowance, demm: data.demm, noSpal: data.noSpal, noSi: data.noSi,
                 sentToSupplier: data.sentToSupplier,
                 sentToBargeOwner: data.sentToBargeOwner,

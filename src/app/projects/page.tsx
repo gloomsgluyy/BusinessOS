@@ -6,11 +6,11 @@ import { cn } from "@/lib/utils";
 import { FolderKanban, Search, Plus, X, Edit, Trash2, CheckCircle2, XCircle, Clock3, ClipboardCheck, Wand2, AlertTriangle, Loader2, Download, UploadCloud, FileText, ExternalLink, ChevronDown } from "lucide-react";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
-import { ProjectItem, ShipmentDetail, ShipmentDocument } from "@/types";
+import { ProjectItem, ProjectSupplierCandidate, ShipmentDetail, ShipmentDocument, SourceSupplier } from "@/types";
 import { useSearchParams } from "next/navigation";
 import { jsPDF } from "jspdf";
 
-type ProjectStatus = "waiting_approval" | "approved" | "rejected" | "upcoming" | "ongoing" | "completed" | "cancelled";
+type ProjectStatus = "draft" | "waiting_approval" | "revision_requested" | "approved" | "rejected" | "upcoming" | "ongoing" | "completed" | "cancelled";
 
 type ProjectCard = {
   id: string;
@@ -38,6 +38,26 @@ type ProjectForm = {
   buyer: string;
   status: string;
   notes: string;
+  buyer_country: string;
+  commodity: string;
+  quantity: string;
+  laycan_start: string;
+  laycan_end: string;
+  port_of_loading: string;
+  sales_term: string;
+  target_selling_price: string;
+  price_basis: string;
+  payment_terms: string;
+  surveyor: string;
+  gar: string;
+  tm: string;
+  ts: string;
+  ash: string;
+  vm: string;
+  size: string;
+  supplier_candidates: string;
+  below_spec_reason: string;
+  blending_scenario: string;
   template_type: string;
   template_checklist: string;
 };
@@ -52,6 +72,91 @@ type TemplateItem = {
   fileUrl?: string;
   uploadedAt?: string;
   uploadedByName?: string;
+};
+
+type ApprovalHistoryItem = {
+  status: string;
+  comment?: string;
+  userId?: string;
+  userName?: string;
+  createdAt?: string;
+};
+
+type RevisionHistoryItem = {
+  changes?: Array<{ field: string; label: string; oldValue?: string | null; newValue?: string | null }>;
+  reason?: string;
+  statusAtChange?: string;
+  userId?: string;
+  userName?: string;
+  createdAt?: string;
+};
+
+type FcoHistoryItem = {
+  version?: number;
+  action?: string;
+  fcoNumber?: string | null;
+  previousFcoNumber?: string | null;
+  generatedAt?: string;
+  userName?: string;
+  createdAt?: string;
+};
+
+type BuyerFeedbackHistoryItem = {
+  status?: string;
+  previousStatus?: string | null;
+  reason?: string | null;
+  fcoNumber?: string | null;
+  userName?: string;
+  createdAt?: string;
+};
+
+type RoughPnlSnapshot = {
+  generatedAt?: string;
+  quantity?: number;
+  sellingPrice?: number;
+  supplierPrice?: number;
+  freightCost?: number;
+  blendingCost?: number;
+  surveyorCost?: number;
+  royaltyCost?: number;
+  taxExportCost?: number;
+  otherCost?: number;
+  variableCostPerMt?: number;
+  revenue?: number;
+  totalCost?: number;
+  estimatedGrossProfit?: number;
+  marginPerMt?: number;
+  marginPercent?: number;
+  selectedSupplierName?: string;
+  selectedSupplierFitScore?: number;
+  notes?: string;
+};
+
+type DashboardBucketKey =
+  | "total"
+  | "draft"
+  | "waitingApproval"
+  | "approved"
+  | "fcoSent"
+  | "pendingBuyer"
+  | "deal"
+  | "failed";
+
+type DashboardBucketEntry = {
+  id: string;
+  projectName: string;
+  buyer: string;
+  offerBy: string;
+  statusText: string;
+  card: ProjectCard;
+};
+
+const buyerFeedbackLabels: Record<string, string> = {
+  fco_sent: "FCO Sent",
+  waiting_feedback: "Waiting Feedback",
+  negotiation: "Negotiation",
+  deal: "Deal",
+  failed: "Failed",
 };
 
 const safeNum = (v: unknown): number => {
@@ -79,13 +184,13 @@ const extractProjectName = (raw?: string | null): string | null => {
 };
 
 const deriveProjectName = (r?: ShipmentDetail): string => {
-  if (!r) return "Unmapped Project";
+  if (!r) return "Unmapped Forecast Sales";
   return (
     extractProjectName(r.mv_project_name) ||
     extractProjectName(r.vessel_name) ||
     cleanText(r.mv_project_name) ||
     cleanText(r.vessel_name) ||
-    "Unmapped Project"
+    "Unmapped Forecast Sales"
   );
 };
 
@@ -99,6 +204,8 @@ const detectStatus = (rows: ShipmentDetail[]): ProjectStatus => {
 
 const mapMasterStatus = (s?: string | null): ProjectStatus => {
   const key = normalizeKey(s);
+  if (key.includes("DRAFT")) return "draft";
+  if (key.includes("REVISION")) return "revision_requested";
   if (key.includes("WAITING") || key.includes("PENDING_APPROVAL") || key.includes("WAITING_APPROVAL")) return "waiting_approval";
   if (key.includes("APPROVE")) return "approved";
   if (key.includes("REJECT")) return "rejected";
@@ -109,7 +216,9 @@ const mapMasterStatus = (s?: string | null): ProjectStatus => {
 };
 
 const statusLabel: Record<ProjectStatus, string> = {
+  draft: "Draft",
   waiting_approval: "Waiting Approval",
+  revision_requested: "Revision",
   approved: "Approved",
   rejected: "Rejected",
   upcoming: "Upcoming",
@@ -121,7 +230,9 @@ const statusLabel: Record<ProjectStatus, string> = {
 const statusBadgeClass = (status: ProjectStatus) =>
   cn(
     "text-[10px] font-bold px-2.5 py-1 rounded-md uppercase",
+    status === "draft" && "bg-slate-500/10 text-slate-600",
     status === "waiting_approval" && "bg-amber-500/10 text-amber-600",
+    status === "revision_requested" && "bg-orange-500/10 text-orange-600",
     status === "approved" && "bg-sky-500/10 text-sky-600",
     status === "rejected" && "bg-rose-500/10 text-rose-600",
     status === "completed" && "bg-emerald-500/10 text-emerald-600",
@@ -209,10 +320,64 @@ const defaultForm: ProjectForm = {
   name: "",
   segment: "",
   buyer: "",
-  status: "waiting_approval",
+  status: "draft",
   notes: "",
+  buyer_country: "",
+  commodity: "Coal",
+  quantity: "",
+  laycan_start: "",
+  laycan_end: "",
+  port_of_loading: "",
+  sales_term: "FOB",
+  target_selling_price: "",
+  price_basis: "Fixed",
+  payment_terms: "",
+  surveyor: "",
+  gar: "",
+  tm: "",
+  ts: "",
+  ash: "",
+  vm: "",
+  size: "",
+  supplier_candidates: "",
+  below_spec_reason: "",
+  blending_scenario: "",
   template_type: "export_shipment",
   template_checklist: JSON.stringify(PROJECT_TEMPLATES.export_shipment),
+};
+
+const offerSubmitRequiredFields: { key: keyof ProjectForm; label: string }[] = [
+  { key: "name", label: "Forecast Sales Name" },
+  { key: "buyer", label: "Buyer Name" },
+  { key: "buyer_country", label: "Buyer Country" },
+  { key: "commodity", label: "Commodity" },
+  { key: "quantity", label: "Quantity" },
+  { key: "laycan_start", label: "Laycan Start" },
+  { key: "laycan_end", label: "Laycan End" },
+  { key: "port_of_loading", label: "Port of Loading" },
+  { key: "sales_term", label: "Sales Term" },
+  { key: "target_selling_price", label: "Target Selling Price" },
+  { key: "price_basis", label: "Price Basis" },
+  { key: "payment_terms", label: "Payment Terms" },
+  { key: "surveyor", label: "Surveyor" },
+  { key: "gar", label: "GAR" },
+  { key: "tm", label: "TM" },
+  { key: "ts", label: "TS" },
+  { key: "ash", label: "Ash" },
+];
+
+const numericOrUndefined = (value: string): number | undefined => {
+  const text = value.trim();
+  if (!text) return undefined;
+  const n = Number(text);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+const dateInputValue = (value?: string | null): string => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
 };
 
 const parseTemplateChecklist = (value?: string | null): TemplateItem[] => {
@@ -234,6 +399,56 @@ const parseTemplateChecklist = (value?: string | null): TemplateItem[] => {
       : [];
   } catch {
     return [];
+  }
+};
+
+const parseApprovalHistory = (value?: string | null): ApprovalHistoryItem[] => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const parseRevisionHistory = (value?: string | null): RevisionHistoryItem[] => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const parseFcoHistory = (value?: string | null): FcoHistoryItem[] => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const parseBuyerFeedbackHistory = (value?: string | null): BuyerFeedbackHistoryItem[] => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const parseJsonObject = (value?: string | null): any | null => {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
   }
 };
 
@@ -282,12 +497,24 @@ const avgNonZero = (values: Array<number | null | undefined>) => {
   return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
 };
 
+const firstPositive = (...values: Array<number | null | undefined>) =>
+  values.map(safeNum).find((value) => value > 0) || 0;
+
 const buildSiNumber = (project: ProjectCard, row?: ShipmentDetail) => {
   const raw = pickText(row?.no_si, row?.shipment_number);
   if (raw !== "-") return raw;
   const date = project.createdAt ? new Date(project.createdAt) : new Date();
   const no = row?.no ? String(row.no).padStart(3, "0") : String(project.projectName.length).padStart(3, "0");
   return `${no} SI-SUPPLIER/${romanMonth(date)}/${date.getFullYear()}`;
+};
+
+const buildFcoNumber = (project: ProjectCard) => {
+  if (project.projectRecord?.fco_number) return project.projectRecord.fco_number;
+  const date = project.createdAt ? new Date(project.createdAt) : new Date();
+  const yy = String(date.getFullYear()).slice(-2);
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const suffix = project.id.replace(/[^a-z0-9]/gi, "").slice(-4).toUpperCase().padStart(4, "0");
+  return `FCO.C${yy}${mm}-${suffix}`;
 };
 
 const urgencyBadgeClass = (level?: string | null) =>
@@ -302,11 +529,12 @@ const urgencyBadgeClass = (level?: string | null) =>
 export default function ProjectsPage() {
   const searchParams = useSearchParams();
   const { currentUser } = useAuthStore();
-  const { shipments, projects, syncFromMemory, addProject, updateProject, deleteProject } = useCommercialStore();
+  const { shipments, projects, sources, marketPrices, syncFromMemory, addProject, updateProject, deleteProject, addShipment, updateShipment } = useCommercialStore();
   const [, setIsInitializing] = React.useState(false);
   const [search, setSearch] = React.useState(() => searchParams.get("q") || "");
   const [yearFilter, setYearFilter] = React.useState("all");
   const [statusFilter, setStatusFilter] = React.useState<"all" | ProjectStatus>("all");
+  const [openDashboardBucket, setOpenDashboardBucket] = React.useState<DashboardBucketKey | null>(null);
   const [selectedProject, setSelectedProject] = React.useState<ProjectCard | null>(null);
   const [showForm, setShowForm] = React.useState(false);
   const [editingProject, setEditingProject] = React.useState<ProjectItem | null>(null);
@@ -317,9 +545,25 @@ export default function ProjectsPage() {
   const [shipmentDocDownloads, setShipmentDocDownloads] = React.useState<Record<string, ShipmentDocument[]>>({});
   const [loadingShipmentDocs, setLoadingShipmentDocs] = React.useState(false);
   const [downloadingRequiredZip, setDownloadingRequiredZip] = React.useState<Record<string, boolean>>({});
+  const [approvalComment, setApprovalComment] = React.useState("");
+  const [buyerFeedbackReason, setBuyerFeedbackReason] = React.useState("");
+  const [convertingShipment, setConvertingShipment] = React.useState(false);
+  const [revisionReason, setRevisionReason] = React.useState("");
+  const [blendQuantities, setBlendQuantities] = React.useState<Record<string, string>>({});
+  const [supplierCandidates, setSupplierCandidates] = React.useState<ProjectSupplierCandidate[]>([]);
+  const [candidateAction, setCandidateAction] = React.useState<string | null>(null);
   const role = String(currentUser?.role || "").toUpperCase();
-  const canApprove = ["CEO", "DIRUT", "ASS_DIRUT", "COO"].includes(role);
+  const canApprove = ["CEO", "DIRUT", "ASS_DIRUT"].includes(role);
   const canAnalyzeUrgency = ["CEO", "DIRUT", "ASS_DIRUT"].includes(role);
+  const roughPnl = React.useMemo<RoughPnlSnapshot | null>(() => {
+    const parsed = parseJsonObject(selectedProject?.projectRecord?.rough_pnl || null);
+    return parsed ? (parsed as RoughPnlSnapshot) : null;
+  }, [selectedProject?.projectRecord?.rough_pnl]);
+  const latestMarketPrice = React.useMemo(() => {
+    return [...marketPrices]
+      .filter((item) => !item.is_deleted)
+      .sort((a, b) => new Date(b.date || b.updated_at || 0).getTime() - new Date(a.date || a.updated_at || 0).getTime())[0] || null;
+  }, [marketPrices]);
 
   React.useEffect(() => {
     syncFromMemory().finally(() => setIsInitializing(false));
@@ -328,6 +572,29 @@ export default function ProjectsPage() {
     const q = searchParams.get("q");
     if (q) setSearch(q);
   }, [searchParams]);
+
+  React.useEffect(() => {
+    setApprovalComment("");
+    setBuyerFeedbackReason(selectedProject?.projectRecord?.buyer_feedback_reason || "");
+  }, [selectedProject?.id]);
+
+  const loadProjectSupplierCandidates = React.useCallback(async (projectId?: string | null) => {
+    if (!projectId) {
+      setSupplierCandidates([]);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/projects/${projectId}/supplier-candidates`, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      setSupplierCandidates(res.ok && Array.isArray(data.candidates) ? data.candidates : []);
+    } catch {
+      setSupplierCandidates([]);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadProjectSupplierCandidates(selectedProject?.projectRecord?.id || editingProject?.id || null);
+  }, [editingProject?.id, loadProjectSupplierCandidates, selectedProject?.projectRecord?.id]);
 
   React.useEffect(() => {
     if (!selectedProject?.rows.length) {
@@ -405,9 +672,14 @@ export default function ProjectsPage() {
       const key = normalizeKey(p.name);
       const rows = groupedShipments.get(key) || [];
       const years = rows.map((r) => safeNum(r.year)).filter((y) => y > 0);
-      const year = years.length ? Math.max(...years) : (p.created_at ? new Date(p.created_at).getFullYear() : null);
-      const volume = rows.reduce((s, r) => s + rowQty(r), 0);
-      const revenue = rows.reduce((s, r) => s + rowQty(r) * rowSellPrice(r), 0);
+      const laycanStartYear = p.laycan_start ? new Date(p.laycan_start).getFullYear() : null;
+      const offerQty = safeNum(p.quantity);
+      const offerPrice = safeNum(p.target_selling_price);
+      const year = years.length ? Math.max(...years) : (laycanStartYear || (p.created_at ? new Date(p.created_at).getFullYear() : null));
+      const shipmentVolume = rows.reduce((s, r) => s + rowQty(r), 0);
+      const volume = shipmentVolume || offerQty;
+      const shipmentRevenue = rows.reduce((s, r) => s + rowQty(r) * rowSellPrice(r), 0);
+      const revenue = shipmentRevenue || (offerQty * offerPrice);
       const grossProfit = rows.reduce((s, r) => {
         return s + rowQty(r) * rowMargin(r);
       }, 0);
@@ -419,14 +691,14 @@ export default function ProjectsPage() {
         segment: cleanText(p.segment) || "-",
         status: (() => {
           const masterStatus = mapMasterStatus(p.status);
-          if (["waiting_approval", "approved", "rejected", "cancelled"].includes(masterStatus)) {
+          if (["draft", "waiting_approval", "revision_requested", "approved", "rejected", "cancelled"].includes(masterStatus)) {
             return masterStatus;
           }
           return rows.length ? detectStatus(rows) : masterStatus;
         })(),
         year,
-        laycan: cleanText(rows.find((r) => r.laycan)?.laycan) || "TBA",
-        shippingTerm: cleanText(rows.find((r) => r.shipping_term)?.shipping_term) || "-",
+        laycan: cleanText(rows.find((r) => r.laycan)?.laycan) || [p.laycan_start, p.laycan_end].filter(Boolean).join(" - ") || "TBA",
+        shippingTerm: cleanText(rows.find((r) => r.shipping_term)?.shipping_term) || cleanText(p.sales_term) || "-",
         shipmentCount: rows.length,
         volume,
         revenue,
@@ -479,20 +751,343 @@ export default function ProjectsPage() {
     });
   }, [cards, search, yearFilter, statusFilter]);
 
+  const forecastDashboard = React.useMemo(() => {
+    const master = projects.filter((project) => !project.is_deleted);
+    const countStatus = (status: ProjectStatus) =>
+      master.filter((project) => mapMasterStatus(project.status) === status).length;
+    const feedback = (status: string) =>
+      master.filter((project) => String(project.buyer_feedback_status || "").toLowerCase() === status).length;
+    const pendingBuyer = master.filter((project) =>
+      ["fco_sent", "waiting_feedback", "negotiation"].includes(String(project.buyer_feedback_status || "").toLowerCase()),
+    ).length;
+    const fcoSent = master.filter((project) =>
+      Boolean(project.fco_number) || Boolean(project.buyer_feedback_status),
+    ).length;
+    const estimatedRevenue = master.reduce((sum, project) =>
+      sum + safeNum(project.quantity) * safeNum(project.target_selling_price), 0);
+    const shipmentGrossProfit = cards.reduce((sum, project) => sum + safeNum(project.grossProfit), 0);
+    return {
+      total: master.length,
+      draft: countStatus("draft"),
+      waitingApproval: countStatus("waiting_approval"),
+      approved: countStatus("approved"),
+      fcoSent,
+      pendingBuyer,
+      deal: feedback("deal"),
+      failed: feedback("failed"),
+      estimatedRevenue,
+      shipmentGrossProfit,
+    };
+  }, [cards, projects]);
+
+  const forecastDashboardBuckets = React.useMemo<Record<DashboardBucketKey, DashboardBucketEntry[]>>(() => {
+    const masterCards = cards.filter((card) => card.projectRecord && !card.projectRecord.is_deleted);
+    const entryFor = (card: ProjectCard): DashboardBucketEntry => {
+      const record = card.projectRecord;
+      const feedback = String(record?.buyer_feedback_status || "").toLowerCase();
+      return {
+        id: card.id,
+        projectName: card.projectName,
+        buyer: card.buyer || record?.buyer || "-",
+        offerBy: record?.created_by_name || "Unknown",
+        statusText: feedback ? (buyerFeedbackLabels[feedback] || feedback.replace(/_/g, " ")) : (statusLabel[card.status] || card.status),
+        card,
+      };
+    };
+    const byStatus = (status: ProjectStatus) =>
+      masterCards.filter((card) => mapMasterStatus(card.projectRecord?.status) === status).map(entryFor);
+    const byFeedback = (statuses: string[]) =>
+      masterCards.filter((card) => statuses.includes(String(card.projectRecord?.buyer_feedback_status || "").toLowerCase())).map(entryFor);
+
+    return {
+      total: masterCards.map(entryFor),
+      draft: byStatus("draft"),
+      waitingApproval: byStatus("waiting_approval"),
+      approved: byStatus("approved"),
+      fcoSent: masterCards.filter((card) =>
+        Boolean(card.projectRecord?.fco_number) || Boolean(card.projectRecord?.buyer_feedback_status),
+      ).map(entryFor),
+      pendingBuyer: byFeedback(["fco_sent", "waiting_feedback", "negotiation"]),
+      deal: byFeedback(["deal"]),
+      failed: byFeedback(["failed"]),
+    };
+  }, [cards]);
+
+  const sourceCandidateRows = React.useMemo(() => {
+    const target = {
+      gar: safeNum(form.gar),
+      tm: safeNum(form.tm),
+      ts: safeNum(form.ts),
+      ash: safeNum(form.ash),
+      qty: safeNum(form.quantity),
+    };
+    const scoreSource = (source: SourceSupplier) => {
+      const warnings: string[] = [];
+      let score = 100;
+      const spec = source.spec || ({} as SourceSupplier["spec"]);
+      if (target.gar && safeNum(spec.gar) < target.gar) {
+        const diff = target.gar - safeNum(spec.gar);
+        score -= Math.min(35, diff / Math.max(target.gar, 1) * 120);
+        warnings.push(`GAR below ${fmtInt(diff)}`);
+      }
+      ([
+        ["tm", "TM"],
+        ["ts", "TS"],
+        ["ash", "Ash"],
+      ] as const).forEach(([key, label]) => {
+        const targetValue = safeNum(target[key]);
+        const actualValue = safeNum(spec[key]);
+        if (targetValue && actualValue > targetValue) {
+          score -= Math.min(20, (actualValue - targetValue) * 6);
+          warnings.push(`${label} above target`);
+        }
+      });
+      if (target.qty && safeNum(source.stock_available) < target.qty) {
+        score -= 15;
+        warnings.push("stock below qty");
+      }
+      if (source.kyc_status !== "verified") {
+        score -= 8;
+        warnings.push("KYC not verified");
+      }
+      if (source.psi_status === "failed") {
+        score -= 12;
+        warnings.push("PSI failed");
+      }
+      return {
+        source,
+        score: Math.max(0, Math.min(100, Math.round(score))),
+        warnings,
+      };
+    };
+    return sources
+      .filter((source) => !source.is_deleted)
+      .map(scoreSource)
+      .sort((a, b) => b.score - a.score || safeNum(b.source.stock_available) - safeNum(a.source.stock_available))
+      .slice(0, 6);
+  }, [form.ash, form.gar, form.quantity, form.tm, form.ts, sources]);
+
+  const priceReference = React.useMemo(() => {
+    const basis = normalizeKey(form.price_basis);
+    const targetGar = safeNum(form.gar);
+    const targetPrice = safeNum(form.target_selling_price);
+    const market = latestMarketPrice;
+    const iciByGar = (() => {
+      if (!market) return { label: "ICI", value: 0 };
+      if (targetGar >= 6200) return { label: "ICI 1", value: safeNum(market.ici_1) };
+      if (targetGar >= 5600) return { label: "ICI 2", value: safeNum(market.ici_2) };
+      if (targetGar >= 4600) return { label: "ICI 3", value: safeNum(market.ici_3) };
+      if (targetGar >= 3800) return { label: "ICI 4", value: safeNum(market.ici_4) };
+      return { label: "ICI 5", value: safeNum(market.ici_5) || safeNum(market.ici_4) };
+    })();
+    const marketRef = (() => {
+      if (!market) return { label: "No market reference", value: 0 };
+      if (basis.includes("NEWCASTLE")) return { label: "Newcastle", value: safeNum(market.newcastle) };
+      if (basis.includes("HBA")) return { label: "HBA", value: safeNum(market.hba) };
+      if (basis.includes("ICI")) return iciByGar;
+      return iciByGar.value ? iciByGar : { label: "HBA", value: safeNum(market.hba) };
+    })();
+    const commodityKey = normalizeKey(form.commodity);
+    const buyerKey = normalizeKey(form.buyer);
+    const historicalRows = shipments
+      .filter((shipment) => !shipment.is_deleted)
+      .filter((shipment) => {
+        const price = rowSellPrice(shipment);
+        if (!price) return false;
+        const buyerMatches = !buyerKey || normalizeKey(shipment.buyer).includes(buyerKey) || buyerKey.includes(normalizeKey(shipment.buyer));
+        const commodityMatches = !commodityKey || normalizeKey(shipment.product).includes(commodityKey) || commodityKey.includes(normalizeKey(shipment.product));
+        return buyerMatches && commodityMatches;
+      })
+      .sort((a, b) => new Date(b.bl_date || b.updated_at || 0).getTime() - new Date(a.bl_date || a.updated_at || 0).getTime())
+      .slice(0, 8);
+    const historicalAverage = historicalRows.length
+      ? historicalRows.reduce((sum, shipment) => sum + rowSellPrice(shipment), 0) / historicalRows.length
+      : 0;
+    const referenceValue = marketRef.value || historicalAverage;
+    const gap = targetPrice && referenceValue ? targetPrice - referenceValue : 0;
+    const gapPercent = targetPrice && referenceValue ? (gap / referenceValue) * 100 : 0;
+    const warning = Boolean(targetPrice && referenceValue && targetPrice < referenceValue * 0.98);
+    return {
+      market,
+      marketLabel: marketRef.label,
+      marketValue: marketRef.value,
+      historicalAverage,
+      historicalCount: historicalRows.length,
+      referenceValue,
+      gap,
+      gapPercent,
+      warning,
+    };
+  }, [form.buyer, form.commodity, form.gar, form.price_basis, form.target_selling_price, latestMarketPrice, shipments]);
+
+  const selectedCandidateNeedsAcknowledgement = React.useMemo(() => {
+    const text = form.supplier_candidates || "";
+    const fitScores = Array.from(text.matchAll(/fit\s+(\d{1,3})%/gi)).map((match) => Number(match[1]));
+    return (
+      fitScores.some((score) => Number.isFinite(score) && score < 80) ||
+      /below|above target|stock below|kyc not verified|psi failed/i.test(text)
+    );
+  }, [form.supplier_candidates]);
+
+  const blendSimulation = React.useMemo(() => {
+    const inputs = sourceCandidateRows
+      .map(({ source }) => ({
+        source,
+        quantity: safeNum(blendQuantities[source.id]),
+      }))
+      .filter((item) => item.quantity > 0);
+    const totalQty = inputs.reduce((sum, item) => sum + item.quantity, 0);
+    const weighted = (key: "gar" | "tm" | "ts" | "ash") => {
+      if (!totalQty) return 0;
+      return inputs.reduce((sum, item) => sum + safeNum(item.source.spec?.[key]) * item.quantity, 0) / totalQty;
+    };
+    const avgCost = totalQty
+      ? inputs.reduce((sum, item) => sum + safeNum(item.source.fob_barge_price_usd) * item.quantity, 0) / totalQty
+      : 0;
+    const targetQty = safeNum(form.quantity);
+    const result = {
+      inputs,
+      totalQty,
+      avgCost,
+      gar: weighted("gar"),
+      tm: weighted("tm"),
+      ts: weighted("ts"),
+      ash: weighted("ash"),
+      targetQty,
+    };
+    const warnings: string[] = [];
+    if (targetQty && totalQty && totalQty !== targetQty) warnings.push(`Quantity differs from target by ${fmtInt(Math.abs(targetQty - totalQty))} MT`);
+    if (safeNum(form.gar) && result.gar && result.gar < safeNum(form.gar)) warnings.push("Final GAR below target");
+    if (safeNum(form.tm) && result.tm && result.tm > safeNum(form.tm)) warnings.push("Final TM above target");
+    if (safeNum(form.ts) && result.ts && result.ts > safeNum(form.ts)) warnings.push("Final TS above target");
+    if (safeNum(form.ash) && result.ash && result.ash > safeNum(form.ash)) warnings.push("Final Ash above target");
+    return { ...result, warnings };
+  }, [blendQuantities, form.ash, form.gar, form.quantity, form.tm, form.ts, sourceCandidateRows]);
+
+  const addSourceCandidateToForm = (source: SourceSupplier, score: number) => {
+    const line = [
+      source.name,
+      source.region ? `Region ${source.region}` : null,
+      source.spec?.gar ? `GAR ${source.spec.gar}` : null,
+      source.spec?.tm ? `TM ${source.spec.tm}` : null,
+      source.spec?.ts ? `TS ${source.spec.ts}` : null,
+      source.spec?.ash ? `Ash ${source.spec.ash}` : null,
+      `Stock ${fmtInt(safeNum(source.stock_available))} MT`,
+      `Fit ${score}%`,
+    ].filter(Boolean).join(" | ");
+    setForm((current) => {
+      const existing = current.supplier_candidates || "";
+      if (normalizeKey(existing).includes(normalizeKey(source.name))) return current;
+      return {
+        ...current,
+        supplier_candidates: [existing.trim(), line].filter(Boolean).join("\n"),
+      };
+    });
+  };
+
+  const saveStructuredCandidate = async (source: SourceSupplier, score: number, warnings: string[] = []) => {
+    const projectId = editingProject?.id || selectedProject?.projectRecord?.id;
+    if (!projectId) return;
+    const actionKey = `candidate:${source.id}`;
+    setCandidateAction(actionKey);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/supplier-candidates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceId: source.id,
+          supplierName: source.name,
+          sourceName: source.name,
+          region: source.region,
+          fitScore: score,
+          warningText: warnings.join(", "),
+          stockAvailable: source.stock_available,
+          gar: source.spec?.gar,
+          tm: source.spec?.tm,
+          ts: source.spec?.ts,
+          ash: source.spec?.ash,
+          priceUsd: source.fob_barge_price_usd,
+          status: "candidate",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to save supplier candidate");
+      await loadProjectSupplierCandidates(projectId);
+    } finally {
+      setCandidateAction(null);
+    }
+  };
+
+  const addSourceCandidate = async (source: SourceSupplier, score: number, warnings: string[] = []) => {
+    addSourceCandidateToForm(source, score);
+    if (editingProject?.id || selectedProject?.projectRecord?.id) {
+      await saveStructuredCandidate(source, score, warnings).catch(() => null);
+    }
+  };
+
+  const selectStructuredCandidate = async (candidate: ProjectSupplierCandidate) => {
+    const projectId = selectedProject?.projectRecord?.id || editingProject?.id;
+    if (!projectId) return;
+    const actionKey = `select:${candidate.id}`;
+    setCandidateAction(actionKey);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/supplier-candidates`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: candidate.id, selected: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to select supplier candidate");
+      await loadProjectSupplierCandidates(projectId);
+      await syncFromMemory();
+    } finally {
+      setCandidateAction(null);
+    }
+  };
+
+  const selectedSupplierCandidateFor = React.useCallback((project?: ProjectItem | null) => {
+    if (!project?.id) return undefined;
+    return supplierCandidates.find((candidate) => candidate.projectId === project.id && candidate.selected && !candidate.isDeleted);
+  }, [supplierCandidates]);
+
   const openCreate = () => {
     setEditingProject(null);
+    setRevisionReason("");
+    setBlendQuantities({});
     setForm({ ...defaultForm });
     setShowForm(true);
   };
 
   const openEdit = (p: ProjectItem) => {
     setEditingProject(p);
+    setRevisionReason("");
+    setBlendQuantities({});
     setForm({
       name: p.name || "",
       segment: p.segment || "",
       buyer: p.buyer || "",
-      status: p.status || "waiting_approval",
+      status: p.status || "draft",
       notes: p.notes || "",
+      buyer_country: p.buyer_country || "",
+      commodity: p.commodity || "Coal",
+      quantity: p.quantity ? String(p.quantity) : "",
+      laycan_start: dateInputValue(p.laycan_start),
+      laycan_end: dateInputValue(p.laycan_end),
+      port_of_loading: p.port_of_loading || "",
+      sales_term: p.sales_term || "FOB",
+      target_selling_price: p.target_selling_price ? String(p.target_selling_price) : "",
+      price_basis: p.price_basis || "Fixed",
+      payment_terms: p.payment_terms || "",
+      surveyor: p.surveyor || "",
+      gar: p.gar ? String(p.gar) : "",
+      tm: p.tm ? String(p.tm) : "",
+      ts: p.ts ? String(p.ts) : "",
+      ash: p.ash ? String(p.ash) : "",
+      vm: p.vm ? String(p.vm) : "",
+      size: p.size || "",
+      supplier_candidates: p.supplier_candidates || "",
+      below_spec_reason: p.below_spec_reason || "",
+      blending_scenario: p.blending_scenario || "",
       template_type: p.template_type || "export_shipment",
       template_checklist: p.template_checklist || JSON.stringify(PROJECT_TEMPLATES[p.template_type || "export_shipment"] || PROJECT_TEMPLATES.export_shipment),
     });
@@ -647,7 +1242,7 @@ export default function ProjectsPage() {
     doc.text(siTo.toUpperCase(), labelX + 7, y);
     y += 23;
 
-    drawField("Project Name / From MV", projectName.toUpperCase(), true);
+    drawField("Forecast Sales / From MV", projectName.toUpperCase(), true);
     drawField("Shipper", `${shipper.toUpperCase()}\nQQ PT. MAHAKARYA SENTRA ENERGI`);
     drawField("Consignee", consigneeText);
     drawField("Notify Party", notifyPartyText);
@@ -695,6 +1290,9 @@ export default function ProjectsPage() {
     const first = rows[0];
     const now = new Date();
     const reportTime = formatSummaryDate(now);
+    const roughPnl = parseJsonObject(project.projectRecord?.rough_pnl) as RoughPnlSnapshot | null;
+    const blendingScenario = parseJsonObject(project.projectRecord?.blending_scenario);
+    const blendingResult = blendingScenario?.result || {};
     const quantity = project.volume || rows.reduce((sum, row) => sum + rowQty(row), 0);
     const bargeCount = (() => {
       const names = new Set(rows.map((row) => pickText(row.nomination, row.barge_name)).filter((value) => value !== "-"));
@@ -708,23 +1306,31 @@ export default function ProjectsPage() {
     const totalTimbang = timbangValues.reduce((sum, value) => sum + value, 0);
     const manualOverLoss = rows.reduce((sum, row) => sum + safeNum(row.loss_gain_cargo), 0);
     const overLoss = manualOverLoss || (totalLoaded && totalDischarged ? totalLoaded - totalDischarged : 0);
-    const actualRevenue = rows.reduce((sum, row) => sum + safeNum(row.quantity_loaded || row.qty_cob || row.qty_plan) * rowSellPrice(row), 0) || project.revenue;
-    const actualCost = rows.reduce((sum, row) => sum + safeNum(row.quantity_loaded || row.qty_cob || row.qty_plan) * rowBuyPrice(row), 0);
-    const actualProfit = actualRevenue - actualCost || project.grossProfit;
-    const budgetRevenue = rows.reduce((sum, row) => sum + safeNum(row.qty_plan || row.quantity_loaded || row.qty_cob) * rowSellPrice(row), 0) || actualRevenue;
-    const budgetCost = rows.reduce((sum, row) => sum + safeNum(row.qty_plan || row.quantity_loaded || row.qty_cob) * rowBuyPrice(row), 0) || actualCost;
-    const budgetProfit = budgetRevenue - budgetCost;
+    const rowActualRevenue = rows.reduce((sum, row) => sum + safeNum(row.quantity_loaded || row.qty_cob || row.qty_plan) * rowSellPrice(row), 0);
+    const rowActualCost = rows.reduce((sum, row) => sum + safeNum(row.quantity_loaded || row.qty_cob || row.qty_plan) * rowBuyPrice(row), 0);
+    const actualRevenue = rowActualRevenue || safeNum(roughPnl?.revenue) || project.revenue;
+    const actualCost = rowActualCost || safeNum(roughPnl?.totalCost);
+    const actualProfit = (rowActualRevenue || rowActualCost)
+      ? actualRevenue - actualCost
+      : safeNum(roughPnl?.estimatedGrossProfit) || project.grossProfit;
+    const budgetRevenue = rows.reduce((sum, row) => sum + safeNum(row.qty_plan || row.quantity_loaded || row.qty_cob) * rowSellPrice(row), 0)
+      || safeNum(roughPnl?.revenue)
+      || actualRevenue;
+    const budgetCost = rows.reduce((sum, row) => sum + safeNum(row.qty_plan || row.quantity_loaded || row.qty_cob) * rowBuyPrice(row), 0)
+      || safeNum(roughPnl?.totalCost)
+      || actualCost;
+    const budgetProfit = budgetRevenue - budgetCost || safeNum(roughPnl?.estimatedGrossProfit);
     const specs = {
-      tm: avgNonZero(rows.map((row) => row.spec_actual?.tm)),
+      tm: avgNonZero(rows.map((row) => row.spec_actual?.tm)) || firstPositive(blendingResult.tm, project.projectRecord?.tm),
       im: avgNonZero(rows.map((row) => row.spec_actual?.im)),
-      ash: avgNonZero(rows.map((row) => row.spec_actual?.ash)),
-      vm: 0,
+      ash: avgNonZero(rows.map((row) => row.spec_actual?.ash)) || firstPositive(blendingResult.ash, project.projectRecord?.ash),
+      vm: firstPositive(project.projectRecord?.vm),
       fc: avgNonZero(rows.map((row) => row.spec_actual?.fc)),
-      ts: avgNonZero(rows.map((row) => row.spec_actual?.ts)),
+      ts: avgNonZero(rows.map((row) => row.spec_actual?.ts)) || firstPositive(blendingResult.ts, project.projectRecord?.ts),
       adb: avgNonZero(rows.map((row) => row.spec_actual?.adb)),
-      gar: avgNonZero(rows.map((row) => row.result_gar || row.spec_actual?.gar)),
+      gar: avgNonZero(rows.map((row) => row.result_gar || row.spec_actual?.gar)) || firstPositive(blendingResult.gar, project.projectRecord?.gar),
       hgi: avgNonZero(rows.map((row) => row.spec_actual?.hgi)),
-      size: 0,
+      size: cleanText(project.projectRecord?.size) || "-",
     };
     const fmtSpec = (value: number) => safeNum(value).toLocaleString("en-US", { maximumFractionDigits: 2 });
     const approvalStatus = project.projectRecord ? mapMasterStatus(project.projectRecord.status) : project.status;
@@ -839,9 +1445,9 @@ export default function ProjectsPage() {
     };
 
     let y = 164;
-    y = drawSection(y, 76, "Deskripsi Proyek", (startY) => {
+    y = drawSection(y, 76, "Deskripsi Forecast Sales", (startY) => {
       doc.setFont("helvetica", "normal");
-      writeLines(`Nama Proyek: ${project.projectName}`, detailX, startY, 175);
+      writeLines(`Nama Forecast Sales: ${project.projectName}`, detailX, startY, 175);
       writeLines(`Nama Klien: ${pickText(project.buyer, first?.buyer)}`, detailX, startY + 10, 175);
       writeLines(`Quantity: ${quantity ? `${fmtInt(quantity)} MT` : "n/a"}`, detailX, startY + 20, 175);
       writeLines(`Kalori: ${specs.gar ? fmtSpec(specs.gar) : "n/a"}`, detailX, startY + 30, 175);
@@ -851,7 +1457,7 @@ export default function ProjectsPage() {
     });
     y = drawSection(y, 54, "Spesifikasi", (startY) => {
       writeLines(`TM: ${fmtSpec(specs.tm)} , IM: ${fmtSpec(specs.im)} , ASH: ${fmtSpec(specs.ash)} , VM: ${fmtSpec(specs.vm)} , FC: ${fmtSpec(specs.fc)} , TS: ${fmtSpec(specs.ts)} ,`, detailX, startY, 360);
-      writeLines(`ADB: ${fmtSpec(specs.adb)} , GAR: ${fmtSpec(specs.gar)} , HGI: ${fmtSpec(specs.hgi)} , SIZE: ${fmtSpec(specs.size)}`, detailX, startY + 11, 360);
+      writeLines(`ADB: ${fmtSpec(specs.adb)} , GAR: ${fmtSpec(specs.gar)} , HGI: ${fmtSpec(specs.hgi)} , SIZE: ${specs.size}`, detailX, startY + 11, 360);
     });
     y = drawSection(y, 170, "Grafik Budget vs Aktual", (startY) => {
       drawBudgetChart(detailX, startY - 8, 175, 130);
@@ -893,6 +1499,222 @@ export default function ProjectsPage() {
     doc.save(`summary-report-${slugFile(project.projectName)}.pdf`);
   };
 
+  const downloadForecastSalesFco = async (project: ProjectCard) => {
+    if (!project.projectRecord) {
+      window.alert("FCO hanya tersedia untuk Forecast Sales master record.");
+      return;
+    }
+    if (mapMasterStatus(project.projectRecord.status) !== "approved") {
+      window.alert("FCO hanya bisa di-download setelah Offer Profile approved oleh CEO/DIRUT/ASS_DIRUT.");
+      return;
+    }
+
+    const fcoNumber = buildFcoNumber(project);
+    const generatedAt = new Date().toISOString();
+    await updateProject(project.projectRecord.id, {
+      fco_number: fcoNumber,
+      fco_generated_at: generatedAt,
+    } as Partial<ProjectItem>);
+    await syncFromMemory({ force: true });
+
+    const p = project.projectRecord;
+    const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const left = 42;
+    const right = pageWidth - 42;
+    const contentWidth = right - left;
+    const labelW = 118;
+    let y = 48;
+
+    const fcoDate = formatSummaryDate(new Date()).replace(/:\d{2}$/, "");
+    const quantityText = p.quantity ? `${fmtInt(p.quantity)} Metric Tons +/-10%` : "-";
+    const laycanText = [p.laycan_start, p.laycan_end].filter(Boolean).map((v) => dateInputValue(v)).join(" - ") || "-";
+    const basePriceText = p.target_selling_price
+      ? `${fmtUsd(p.target_selling_price)} per Metric Ton basis ${p.gar || "-"} Kcal/Kg GAR`
+      : "-";
+    const selectedSupplier = selectedSupplierCandidateFor(p);
+    const selectedSupplierText = selectedSupplier
+      ? [
+        selectedSupplier.supplierName,
+        selectedSupplier.region ? `Region ${selectedSupplier.region}` : null,
+        selectedSupplier.fitScore != null ? `Fit ${selectedSupplier.fitScore}%` : null,
+        selectedSupplier.priceUsd ? `Price ${fmtUsd(selectedSupplier.priceUsd)}/MT` : null,
+        selectedSupplier.gar ? `GAR ${selectedSupplier.gar}` : null,
+        selectedSupplier.tm ? `TM ${selectedSupplier.tm}%` : null,
+        selectedSupplier.ts ? `TS ${selectedSupplier.ts}%` : null,
+        selectedSupplier.ash ? `Ash ${selectedSupplier.ash}%` : null,
+      ].filter(Boolean).join(" | ")
+      : pickText(p.supplier_candidates, "To be mutually agreed.");
+    const sellerName = "PT BORNEO PASIFIK GLOBAL";
+    const buyerName = pickText(p.buyer, "Buyer");
+
+    doc.setProperties({ title: `${fcoNumber} - ${project.projectName}` });
+
+    const ensureSpace = (needed = 48) => {
+      if (y + needed <= pageHeight - 54) return;
+      doc.addPage();
+      y = 48;
+    };
+
+    const writeParagraph = (text: string, x = left, width = contentWidth, size = 8.2, lineHeight = 10.5) => {
+      ensureSpace(36);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(size);
+      const lines = doc.splitTextToSize(text, width);
+      doc.text(lines, x, y);
+      y += Math.max(lineHeight, lines.length * lineHeight);
+    };
+
+    const clause = (letter: string, title: string, value: string, minHeight = 0) => {
+      const startY = y;
+      ensureSpace(Math.max(28, minHeight));
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.1);
+      doc.text(`${letter}.`, left, y);
+      doc.text(title.toUpperCase(), left + 18, y);
+      doc.setFont("helvetica", "normal");
+      const lines = doc.splitTextToSize(value || "-", contentWidth - labelW - 18);
+      doc.text(lines, left + labelW, y);
+      y += Math.max(15, lines.length * 10.2, minHeight);
+      doc.setDrawColor(235, 235, 235);
+      doc.line(left, y - 5, right, y - 5);
+      if (y === startY) y += 15;
+    };
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text("FULL CORPORATE OFFER", pageWidth / 2, y, { align: "center" });
+    y += 22;
+    doc.setFontSize(8.5);
+    doc.text("Date", left, y);
+    doc.text(":", left + 32, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(fcoDate, left + 42, y);
+    doc.setFont("helvetica", "bold");
+    doc.text("To", pageWidth / 2 + 20, y);
+    doc.text(":", pageWidth / 2 + 50, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(doc.splitTextToSize(buyerName, 180), pageWidth / 2 + 60, y);
+    y += 14;
+    doc.setFont("helvetica", "bold");
+    doc.text("No", left, y);
+    doc.text(":", left + 32, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(fcoNumber, left + 42, y);
+    doc.setFont("helvetica", "bold");
+    doc.text("For Attention", pageWidth / 2 + 20, y);
+    doc.text(":", pageWidth / 2 + 80, y);
+    doc.setFont("helvetica", "normal");
+    doc.text("Purchasing / Commercial Team", pageWidth / 2 + 90, y);
+    y += 24;
+    doc.setDrawColor(35, 68, 120);
+    doc.setLineWidth(0.8);
+    doc.line(left, y, right, y);
+    y += 20;
+
+    writeParagraph(
+      `We, ${sellerName}, hereby declare and confirm that we are ready, willing and capable to sell commodity as specified in the terms and conditions as hereinafter:`,
+      left,
+      contentWidth,
+      8.3,
+      11,
+    );
+    y += 8;
+
+    clause("A", "Commodity", p.commodity || "Indonesian Steam Coal");
+    ensureSpace(126);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.1);
+    doc.text("B.", left, y);
+    doc.text("COAL QUALITY", left + 18, y);
+    doc.setFont("helvetica", "normal");
+    doc.text("As per ISO / ASTM Standards", left + labelW, y);
+    y += 12;
+    const tableX = left + labelW;
+    const colW = [118, 45, 38, 72, 72];
+    const headers = ["PARAMETER", "BASIS", "UNIT", "TYPICAL", "LOWEST LIMIT"];
+    const rows = [
+      ["Gross Calorific Value", "ARB", "kcal/kg", pickText(p.gar), p.gar ? `Below ${Math.max(0, safeNum(p.gar) - 200)}` : "-"],
+      ["Total Moisture", "ARB", "%", p.tm ? `${p.tm}` : "-", "-"],
+      ["Inherent Moisture", "ADB", "%", "-", "-"],
+      ["Total Sulphur", "ADB", "%", p.ts ? `${p.ts} Max` : "-", "-"],
+      ["Ash Content", "ADB", "%", p.ash ? `${p.ash} Max` : "-", "-"],
+      ["Volatile Matter", "ADB", "%", p.vm ? `${p.vm} Approx` : "-", "-"],
+      ["Fixed Carbon", "ADB", "%", "By Difference", "-"],
+      ["HGI", "", "", "-", "-"],
+      [`Size ${p.size || "0-50 mm"}`, "", "%", p.size ? "As agreed" : "90", "-"],
+    ];
+    doc.setFontSize(6.8);
+    doc.setFillColor(242, 245, 249);
+    doc.rect(tableX, y - 8, colW.reduce((a, b) => a + b, 0), 14, "F");
+    let tx = tableX;
+    headers.forEach((h, idx) => {
+      doc.setFont("helvetica", "bold");
+      doc.text(h, tx + 3, y);
+      tx += colW[idx];
+    });
+    y += 12;
+    rows.forEach((row) => {
+      ensureSpace(14);
+      tx = tableX;
+      row.forEach((cell, idx) => {
+        doc.setFont("helvetica", "normal");
+        doc.text(String(cell), tx + 3, y);
+        tx += colW[idx];
+      });
+      y += 10;
+    });
+    y += 7;
+
+    clause("C", "Origin", "Indonesia");
+    clause("D", "Quantity", quantityText);
+    clause("E", "Laycan", laycanText);
+    clause("F", "Port of Loading", pickText(p.port_of_loading));
+    clause("G", "Base Price", basePriceText);
+    clause(
+      "H",
+      "Price Adjustment",
+      p.gar
+        ? `If actual GAR is above and below ${p.gar} kcal/kg, then the price shall be adjusted as follows: Base Price x Actual GAR / ${p.gar} kcal/kg GAR. No other penalty shall apply.`
+        : "To be mutually agreed based on final coal quality.",
+      34,
+    );
+    clause(
+      "I",
+      "Shipping Terms",
+      `${p.sales_term || "FOB"} Geared and Grabbed or Gearless Mother Vessel at Loading Port. Buyer to nominate vessel 7 days before the first day of laycan. Vessel holds shall be clean and ready for loading.`,
+      44,
+    );
+    clause(
+      "J",
+      "Loading Rate",
+      "8,000 MT (Geared and Grabbed) or 10,000 MT (Gearless) PWWD SHINC except Indonesian major holidays. Laytime shall commence 12 hours after free pratique granted at the loading port or when loading commences, whichever is earlier. If vessel tenders NOR outside agreed laycan, berthing/loading shall be subject to availability of berth and coal, and detention/demurrage claims shall follow valid supporting evidence.",
+      88,
+    );
+    clause("K", "Payment Terms", pickText(p.payment_terms), 36);
+    clause(
+      "L",
+      "Independent Surveyor",
+      `${pickText(p.surveyor)} mutually agreed by both parties. Buyer sample and certificate challenge procedure shall follow mutually agreed terms and applicable surveyor standards.`,
+      44,
+    );
+    clause("M", "Supplier / Source Reference", [selectedSupplierText, p.notes].filter(Boolean).join("\n") || "To be mutually agreed.", 38);
+    clause("N", "Validity", "Subject to cargo unsold.");
+    y += 12;
+    writeParagraph("We hope that the above offer will meet your requirement and will be the beginning of a long and prosperous relationship.", left, contentWidth, 8.3, 11);
+    y += 18;
+    writeParagraph("Yours sincerely,", left, contentWidth, 8.3, 11);
+    y += 44;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.text(sellerName, left, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Generated from approved Forecast Sales by ${p.approved_by_name || "Executive"}`, left, y + 14);
+
+    doc.save(`${slugFile(fcoNumber)}-${slugFile(project.projectName)}.pdf`);
+  };
+
   const uploadProjectDocument = async (project: ProjectItem, index: number, file: File | null) => {
     if (!file) return;
     const key = `${project.id}:${index}`;
@@ -903,7 +1725,7 @@ export default function ProjectsPage() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("requirementCode", items[index]?.code || "");
-      formData.append("requirementLabel", items[index]?.label || "Project document");
+      formData.append("requirementLabel", items[index]?.label || "Forecast Sales document");
       const res = await fetch(`/api/projects/${project.id}/documents`, { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "Upload failed");
@@ -943,19 +1765,247 @@ export default function ProjectsPage() {
     await syncFromMemory({ force: true });
   };
 
-  const saveProject = async () => {
+  const buildProjectPayload = (statusOverride?: string): Partial<ProjectItem> & Pick<ProjectItem, "name"> => ({
+    name: form.name.trim(),
+    segment: form.segment.trim(),
+    buyer: form.buyer.trim(),
+    status: statusOverride || form.status || "draft",
+    notes: form.notes.trim(),
+    buyer_country: form.buyer_country.trim(),
+    commodity: form.commodity.trim(),
+    quantity: numericOrUndefined(form.quantity),
+    laycan_start: form.laycan_start,
+    laycan_end: form.laycan_end,
+    port_of_loading: form.port_of_loading.trim(),
+    sales_term: form.sales_term.trim(),
+    target_selling_price: numericOrUndefined(form.target_selling_price),
+    price_basis: form.price_basis.trim(),
+    payment_terms: form.payment_terms.trim(),
+    surveyor: form.surveyor.trim(),
+    gar: numericOrUndefined(form.gar),
+    tm: numericOrUndefined(form.tm),
+    ts: numericOrUndefined(form.ts),
+    ash: numericOrUndefined(form.ash),
+    vm: numericOrUndefined(form.vm),
+    size: form.size.trim(),
+    supplier_candidates: form.supplier_candidates.trim(),
+    below_spec_reason: form.below_spec_reason.trim(),
+    blending_scenario: form.blending_scenario.trim(),
+    template_type: form.template_type,
+    template_checklist: form.template_checklist,
+  });
+
+  const criticalRevisionChanged = React.useMemo(() => {
+    if (!editingProject) return false;
+    const current = [
+      String(numericOrUndefined(form.quantity) || ""),
+      form.laycan_start || "",
+      form.laycan_end || "",
+      String(numericOrUndefined(form.target_selling_price) || ""),
+      form.supplier_candidates.trim(),
+    ].join("|");
+    const previous = [
+      String(editingProject.quantity || ""),
+      dateInputValue(editingProject.laycan_start),
+      dateInputValue(editingProject.laycan_end),
+      String(editingProject.target_selling_price || ""),
+      (editingProject.supplier_candidates || "").trim(),
+    ].join("|");
+    return current !== previous;
+  }, [editingProject, form.laycan_end, form.laycan_start, form.quantity, form.supplier_candidates, form.target_selling_price]);
+
+  const missingSubmitFields = () =>
+    offerSubmitRequiredFields
+      .filter((item) => !String(form[item.key] || "").trim())
+      .map((item) => item.label);
+
+  const saveProject = async (statusOverride?: string) => {
     if (!form.name.trim()) return;
+    if (statusOverride === "waiting_approval") {
+      const missing = missingSubmitFields();
+      if (missing.length) {
+        window.alert(`Lengkapi mandatory field sebelum Submit Offer Profile:\n- ${missing.join("\n- ")}`);
+        return;
+      }
+      if (selectedCandidateNeedsAcknowledgement && !form.below_spec_reason.trim()) {
+        window.alert("Below-spec acknowledgement wajib diisi karena supplier candidate memiliki fit score rendah atau warning.");
+        return;
+      }
+    }
+    if (editingProject && criticalRevisionChanged && mapMasterStatus(editingProject.status) !== "draft" && !revisionReason.trim()) {
+      window.alert("Revision reason wajib diisi untuk perubahan quantity, laycan, price, atau supplier candidate setelah draft.");
+      return;
+    }
     setSaving(true);
     try {
-      if (editingProject) {
-        await updateProject(editingProject.id, { ...form, name: form.name.trim() });
-      } else {
-        await addProject({ ...form, name: form.name.trim() } as Omit<ProjectItem, "id" | "created_at" | "updated_at">);
+      const payload = buildProjectPayload(statusOverride);
+      if (revisionReason.trim()) {
+        (payload as any).revision_reason = revisionReason.trim();
       }
+      if (editingProject) {
+        await updateProject(editingProject.id, payload);
+      } else {
+        await addProject(payload as Omit<ProjectItem, "id" | "created_at" | "updated_at">);
+      }
+      await syncFromMemory({ force: true });
       setShowForm(false);
+      setRevisionReason("");
     } finally {
       setSaving(false);
     }
+  };
+
+  const applyApprovalDecision = async (status: "approved" | "revision_requested" | "rejected") => {
+    if (!selectedProject?.projectRecord) return;
+    const comment = approvalComment.trim();
+    if (!comment) {
+      window.alert("Approval comment wajib diisi sebelum approve/revision/reject.");
+      return;
+    }
+    await updateProject(selectedProject.projectRecord.id, { status, approval_comment: comment } as any);
+    await syncFromMemory({ force: true });
+    setApprovalComment("");
+    setSelectedProject(null);
+  };
+
+  const linkedShipmentFor = React.useCallback((project: ProjectCard | null) => {
+    const projectId = project?.projectRecord?.id;
+    if (!projectId) return undefined;
+    return shipments.find((shipment) => shipment.forecast_sales_id === projectId);
+  }, [shipments]);
+
+  const formatLaycanRange = (project: ProjectItem) => {
+    const start = project.laycan_start ? new Date(project.laycan_start).toLocaleDateString("en-GB") : "";
+    const end = project.laycan_end ? new Date(project.laycan_end).toLocaleDateString("en-GB") : "";
+    return [start, end].filter(Boolean).join(" - ") || undefined;
+  };
+
+  const primarySupplierCandidate = (value?: string | null) => {
+    const first = String(value || "")
+      .split(/\r?\n|;|,/)
+      .map((item) => item.trim())
+      .find(Boolean);
+    return first || undefined;
+  };
+
+  const convertForecastSalesToShipment = async (project: ProjectCard, options: { silent?: boolean } = {}) => {
+    const record = project.projectRecord;
+    if (!record) return;
+    if (record.buyer_feedback_status !== "deal" && !options.silent) {
+      window.alert("Set buyer feedback ke Deal terlebih dahulu sebelum membuat shipment.");
+      return;
+    }
+
+    const existing = linkedShipmentFor(project);
+    const selectedSupplier = selectedSupplierCandidateFor(record);
+    const supplier = selectedSupplier?.supplierName || primarySupplierCandidate(record.supplier_candidates);
+    const supplierNotes = selectedSupplier
+      ? [
+        `Selected supplier: ${selectedSupplier.supplierName}`,
+        selectedSupplier.fitScore != null ? `Fit score: ${selectedSupplier.fitScore}%` : null,
+        selectedSupplier.priceUsd ? `Price: ${fmtUsd(selectedSupplier.priceUsd)}/MT` : null,
+        selectedSupplier.warningText ? `Warning: ${selectedSupplier.warningText}` : null,
+      ].filter(Boolean).join(" | ")
+      : null;
+    const quantity = safeNum(record.quantity);
+    const sellingPrice = safeNum(record.target_selling_price);
+    const specText = [
+      record.gar ? `GAR ${record.gar}` : null,
+      record.tm ? `TM ${record.tm}` : null,
+      record.ts ? `TS ${record.ts}` : null,
+      record.ash ? `ASH ${record.ash}` : null,
+      record.vm ? `VM ${record.vm}` : null,
+      record.size ? `Size ${record.size}` : null,
+    ].filter(Boolean).join(", ");
+    const conversionPayload: Partial<ShipmentDetail> = {
+      status: "upcoming",
+      forecast_sales_id: record.id,
+      forecast_sales_name: record.name,
+      fco_number: record.fco_number,
+      mv_project_name: record.name,
+      buyer: record.buyer,
+      supplier,
+      source: supplier,
+      product: record.commodity || "Coal",
+      laycan: formatLaycanRange(record),
+      qty_plan: quantity || undefined,
+      quantity_loaded: quantity || undefined,
+      loading_port: record.port_of_loading,
+      jetty_loading_port: record.port_of_loading,
+      shipping_term: record.sales_term,
+      sales_price: sellingPrice || undefined,
+      sp: sellingPrice || undefined,
+      harga_actual_fob_mv: sellingPrice || undefined,
+      surveyor_lhv: record.surveyor,
+      result_gar: record.gar,
+      type: /dmo|local|domestic/i.test(record.sales_term || "") ? "local" : "export",
+      pic: record.created_by_name,
+      pic_name: record.created_by_name,
+      shipment_status: "Converted from Forecast Sales deal",
+      status_reason: "Commercial deal confirmed; waiting operational scheduling.",
+      analysis_method: "Forecast Sales conversion",
+      source_confirmation_status: selectedSupplier ? "pending" : undefined,
+      source_confirmation_notes: supplierNotes || undefined,
+      remarks: [
+        record.fco_number ? `FCO: ${record.fco_number}` : null,
+        record.price_basis ? `Price basis: ${record.price_basis}` : null,
+        record.payment_terms ? `Payment: ${record.payment_terms}` : null,
+        supplierNotes,
+        specText || null,
+        record.notes || null,
+      ].filter(Boolean).join(" | "),
+      year: record.laycan_start ? new Date(record.laycan_start).getFullYear() : new Date().getFullYear(),
+    };
+
+    setConvertingShipment(true);
+    try {
+      if (existing) {
+        await updateShipment(existing.id, conversionPayload);
+      } else {
+        await addShipment(conversionPayload as Omit<ShipmentDetail, "id" | "created_at" | "updated_at">);
+      }
+      await syncFromMemory({ force: true });
+      if (!options.silent) {
+        window.alert(existing ? "Shipment berhasil diperbarui dari Forecast Sales." : "Shipment berhasil dibuat dari Forecast Sales.");
+      }
+    } finally {
+      setConvertingShipment(false);
+    }
+  };
+
+  const updateBuyerFeedback = async (status: string) => {
+    if (!selectedProject?.projectRecord) return;
+    if (!selectedProject.projectRecord.fco_number && status !== "fco_sent") {
+      window.alert("Download/generate FCO terlebih dahulu sebelum update buyer feedback.");
+      return;
+    }
+    const reason = buyerFeedbackReason.trim();
+    if (status === "failed" && !reason) {
+      window.alert("Reason wajib diisi jika buyer feedback Failed.");
+      return;
+    }
+    await updateProject(selectedProject.projectRecord.id, {
+      buyer_feedback_status: status,
+      buyer_feedback_reason: status === "failed" ? reason : reason || undefined,
+      buyer_feedback_updated_at: new Date().toISOString(),
+    });
+    if (status === "deal") {
+      await convertForecastSalesToShipment(
+        {
+          ...selectedProject,
+          projectRecord: {
+            ...selectedProject.projectRecord,
+            buyer_feedback_status: "deal",
+            buyer_feedback_reason: reason || selectedProject.projectRecord.buyer_feedback_reason,
+            buyer_feedback_updated_at: new Date().toISOString(),
+          },
+        },
+        { silent: true },
+      );
+    } else {
+      await syncFromMemory({ force: true });
+    }
+    setSelectedProject(null);
   };
 
   return (
@@ -963,8 +2013,8 @@ export default function ProjectsPage() {
       <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl md:text-2xl font-bold border-l-4 border-emerald-500 pl-3">Projects (MV/Project Centric)</h1>
-            <p className="text-sm text-muted-foreground mt-1 ml-4">Project sudah bisa add/edit dan jadi acuan shipment.</p>
+            <h1 className="text-xl md:text-2xl font-bold border-l-4 border-emerald-500 pl-3">Forecast Sales</h1>
+            <p className="text-sm text-muted-foreground mt-1 ml-4">Forecast Sales bisa add/edit dan jadi acuan shipment.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {canAnalyzeUrgency && (
@@ -977,7 +2027,7 @@ export default function ProjectsPage() {
                 Analyze Urgency
               </button>
             )}
-            <button onClick={openCreate} className="btn-primary text-xs h-9"><Plus className="w-3.5 h-3.5 mr-1.5" />Add Project</button>
+            <button onClick={openCreate} className="btn-primary text-xs h-9"><Plus className="w-3.5 h-3.5 mr-1.5" />Add Forecast Sales</button>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="pl-9 pr-4 py-2 w-56 rounded-lg bg-accent/30 border border-border text-xs outline-none focus:border-emerald-500" />
@@ -988,7 +2038,9 @@ export default function ProjectsPage() {
             </select>
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-xs">
               <option value="all">All Status</option>
+              <option value="draft">Draft</option>
               <option value="waiting_approval">Waiting Approval</option>
+              <option value="revision_requested">Revision</option>
               <option value="approved">Approved</option>
               <option value="rejected">Rejected</option>
               <option value="upcoming">Upcoming</option>
@@ -996,6 +2048,67 @@ export default function ProjectsPage() {
               <option value="completed">Completed</option>
               <option value="cancelled">Cancelled</option>
             </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-10 gap-3">
+          {[
+            { key: "total" as const, label: "Total Forecast", value: fmtInt(forecastDashboard.total), tone: "border-emerald-500/20" },
+            { key: "draft" as const, label: "Draft", value: fmtInt(forecastDashboard.draft), tone: "border-slate-500/20" },
+            { key: "waitingApproval" as const, label: "CEO Review", value: fmtInt(forecastDashboard.waitingApproval), tone: "border-amber-500/25" },
+            { key: "approved" as const, label: "Approved", value: fmtInt(forecastDashboard.approved), tone: "border-blue-500/25" },
+            { key: "fcoSent" as const, label: "FCO Sent", value: fmtInt(forecastDashboard.fcoSent), tone: "border-cyan-500/25" },
+            { key: "pendingBuyer" as const, label: "Buyer Pending", value: fmtInt(forecastDashboard.pendingBuyer), tone: "border-orange-500/25" },
+            { key: "deal" as const, label: "Deal", value: fmtInt(forecastDashboard.deal), tone: "border-emerald-500/25" },
+            { key: "failed" as const, label: "Failed", value: fmtInt(forecastDashboard.failed), tone: "border-rose-500/25" },
+          ].map((item) => (
+            <div key={item.label} className={cn("rounded-lg border bg-card p-3 min-h-[76px]", item.tone)}>
+              <button
+                type="button"
+                onClick={() => setOpenDashboardBucket((current) => current === item.key ? null : item.key)}
+                className="flex w-full items-start justify-between gap-1 text-left"
+              >
+                <span>
+                  <span className="block text-[10px] uppercase font-bold text-muted-foreground leading-tight">{item.label}</span>
+                  <span className="mt-2 block text-xl font-bold leading-none">{item.value}</span>
+                </span>
+                <ChevronDown className={cn("mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", openDashboardBucket === item.key && "rotate-180")} />
+              </button>
+              {openDashboardBucket === item.key && (
+                <div className="mt-3 max-h-48 space-y-1 overflow-y-auto pr-1">
+                  {forecastDashboardBuckets[item.key].length === 0 ? (
+                    <p className="rounded-md bg-accent/40 px-2 py-2 text-[10px] text-muted-foreground">Tidak ada record.</p>
+                  ) : (
+                    forecastDashboardBuckets[item.key].slice(0, 8).map((entry) => (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        onClick={() => setSelectedProject(entry.card)}
+                        className="w-full rounded-md border border-border/60 bg-background/70 px-2 py-1.5 text-left hover:border-primary/40 hover:bg-accent"
+                      >
+                        <span className="block truncate text-[11px] font-bold">{entry.projectName}</span>
+                        <span className="block truncate text-[10px] text-muted-foreground">Buyer: {entry.buyer}</span>
+                        <span className="block truncate text-[10px] text-muted-foreground">Offer by: {entry.offerBy}</span>
+                        <span className="mt-1 inline-flex rounded bg-accent px-1.5 py-0.5 text-[9px] font-semibold uppercase text-muted-foreground">{entry.statusText}</span>
+                      </button>
+                    ))
+                  )}
+                  {forecastDashboardBuckets[item.key].length > 8 && (
+                    <p className="px-2 pt-1 text-[10px] font-semibold text-muted-foreground">
+                      +{forecastDashboardBuckets[item.key].length - 8} more
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+          <div className="rounded-lg border border-violet-500/20 bg-card p-3 min-h-[76px]">
+            <p className="text-[10px] uppercase font-bold text-muted-foreground leading-tight">Revenue</p>
+            <p className="mt-2 text-lg font-bold leading-none">{canApprove ? fmtUsd(forecastDashboard.estimatedRevenue) : "Restricted"}</p>
+          </div>
+          <div className="rounded-lg border border-fuchsia-500/20 bg-card p-3 min-h-[76px]">
+            <p className="text-[10px] uppercase font-bold text-muted-foreground leading-tight">Shipment GP</p>
+            <p className="mt-2 text-lg font-bold leading-none">{canApprove ? fmtUsd(forecastDashboard.shipmentGrossProfit) : "Restricted"}</p>
           </div>
         </div>
 
@@ -1009,7 +2122,7 @@ export default function ProjectsPage() {
                   {p.projectRecord?.approved_by_name && (
                     <p className="text-[10px] text-muted-foreground">Approved by: {p.projectRecord.approved_by_name}</p>
                   )}
-                  <p className="text-[10px] text-muted-foreground">{p.sourceKind === "master" ? "Master project" : "Derived from shipments"}</p>
+                  <p className="text-[10px] text-muted-foreground">{p.sourceKind === "master" ? "Master forecast sales" : "Derived from shipments"}</p>
                 </div>
                 <div className="flex items-center gap-1">
                   <span className={statusBadgeClass(p.status)}>{statusLabel[p.status] || p.status}</span>
@@ -1031,6 +2144,14 @@ export default function ProjectsPage() {
                 <div><p className="text-muted-foreground">Rows</p><p className="font-bold">{fmtInt(p.shipmentCount)}</p></div>
                 <div><p className="text-muted-foreground">Year</p><p className="font-bold">{p.year || "-"}</p></div>
               </div>
+              {p.projectRecord && (
+                <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
+                  <p>Term: <span className="font-semibold text-foreground">{p.projectRecord.sales_term || "-"}</span></p>
+                  <p>Target: <span className="font-semibold text-foreground">{p.projectRecord.target_selling_price ? fmtUsd(p.projectRecord.target_selling_price) : "-"}</span></p>
+                  <p>Basis: <span className="font-semibold text-foreground">{p.projectRecord.price_basis || "-"}</span></p>
+                  <p>GAR: <span className="font-semibold text-foreground">{p.projectRecord.gar || "-"}</span></p>
+                </div>
+              )}
               {p.projectRecord?.template_checklist && (
                 <div className="pt-3 border-t border-border/50">
                   <div className="flex items-center justify-between text-[10px] text-muted-foreground">
@@ -1049,25 +2170,50 @@ export default function ProjectsPage() {
         {filtered.length === 0 && (
           <div className="text-center py-16 px-8 card-elevated border-dashed border-2">
             <FolderKanban className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4" />
-            <h3 className="text-lg font-bold mb-1">No Project Data</h3>
-            <p className="text-sm text-muted-foreground">Tidak ada project yang cocok dengan filter saat ini.</p>
+            <h3 className="text-lg font-bold mb-1">No Forecast Sales Data</h3>
+            <p className="text-sm text-muted-foreground">Tidak ada Forecast Sales yang cocok dengan filter saat ini.</p>
           </div>
         )}
 
         {showForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setShowForm(false)} />
-            <div className="relative w-full max-w-xl rounded-2xl bg-card border border-border shadow-2xl p-5 space-y-4">
+            <div className="relative w-full max-w-5xl max-h-[92vh] overflow-y-auto rounded-2xl bg-card border border-border shadow-2xl p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold">{editingProject ? "Edit Project" : "Add Project"}</h2>
+                <h2 className="text-lg font-bold">{editingProject ? "Edit Forecast Sales" : "Add Forecast Sales"}</h2>
                 <button onClick={() => setShowForm(false)} className="p-2 rounded-md hover:bg-accent"><X className="w-4 h-4 text-muted-foreground" /></button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Project Name *" className="md:col-span-2 px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Forecast Sales Name *" className="md:col-span-2 px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
                 <input value={form.segment} onChange={(e) => setForm((f) => ({ ...f, segment: e.target.value }))} placeholder="Segment" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
-                <input value={form.buyer} onChange={(e) => setForm((f) => ({ ...f, buyer: e.target.value }))} placeholder="Buyer" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <input value={form.buyer} onChange={(e) => setForm((f) => ({ ...f, buyer: e.target.value }))} placeholder="Buyer *" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <input value={form.buyer_country} onChange={(e) => setForm((f) => ({ ...f, buyer_country: e.target.value }))} placeholder="Buyer Country *" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <input value={form.commodity} onChange={(e) => setForm((f) => ({ ...f, commodity: e.target.value }))} placeholder="Commodity *" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <input type="number" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))} placeholder="Quantity MT *" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <input type="date" value={form.laycan_start} onChange={(e) => setForm((f) => ({ ...f, laycan_start: e.target.value }))} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <input type="date" value={form.laycan_end} onChange={(e) => setForm((f) => ({ ...f, laycan_end: e.target.value }))} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <input value={form.port_of_loading} onChange={(e) => setForm((f) => ({ ...f, port_of_loading: e.target.value }))} placeholder="Port of Loading *" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <select value={form.sales_term} onChange={(e) => setForm((f) => ({ ...f, sales_term: e.target.value }))} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm">
+                  <option value="FOB">FOB</option>
+                  <option value="CIF">CIF</option>
+                  <option value="CFR">CFR</option>
+                  <option value="FAS">FAS</option>
+                  <option value="CNF">CNF</option>
+                </select>
+                <input type="number" value={form.target_selling_price} onChange={(e) => setForm((f) => ({ ...f, target_selling_price: e.target.value }))} placeholder="Target Price USD/MT *" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <select value={form.price_basis} onChange={(e) => setForm((f) => ({ ...f, price_basis: e.target.value }))} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm">
+                  <option value="Fixed">Fixed</option>
+                  <option value="ICI">ICI</option>
+                  <option value="Newcastle">Newcastle</option>
+                  <option value="HBA">HBA</option>
+                  <option value="Formula">Formula</option>
+                </select>
+                <input value={form.payment_terms} onChange={(e) => setForm((f) => ({ ...f, payment_terms: e.target.value }))} placeholder="Payment Terms *" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
+                <input value={form.surveyor} onChange={(e) => setForm((f) => ({ ...f, surveyor: e.target.value }))} placeholder="Surveyor *" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm" />
                 <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm">
+                  <option value="draft">Draft</option>
                   <option value="waiting_approval">Waiting Approval</option>
+                  <option value="revision_requested">Revision Requested</option>
                   <option value="approved">Approved</option>
                   <option value="rejected">Rejected</option>
                   <option value="upcoming">Upcoming</option>
@@ -1080,8 +2226,257 @@ export default function ProjectsPage() {
                   <option value="domestic_delivery">Domestic Delivery Template</option>
                   <option value="spot_purchase">Spot Purchase Template</option>
                 </select>
-                <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={3} placeholder="Notes" className="md:col-span-2 px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm resize-none" />
               </div>
+              <div className={cn(
+                "rounded-xl border p-3",
+                priceReference.warning
+                  ? "border-amber-500/30 bg-amber-500/10"
+                  : "border-emerald-500/20 bg-emerald-500/5",
+              )}>
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0">
+                    <p className={cn("text-xs font-bold", priceReference.warning ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")}>
+                      Market Price Reference
+                    </p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {priceReference.market
+                        ? `${priceReference.marketLabel} latest ${formatDocDate(priceReference.market.date)} from ${priceReference.market.source || "market price table"}`
+                        : "Belum ada market price tersinkron. Reference memakai historical selling price jika tersedia."}
+                    </p>
+                    {priceReference.warning && (
+                      <p className="mt-2 flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Target price lebih rendah dari reference sekitar {Math.abs(priceReference.gapPercent).toFixed(1)}%.
+                      </p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4 md:min-w-[520px]">
+                    <div className="rounded-lg bg-background/70 border border-border/60 p-2">
+                      <p className="text-[10px] text-muted-foreground">Target</p>
+                      <p className="font-bold">{form.target_selling_price ? fmtUsd(safeNum(form.target_selling_price)) : "-"}/MT</p>
+                    </div>
+                    <div className="rounded-lg bg-background/70 border border-border/60 p-2">
+                      <p className="text-[10px] text-muted-foreground">{priceReference.marketLabel}</p>
+                      <p className="font-bold">{priceReference.marketValue ? fmtUsd(priceReference.marketValue) : "-"}/MT</p>
+                    </div>
+                    <div className="rounded-lg bg-background/70 border border-border/60 p-2">
+                      <p className="text-[10px] text-muted-foreground">Historical Avg</p>
+                      <p className="font-bold">{priceReference.historicalAverage ? fmtUsd(priceReference.historicalAverage) : "-"}/MT</p>
+                      <p className="text-[10px] text-muted-foreground">{priceReference.historicalCount} rows</p>
+                    </div>
+                    <div className="rounded-lg bg-background/70 border border-border/60 p-2">
+                      <p className="text-[10px] text-muted-foreground">Gap</p>
+                      <p className={cn("font-bold", priceReference.gap < 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")}>
+                        {priceReference.referenceValue && form.target_selling_price ? `${priceReference.gap >= 0 ? "+" : ""}${fmtUsd(priceReference.gap)}` : "-"}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">{priceReference.referenceValue && form.target_selling_price ? `${priceReference.gapPercent.toFixed(1)}%` : ""}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-xl border border-border/60 bg-accent/20 p-3 space-y-3">
+                <p className="text-xs font-bold uppercase text-muted-foreground">Target Coal Specification</p>
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                  <input type="number" value={form.gar} onChange={(e) => setForm((f) => ({ ...f, gar: e.target.value }))} placeholder="GAR *" className="px-3 py-2 rounded-lg bg-background border border-border text-sm" />
+                  <input type="number" value={form.tm} onChange={(e) => setForm((f) => ({ ...f, tm: e.target.value }))} placeholder="TM % *" className="px-3 py-2 rounded-lg bg-background border border-border text-sm" />
+                  <input type="number" value={form.ts} onChange={(e) => setForm((f) => ({ ...f, ts: e.target.value }))} placeholder="TS % *" className="px-3 py-2 rounded-lg bg-background border border-border text-sm" />
+                  <input type="number" value={form.ash} onChange={(e) => setForm((f) => ({ ...f, ash: e.target.value }))} placeholder="Ash % *" className="px-3 py-2 rounded-lg bg-background border border-border text-sm" />
+                  <input type="number" value={form.vm} onChange={(e) => setForm((f) => ({ ...f, vm: e.target.value }))} placeholder="VM %" className="px-3 py-2 rounded-lg bg-background border border-border text-sm" />
+                  <input value={form.size} onChange={(e) => setForm((f) => ({ ...f, size: e.target.value }))} placeholder="Size" className="px-3 py-2 rounded-lg bg-background border border-border text-sm" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <textarea value={form.supplier_candidates} onChange={(e) => setForm((f) => ({ ...f, supplier_candidates: e.target.value }))} rows={3} placeholder="Supplier candidates / source options" className="w-full px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm resize-none" />
+                  <div className="rounded-xl border border-border/60 bg-background/60 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] font-bold uppercase text-muted-foreground">Source candidates</p>
+                      <span className="text-[10px] text-muted-foreground">{sourceCandidateRows.length} ranked</span>
+                    </div>
+                    <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                      {sourceCandidateRows.map(({ source, score, warnings }) => (
+                        <button
+                          key={source.id}
+                          type="button"
+                          onClick={() => addSourceCandidate(source, score, warnings)}
+                          className="w-full text-left rounded-lg border border-border/60 hover:border-emerald-500/50 bg-card p-2 transition-colors"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold truncate">{source.name}</p>
+                              <p className="text-[10px] text-muted-foreground truncate">
+                                {source.region || "-"} | Stock {fmtInt(safeNum(source.stock_available))} MT | GAR {source.spec?.gar || "-"} / TM {source.spec?.tm || "-"} / TS {source.spec?.ts || "-"} / Ash {source.spec?.ash || "-"}
+                              </p>
+                              {warnings.length > 0 && <p className="text-[10px] text-amber-600 mt-1">{warnings.slice(0, 2).join(", ")}</p>}
+                            </div>
+                            <span className={cn("shrink-0 text-[10px] font-bold px-2 py-1 rounded-md", score >= 80 ? "bg-emerald-500/10 text-emerald-600" : score >= 60 ? "bg-amber-500/10 text-amber-700" : "bg-rose-500/10 text-rose-600")}>
+                              {score}%
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                      {sourceCandidateRows.length === 0 && <p className="text-xs text-muted-foreground">Source belum tersedia atau belum tersinkron.</p>}
+                    </div>
+                    {(editingProject?.id || supplierCandidates.length > 0) && (
+                      <div className="pt-2 border-t border-border/60 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[10px] font-bold uppercase text-muted-foreground">Structured candidates</p>
+                          <span className="text-[10px] text-muted-foreground">{supplierCandidates.length} saved</span>
+                        </div>
+                        {supplierCandidates.length === 0 ? (
+                          <p className="text-[10px] text-muted-foreground">Klik source candidate untuk menyimpan structured candidate pada Forecast Sales ini.</p>
+                        ) : (
+                          supplierCandidates.slice(0, 4).map((candidate) => (
+                            <div key={candidate.id} className={cn("rounded-lg border p-2 text-xs", candidate.selected ? "border-emerald-500/40 bg-emerald-500/10" : "border-border/60 bg-card")}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="font-bold truncate">{candidate.supplierName}</p>
+                                  <p className="text-[10px] text-muted-foreground truncate">
+                                    Fit {candidate.fitScore ?? "-"}% | Stock {fmtInt(safeNum(candidate.stockAvailable))} MT | GAR {candidate.gar || "-"} / TM {candidate.tm || "-"} / TS {candidate.ts || "-"} / Ash {candidate.ash || "-"}
+                                  </p>
+                                  {candidate.warningText && <p className="text-[10px] text-amber-600 mt-0.5">{candidate.warningText}</p>}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => selectStructuredCandidate(candidate)}
+                                  disabled={candidate.selected || candidateAction === `select:${candidate.id}`}
+                                  className="shrink-0 rounded-md bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-50"
+                                >
+                                  {candidateAction === `select:${candidate.id}` ? "Saving..." : candidate.selected ? "Selected" : "Select"}
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {selectedCandidateNeedsAcknowledgement && (
+                    <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3 space-y-2">
+                      <p className="text-xs font-bold text-rose-600">Below-Spec Acknowledgement</p>
+                      <textarea
+                        value={form.below_spec_reason}
+                        onChange={(e) => setForm((f) => ({ ...f, below_spec_reason: e.target.value }))}
+                        rows={2}
+                        placeholder="Jelaskan alasan tetap lanjut dengan kandidat ini, misalnya blending plan, price advantage, stock urgency, atau approval reference."
+                        className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm resize-none"
+                      />
+                    </div>
+                  )}
+                  <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-bold text-blue-600">Blending Simulation</p>
+                        <p className="text-[10px] text-muted-foreground">Allocate MT per source candidate to estimate final quality and cost.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const qty = safeNum(form.quantity);
+                          const candidates = sourceCandidateRows.slice(0, Math.min(3, sourceCandidateRows.length));
+                          if (!qty || !candidates.length) return;
+                          const split = Math.floor(qty / candidates.length);
+                          const next: Record<string, string> = {};
+                          candidates.forEach(({ source }, index) => {
+                            next[source.id] = String(index === candidates.length - 1 ? qty - split * (candidates.length - 1) : split);
+                          });
+                          setBlendQuantities(next);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-background border border-border hover:bg-accent"
+                      >
+                        Auto split target
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!blendSimulation.totalQty) return;
+                          setForm((current) => ({
+                            ...current,
+                            blending_scenario: JSON.stringify({
+                              inputs: blendSimulation.inputs.map(({ source, quantity }) => ({
+                                sourceId: source.id,
+                                sourceName: source.name,
+                                quantity,
+                                gar: source.spec?.gar || null,
+                                tm: source.spec?.tm || null,
+                                ts: source.spec?.ts || null,
+                                ash: source.spec?.ash || null,
+                                priceUsd: source.fob_barge_price_usd || null,
+                              })),
+                              result: {
+                                totalQty: blendSimulation.totalQty,
+                                gar: blendSimulation.gar,
+                                tm: blendSimulation.tm,
+                                ts: blendSimulation.ts,
+                                ash: blendSimulation.ash,
+                                avgCost: blendSimulation.avgCost,
+                              },
+                              warnings: blendSimulation.warnings,
+                              savedAt: new Date().toISOString(),
+                            }),
+                          }));
+                        }}
+                        disabled={!blendSimulation.totalQty}
+                        className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-blue-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Save scenario
+                      </button>
+                    </div>
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {sourceCandidateRows.map(({ source, score }) => (
+                        <div key={`blend-${source.id}`} className="grid grid-cols-[1fr_104px] gap-2 items-center rounded-lg bg-background/70 border border-border/60 p-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold truncate">{source.name}</p>
+                            <p className="text-[10px] text-muted-foreground truncate">
+                              Fit {score}% | GAR {source.spec?.gar || "-"} / TM {source.spec?.tm || "-"} / TS {source.spec?.ts || "-"} / Ash {source.spec?.ash || "-"} | Cost {source.fob_barge_price_usd ? `$${source.fob_barge_price_usd.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "-"}
+                            </p>
+                          </div>
+                          <input
+                            type="number"
+                            value={blendQuantities[source.id] || ""}
+                            onChange={(e) => setBlendQuantities((current) => ({ ...current, [source.id]: e.target.value }))}
+                            placeholder="MT"
+                            className="px-2 py-1.5 rounded-md bg-card border border-border text-xs text-right"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    {blendSimulation.totalQty > 0 ? (
+                      <div className="rounded-lg border border-border/60 bg-card p-3">
+                        <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs">
+                          <div><p className="text-[10px] text-muted-foreground">Total</p><p className="font-bold">{fmtInt(blendSimulation.totalQty)} MT</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">GAR</p><p className="font-bold">{blendSimulation.gar.toFixed(0)}</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">TM</p><p className="font-bold">{blendSimulation.tm.toFixed(2)}%</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">TS</p><p className="font-bold">{blendSimulation.ts.toFixed(2)}%</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Ash</p><p className="font-bold">{blendSimulation.ash.toFixed(2)}%</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Avg Cost</p><p className="font-bold">{blendSimulation.avgCost ? `$${blendSimulation.avgCost.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "-"}</p></div>
+                        </div>
+                        {blendSimulation.warnings.length > 0 && (
+                          <p className="text-[10px] text-amber-600 mt-2">{blendSimulation.warnings.join(", ")}</p>
+                        )}
+                        {form.blending_scenario && (
+                          <p className="text-[10px] text-emerald-600 mt-2 font-semibold">Scenario saved to this Forecast Sales draft.</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Enter source quantities to simulate blended quality.</p>
+                    )}
+                  </div>
+                </div>
+                <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={3} placeholder="Internal Notes" className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm resize-none" />
+              </div>
+              {editingProject && criticalRevisionChanged && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+                  <p className="text-xs font-bold text-amber-700">Revision Reason</p>
+                  <textarea
+                    value={revisionReason}
+                    onChange={(e) => setRevisionReason(e.target.value)}
+                    rows={2}
+                    placeholder="Wajib diisi untuk perubahan quantity, laycan, target price, atau supplier candidate setelah draft"
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm resize-none"
+                  />
+                </div>
+              )}
               <div className="rounded-xl border border-border/60 bg-accent/20 p-3 space-y-2">
                 <p className="text-xs font-bold flex items-center gap-1.5"><ClipboardCheck className="w-3.5 h-3.5" /> Template Checklist</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -1108,7 +2503,7 @@ export default function ProjectsPage() {
               <div className="flex justify-between items-center pt-2 border-t border-border">
                 {editingProject ? (
                   <button onClick={async () => {
-                    if (!window.confirm("Delete this project?")) return;
+                    if (!window.confirm("Delete this Forecast Sales record?")) return;
                     await deleteProject(editingProject.id);
                     setShowForm(false);
                   }} className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-semibold hover:bg-red-500/20">
@@ -1117,7 +2512,8 @@ export default function ProjectsPage() {
                 ) : <span />}
                 <div className="flex gap-2">
                   <button onClick={() => setShowForm(false)} className="px-3 py-2 rounded-lg text-sm hover:bg-accent">Cancel</button>
-                  <button onClick={saveProject} disabled={saving || !form.name.trim()} className="btn-primary text-sm px-3 py-2 disabled:opacity-60">{saving ? "Saving..." : "Save Project"}</button>
+                  <button onClick={() => saveProject("draft")} disabled={saving || !form.name.trim()} className="px-3 py-2 rounded-lg text-sm font-semibold bg-accent hover:bg-accent/80 disabled:opacity-60">{saving ? "Saving..." : "Save Draft"}</button>
+                  <button onClick={() => saveProject("waiting_approval")} disabled={saving || !form.name.trim()} className="btn-primary text-sm px-3 py-2 disabled:opacity-60">{saving ? "Saving..." : "Submit Offer Profile"}</button>
                 </div>
               </div>
             </div>
@@ -1135,9 +2531,22 @@ export default function ProjectsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button
+                    onClick={() => downloadForecastSalesFco(selectedProject)}
+                    className={cn(
+                      "px-3 py-2 rounded-lg text-xs font-semibold hover:shadow-md",
+                      selectedProject.projectRecord && mapMasterStatus(selectedProject.projectRecord.status) === "approved"
+                        ? "bg-blue-600 text-white"
+                        : "bg-accent text-muted-foreground",
+                    )}
+                    title="Download FCO PDF"
+                  >
+                    <Download className="w-3.5 h-3.5 inline mr-1.5" />
+                    FCO
+                  </button>
+                  <button
                     onClick={() => downloadProjectSummaryReport(selectedProject)}
                     className="px-3 py-2 rounded-lg text-xs font-semibold bg-emerald-500 text-white hover:shadow-md"
-                    title="Download Project Summary PDF"
+                    title="Download Forecast Sales Summary PDF"
                   >
                     <Download className="w-3.5 h-3.5 inline mr-1.5" />
                     Summary
@@ -1177,7 +2586,15 @@ export default function ProjectsPage() {
                         </div>
                       </div>
                       {canApprove && (
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="w-full md:w-auto space-y-2">
+                          <textarea
+                            value={approvalComment}
+                            onChange={(e) => setApprovalComment(e.target.value)}
+                            rows={2}
+                            placeholder="Approval comment wajib untuk approve, revision, atau reject"
+                            className="w-full md:w-96 px-3 py-2 rounded-lg bg-background border border-border text-xs resize-none"
+                          />
+                          <div className="flex flex-wrap items-center gap-2">
                           {canAnalyzeUrgency && (
                             <button
                               onClick={() => selectedProject.projectRecord && runUrgencyAnalysis(selectedProject.projectRecord.id)}
@@ -1189,43 +2606,316 @@ export default function ProjectsPage() {
                             </button>
                           )}
                           <button
-                            onClick={async () => {
-                              if (!selectedProject.projectRecord) return;
-                              await updateProject(selectedProject.projectRecord.id, { status: "approved" });
-                              await syncFromMemory({ force: true });
-                              setSelectedProject(null);
-                            }}
+                            onClick={() => applyApprovalDecision("approved")}
                             className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/30 hover:bg-emerald-500/20"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />
                             Approve
                           </button>
                           <button
-                            onClick={async () => {
-                              if (!selectedProject.projectRecord) return;
-                              await updateProject(selectedProject.projectRecord.id, { status: "rejected" });
-                              await syncFromMemory({ force: true });
-                              setSelectedProject(null);
-                            }}
+                            onClick={() => applyApprovalDecision("revision_requested")}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 text-amber-700 border border-amber-500/30 hover:bg-amber-500/20"
+                          >
+                            <Clock3 className="w-3.5 h-3.5 inline mr-1" />
+                            Revision
+                          </button>
+                          <button
+                            onClick={() => applyApprovalDecision("rejected")}
                             className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/30 hover:bg-rose-500/20"
                           >
                             <XCircle className="w-3.5 h-3.5 inline mr-1" />
                             Reject
                           </button>
-                          <button
-                            onClick={async () => {
-                              if (!selectedProject.projectRecord) return;
-                              await updateProject(selectedProject.projectRecord.id, { status: "waiting_approval" });
-                              await syncFromMemory({ force: true });
-                              setSelectedProject(null);
-                            }}
-                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 text-amber-700 border border-amber-500/30 hover:bg-amber-500/20"
-                          >
-                            <Clock3 className="w-3.5 h-3.5 inline mr-1" />
-                            Set Waiting
-                          </button>
+                          </div>
                         </div>
                       )}
+                    </div>
+                    {parseApprovalHistory(selectedProject.projectRecord.approval_history).length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-border/60 space-y-2">
+                        <p className="text-xs font-bold uppercase text-muted-foreground">Approval History</p>
+                        {parseApprovalHistory(selectedProject.projectRecord.approval_history).slice(0, 5).map((item, index) => (
+                          <div key={`${item.createdAt}-${index}`} className="rounded-lg bg-accent/30 border border-border/50 p-3 text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className={statusBadgeClass(mapMasterStatus(item.status))}>{statusLabel[mapMasterStatus(item.status)] || item.status}</span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {item.userName || "Unknown"} • {formatDocDate(item.createdAt)}
+                              </span>
+                            </div>
+                            {item.comment && <p className="mt-2 text-muted-foreground">{item.comment}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {parseRevisionHistory(selectedProject.projectRecord.revision_history).length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-border/60 space-y-2">
+                        <p className="text-xs font-bold uppercase text-muted-foreground">Revision Log</p>
+                        {parseRevisionHistory(selectedProject.projectRecord.revision_history).slice(0, 5).map((item, index) => (
+                          <div key={`${item.createdAt}-${index}`} className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-3 text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="font-bold text-amber-700">{item.reason || "Forecast Sales updated"}</span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {item.userName || "Unknown"} | {formatDocDate(item.createdAt)}
+                              </span>
+                            </div>
+                            <div className="mt-2 space-y-1">
+                              {(item.changes || []).slice(0, 6).map((change, changeIndex) => (
+                                <p key={`${change.field}-${changeIndex}`} className="text-muted-foreground">
+                                  <span className="font-semibold text-foreground">{change.label || change.field}</span>: {change.oldValue || "-"} &rarr; {change.newValue || "-"}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {selectedProject.projectRecord?.below_spec_reason && (
+                  <div className="card-elevated p-4 border-rose-500/20 bg-rose-500/5">
+                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-bold text-rose-600">Below-Spec Acknowledgement</p>
+                        <p className="text-sm text-muted-foreground mt-1">{selectedProject.projectRecord.below_spec_reason}</p>
+                      </div>
+                      {selectedProject.projectRecord.below_spec_acknowledged_at && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {selectedProject.projectRecord.below_spec_acknowledged_by_name || "Unknown"} | {formatDocDate(selectedProject.projectRecord.below_spec_acknowledged_at)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {selectedProject.projectRecord && (
+                  <div className="card-elevated p-4">
+                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-3 mb-3">
+                      <div>
+                        <p className="text-xs font-bold text-emerald-700">Structured Supplier Candidates</p>
+                        <p className="text-xs text-muted-foreground mt-1">Persistent candidate rows from Source, including selected winner and fit warning history.</p>
+                      </div>
+                      <span className="text-[10px] rounded-md bg-accent px-2 py-1 text-muted-foreground">{supplierCandidates.length} saved</span>
+                    </div>
+                    {supplierCandidates.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No structured candidate yet. Edit this Forecast Sales and click Source candidates to save them.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                        {supplierCandidates.map((candidate) => (
+                          <div key={candidate.id} className={cn("rounded-xl border p-3", candidate.selected ? "border-emerald-500/40 bg-emerald-500/10" : "border-border/60 bg-accent/20")}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-bold truncate">{candidate.supplierName}</p>
+                                <p className="text-[10px] text-muted-foreground truncate">
+                                  {candidate.region || "-"} | v{candidate.version} | Status {candidate.status}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className={cn("rounded-md px-2 py-1 text-[10px] font-bold", safeNum(candidate.fitScore) >= 80 ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-700")}>
+                                  {candidate.fitScore ?? "-"}%
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => selectStructuredCandidate(candidate)}
+                                  disabled={candidate.selected || candidateAction === `select:${candidate.id}`}
+                                  className="rounded-md bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-50"
+                                >
+                                  {candidate.selected ? "Winner" : "Select"}
+                                </button>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mt-3 text-xs">
+                              <div><p className="text-[10px] text-muted-foreground">Stock</p><p className="font-bold">{fmtInt(safeNum(candidate.stockAvailable))}</p></div>
+                              <div><p className="text-[10px] text-muted-foreground">GAR</p><p className="font-bold">{candidate.gar || "-"}</p></div>
+                              <div><p className="text-[10px] text-muted-foreground">TM</p><p className="font-bold">{candidate.tm || "-"}</p></div>
+                              <div><p className="text-[10px] text-muted-foreground">TS</p><p className="font-bold">{candidate.ts || "-"}</p></div>
+                              <div><p className="text-[10px] text-muted-foreground">Ash</p><p className="font-bold">{candidate.ash || "-"}</p></div>
+                              <div><p className="text-[10px] text-muted-foreground">Price</p><p className="font-bold">{candidate.priceUsd ? `$${candidate.priceUsd}` : "-"}</p></div>
+                            </div>
+                            {candidate.warningText && <p className="text-[10px] text-amber-600 mt-2">{candidate.warningText}</p>}
+                            {candidate.selectedAt && <p className="text-[10px] text-muted-foreground mt-2">Selected by {candidate.selectedByName || "Unknown"} | {formatDocDate(candidate.selectedAt)}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {selectedProject.projectRecord?.blending_scenario && (() => {
+                  const scenario = parseJsonObject(selectedProject.projectRecord?.blending_scenario);
+                  if (!scenario?.result) return null;
+                  return (
+                    <div className="card-elevated p-4 border-blue-500/20 bg-blue-500/5">
+                      <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-bold text-blue-600">Saved Blending Scenario</p>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {(scenario.inputs || []).map((input: any) => `${input.sourceName} ${fmtInt(safeNum(input.quantity))} MT`).join(" + ") || "-"}
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs min-w-0 md:min-w-[520px]">
+                          <div><p className="text-[10px] text-muted-foreground">Total</p><p className="font-bold">{fmtInt(safeNum(scenario.result.totalQty))} MT</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">GAR</p><p className="font-bold">{safeNum(scenario.result.gar).toFixed(0)}</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">TM</p><p className="font-bold">{safeNum(scenario.result.tm).toFixed(2)}%</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">TS</p><p className="font-bold">{safeNum(scenario.result.ts).toFixed(2)}%</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Avg Cost</p><p className="font-bold">{scenario.result.avgCost ? `$${safeNum(scenario.result.avgCost).toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "-"}</p></div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {selectedProject.projectRecord && (
+                  <div className={cn(
+                    "card-elevated p-4",
+                    canApprove ? "border-emerald-500/20 bg-emerald-500/5" : "border-border/60 bg-accent/20"
+                  )}>
+                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                      <div>
+                        <p className={cn("text-xs font-bold", canApprove ? "text-emerald-700" : "text-muted-foreground")}>
+                          Restricted Rough P&amp;L
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {canApprove
+                            ? (roughPnl?.notes || "Auto generated from Forecast Sales quantity, target selling price, and supplier cost signal.")
+                            : "Restricted to executive approval roles."}
+                        </p>
+                        {canApprove && roughPnl?.selectedSupplierName && (
+                          <p className="text-[10px] text-emerald-700 mt-1 font-semibold">
+                            Selected supplier: {roughPnl.selectedSupplierName} {roughPnl.selectedSupplierFitScore != null ? `(${roughPnl.selectedSupplierFitScore}% fit)` : ""}
+                          </p>
+                        )}
+                      </div>
+                      {canApprove && roughPnl?.generatedAt && (
+                        <span className="text-[10px] text-muted-foreground">
+                          Generated {formatDocDate(roughPnl.generatedAt)}
+                        </span>
+                      )}
+                    </div>
+                    {canApprove ? (
+                      roughPnl ? (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-xs">
+                          <div><p className="text-[10px] text-muted-foreground">Revenue</p><p className="font-bold">{fmtUsd(safeNum(roughPnl.revenue))}</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Supplier Price</p><p className="font-bold">{fmtUsd(safeNum(roughPnl.supplierPrice))}/MT</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Variable Cost</p><p className="font-bold">{fmtUsd(safeNum(roughPnl.variableCostPerMt))}/MT</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Total Cost</p><p className="font-bold">{fmtUsd(safeNum(roughPnl.totalCost))}</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Gross Profit</p><p className="font-bold">{fmtUsd(safeNum(roughPnl.estimatedGrossProfit))}</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Margin / MT</p><p className="font-bold">{fmtUsd(safeNum(roughPnl.marginPerMt))}</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Margin %</p><p className="font-bold">{safeNum(roughPnl.marginPercent).toFixed(2)}%</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Quantity</p><p className="font-bold">{fmtInt(safeNum(roughPnl.quantity))} MT</p></div>
+                        </div>
+                      ) : (
+                        <p className="mt-4 text-xs text-muted-foreground">
+                          Rough P&amp;L belum terbentuk. Simpan Forecast Sales untuk membuat snapshot otomatis.
+                        </p>
+                      )
+                    ) : null}
+                  </div>
+                )}
+                {selectedProject.projectRecord && (
+                  <div className="card-elevated p-4">
+                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs text-muted-foreground">FCO Control</p>
+                        <p className="mt-1 text-sm font-bold">{selectedProject.projectRecord.fco_number || "Not generated"}</p>
+                        {selectedProject.projectRecord.fco_generated_at && (
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            Last generated {formatDocDate(selectedProject.projectRecord.fco_generated_at)}
+                          </p>
+                        )}
+                      </div>
+                      <div className="w-full lg:w-[520px]">
+                        <p className="text-[10px] font-bold uppercase text-muted-foreground">FCO History</p>
+                        <div className="mt-2 max-h-32 space-y-1 overflow-y-auto pr-1">
+                          {parseFcoHistory(selectedProject.projectRecord.fco_history).length === 0 ? (
+                            <p className="rounded-lg bg-accent/30 px-3 py-2 text-xs text-muted-foreground">
+                              Belum ada FCO generation/download history.
+                            </p>
+                          ) : (
+                            parseFcoHistory(selectedProject.projectRecord.fco_history).slice(0, 5).map((item, index) => (
+                              <div key={`${item.createdAt}-${index}`} className="rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-xs">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="font-semibold">{item.fcoNumber || "-"} v{item.version || index + 1}</span>
+                                  <span className="text-[10px] uppercase text-muted-foreground">{item.action || "generate"}</span>
+                                </div>
+                                <p className="mt-1 text-[10px] text-muted-foreground">
+                                  {item.userName || "Unknown"} - {formatDocDate(item.createdAt || item.generatedAt)}
+                                </p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {selectedProject.projectRecord && (
+                  <div className="card-elevated p-4">
+                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">Buyer Feedback</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-md uppercase bg-primary/10 text-primary">
+                            {buyerFeedbackLabels[selectedProject.projectRecord.buyer_feedback_status || ""] || "Not Sent"}
+                          </span>
+                          {selectedProject.projectRecord.buyer_feedback_updated_at && (
+                            <span className="text-[10px] text-muted-foreground">
+                              Updated {formatDocDate(selectedProject.projectRecord.buyer_feedback_updated_at)}
+                            </span>
+                          )}
+                        </div>
+                        {selectedProject.projectRecord.buyer_feedback_reason && (
+                          <p className="text-xs text-muted-foreground max-w-xl">{selectedProject.projectRecord.buyer_feedback_reason}</p>
+                        )}
+                        {parseBuyerFeedbackHistory(selectedProject.projectRecord.buyer_feedback_history).length > 0 && (
+                          <div className="mt-3 max-h-32 space-y-1 overflow-y-auto pr-1">
+                            {parseBuyerFeedbackHistory(selectedProject.projectRecord.buyer_feedback_history).slice(0, 5).map((item, index) => (
+                              <div key={`${item.createdAt}-${index}`} className="rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-xs">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="font-semibold">{buyerFeedbackLabels[item.status || ""] || item.status || "-"}</span>
+                                  <span className="text-[10px] text-muted-foreground">{formatDocDate(item.createdAt)}</span>
+                                </div>
+                                <p className="mt-1 text-[10px] text-muted-foreground">
+                                  {item.userName || "Unknown"}{item.fcoNumber ? ` - ${item.fcoNumber}` : ""}
+                                </p>
+                                {item.reason && <p className="mt-1 text-[10px] text-muted-foreground">{item.reason}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="w-full lg:w-[460px] space-y-2">
+                        <textarea
+                          value={buyerFeedbackReason}
+                          onChange={(e) => setBuyerFeedbackReason(e.target.value)}
+                          rows={2}
+                          placeholder="Feedback note / failed reason"
+                          className="w-full px-3 py-2 rounded-lg bg-background border border-border text-xs resize-none"
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <button onClick={() => updateBuyerFeedback("fco_sent")} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-500/10 text-blue-600 border border-blue-500/30">FCO Sent</button>
+                          <button onClick={() => updateBuyerFeedback("waiting_feedback")} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-500/10 text-slate-600 border border-slate-500/30">Waiting</button>
+                          <button onClick={() => updateBuyerFeedback("negotiation")} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 text-amber-700 border border-amber-500/30">Negotiation</button>
+                          <button onClick={() => updateBuyerFeedback("deal")} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">Deal</button>
+                          <button onClick={() => updateBuyerFeedback("failed")} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/30">Failed</button>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <button
+                            onClick={() => convertForecastSalesToShipment(selectedProject)}
+                            disabled={convertingShipment || selectedProject.projectRecord.buyer_feedback_status !== "deal"}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {convertingShipment ? <Loader2 className="w-3.5 h-3.5 inline mr-1.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 inline mr-1.5" />}
+                            {linkedShipmentFor(selectedProject) ? "Update Shipment" : "Create Shipment"}
+                          </button>
+                          {linkedShipmentFor(selectedProject) ? (
+                            <a
+                              href={`/shipment-monitor?open=${encodeURIComponent(linkedShipmentFor(selectedProject)!.id)}`}
+                              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent hover:bg-accent/80 inline-flex items-center gap-1.5"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              Open Shipment
+                            </a>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">Shipment dibuat otomatis saat status buyer menjadi Deal.</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1241,7 +2931,7 @@ export default function ProjectsPage() {
                     <div className="card-elevated p-4 border-blue-500/20 bg-blue-500/5">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <p className="text-xs font-bold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 text-blue-500" /> AI Project Urgency</p>
+                          <p className="text-xs font-bold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 text-blue-500" /> AI Forecast Sales Urgency</p>
                           <p className="text-sm mt-1 text-muted-foreground">{report.summary}</p>
                         </div>
                         <span className={urgencyBadgeClass(report.level)}>{report.level} {report.score}</span>
@@ -1307,7 +2997,7 @@ export default function ProjectsPage() {
                               <div className="rounded-lg border border-border/50 bg-background/50 p-3">
                                 <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Human Approval</p>
                                 <p className="text-xs font-bold text-foreground">{report.humanApproval.required ? "Required" : "Not required"}</p>
-                                <p className="text-[10px] text-muted-foreground mt-1">{(report.humanApproval.approverRoles || []).join(", ") || "Project owner"}</p>
+                                <p className="text-[10px] text-muted-foreground mt-1">{(report.humanApproval.approverRoles || []).join(", ") || "Forecast Sales owner"}</p>
                               </div>
                             )}
                             {Array.isArray(report.sourceAttribution) && (

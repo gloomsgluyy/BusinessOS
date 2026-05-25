@@ -63,6 +63,10 @@ interface PLForecastData {
     sellingPrice: number;
     buyingPrice: number;
     freightCost: number;
+    royaltyCost: number;
+    taxCost: number;
+    surveyCost: number;
+    paymentCost: number;
     otherCost: number;
     grossProfitMt: number;
     totalGrossProfit: number;
@@ -174,6 +178,10 @@ export class SheetsFirstService {
                     sellingPrice: data.sellingPrice || 0,
                     buyingPrice: data.buyingPrice || 0,
                     freightCost: data.freightCost || 0,
+                    royaltyCost: data.royaltyCost || 0,
+                    taxCost: data.taxCost || 0,
+                    surveyCost: data.surveyCost || 0,
+                    paymentCost: data.paymentCost || 0,
                     otherCost: data.otherCost || 0,
                     grossProfitMt: data.grossProfitMt || 0,
                     totalGrossProfit: data.totalGrossProfit || 0,
@@ -195,6 +203,10 @@ export class SheetsFirstService {
                 sellingPrice: dbRecord.sellingPrice,
                 buyingPrice: dbRecord.buyingPrice,
                 freightCost: dbRecord.freightCost,
+                royaltyCost: dbRecord.royaltyCost,
+                taxCost: dbRecord.taxCost,
+                surveyCost: dbRecord.surveyCost,
+                paymentCost: dbRecord.paymentCost,
                 otherCost: dbRecord.otherCost,
                 grossProfitMt: dbRecord.grossProfitMt,
                 totalGrossProfit: dbRecord.totalGrossProfit,
@@ -213,6 +225,10 @@ export class SheetsFirstService {
                 sellingPrice: data.sellingPrice || 0,
                 buyingPrice: data.buyingPrice || 0,
                 freightCost: data.freightCost || 0,
+                royaltyCost: data.royaltyCost || 0,
+                taxCost: data.taxCost || 0,
+                surveyCost: data.surveyCost || 0,
+                paymentCost: data.paymentCost || 0,
                 otherCost: data.otherCost || 0,
                 grossProfitMt: data.grossProfitMt || 0,
                 totalGrossProfit: data.totalGrossProfit || 0,
@@ -246,8 +262,12 @@ export class SheetsFirstService {
         const sellingPrice = data.sellingPrice !== undefined ? data.sellingPrice : existing.sellingPrice;
         const buyingPrice = data.buyingPrice !== undefined ? data.buyingPrice : existing.buyingPrice;
         const freightCost = data.freightCost !== undefined ? data.freightCost : existing.freightCost;
+        const royaltyCost = data.royaltyCost !== undefined ? data.royaltyCost : existing.royaltyCost;
+        const taxCost = data.taxCost !== undefined ? data.taxCost : existing.taxCost;
+        const surveyCost = data.surveyCost !== undefined ? data.surveyCost : existing.surveyCost;
+        const paymentCost = data.paymentCost !== undefined ? data.paymentCost : existing.paymentCost;
         const otherCost = data.otherCost !== undefined ? data.otherCost : existing.otherCost;
-        const grossProfitMt = sellingPrice - buyingPrice - freightCost - otherCost;
+        const grossProfitMt = sellingPrice - buyingPrice - freightCost - royaltyCost - taxCost - surveyCost - paymentCost - otherCost;
         const totalGrossProfit = grossProfitMt * quantity;
 
         // Step 1: Update in Sheets FIRST
@@ -323,6 +343,10 @@ export class SheetsFirstService {
                     sellingPrice,
                     buyingPrice,
                     freightCost,
+                    royaltyCost,
+                    taxCost,
+                    surveyCost,
+                    paymentCost,
                     otherCost,
                     grossProfitMt,
                     totalGrossProfit,
@@ -343,6 +367,10 @@ export class SheetsFirstService {
                 sellingPrice: updatedRecord.sellingPrice,
                 buyingPrice: updatedRecord.buyingPrice,
                 freightCost: updatedRecord.freightCost,
+                royaltyCost: updatedRecord.royaltyCost,
+                taxCost: updatedRecord.taxCost,
+                surveyCost: updatedRecord.surveyCost,
+                paymentCost: updatedRecord.paymentCost,
                 otherCost: updatedRecord.otherCost,
                 grossProfitMt: updatedRecord.grossProfitMt,
                 totalGrossProfit: updatedRecord.totalGrossProfit,
@@ -360,6 +388,10 @@ export class SheetsFirstService {
                 sellingPrice,
                 buyingPrice,
                 freightCost,
+                royaltyCost,
+                taxCost,
+                surveyCost,
+                paymentCost,
                 otherCost,
                 grossProfitMt,
                 totalGrossProfit,
@@ -448,6 +480,10 @@ export class SheetsFirstService {
             sellingPrice: record.sellingPrice,
             buyingPrice: record.buyingPrice,
             freightCost: record.freightCost,
+            royaltyCost: record.royaltyCost,
+            taxCost: record.taxCost,
+            surveyCost: record.surveyCost,
+            paymentCost: record.paymentCost,
             otherCost: record.otherCost,
             grossProfitMt: record.grossProfitMt,
             totalGrossProfit: record.totalGrossProfit,
@@ -473,7 +509,7 @@ export class SheetsFirstService {
             const sheets = await getSheets();
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: this.SPREADSHEET_ID,
-                range: `${this.SHEET_NAME}!A:J`,
+                range: `${this.SHEET_NAME}!A:O`,
             });
 
             const rows = response.data.values || [];
@@ -531,8 +567,12 @@ export class SheetsFirstService {
                 const sellingPrice = parseNum(getColByCandidates(row, ['SELLING PRICE']));
                 const buyingPrice = parseNum(getColByCandidates(row, ['BUYING PRICE']));
                 const freightCost = parseNum(getColByCandidates(row, ['FREIGHT COST']));
+                const royaltyCost = parseNum(getColByCandidates(row, ['ROYALTY COST']));
+                const taxCost = parseNum(getColByCandidates(row, ['TAX COST', 'EXPORT TAX COST', 'TAX / EXPORT LEVY COST']));
+                const surveyCost = parseNum(getColByCandidates(row, ['SURVEY COST']));
+                const paymentCost = parseNum(getColByCandidates(row, ['PAYMENT COST', 'FINANCE COST', 'PAYMENT / FINANCE COST']));
                 const otherCost = parseNum(getColByCandidates(row, ['OTHER COST']));
-                const grossProfitMt = sellingPrice - buyingPrice - freightCost - otherCost;
+                const grossProfitMt = sellingPrice - buyingPrice - freightCost - royaltyCost - taxCost - surveyCost - paymentCost - otherCost;
                 const totalGrossProfit = grossProfitMt * quantity;
                 const updatedAt = getColByCandidates(row, ['UPDATED AT']) || new Date().toISOString();
 
@@ -550,6 +590,10 @@ export class SheetsFirstService {
                             sellingPrice,
                             buyingPrice,
                             freightCost,
+                            royaltyCost,
+                            taxCost,
+                            surveyCost,
+                            paymentCost,
                             otherCost,
                             grossProfitMt,
                             totalGrossProfit,
@@ -566,6 +610,10 @@ export class SheetsFirstService {
                             sellingPrice,
                             buyingPrice,
                             freightCost,
+                            royaltyCost,
+                            taxCost,
+                            surveyCost,
+                            paymentCost,
                             otherCost,
                             grossProfitMt,
                             totalGrossProfit,
@@ -630,6 +678,10 @@ export class SheetsFirstService {
             sellingPrice: record.sellingPrice,
             buyingPrice: record.buyingPrice,
             freightCost: record.freightCost,
+            royaltyCost: record.royaltyCost,
+            taxCost: record.taxCost,
+            surveyCost: record.surveyCost,
+            paymentCost: record.paymentCost,
             otherCost: record.otherCost,
             grossProfitMt: record.grossProfitMt,
             totalGrossProfit: record.totalGrossProfit,

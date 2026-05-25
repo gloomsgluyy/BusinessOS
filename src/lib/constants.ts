@@ -19,7 +19,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
         "move_to_done", "chatbot", "view_restricted_finance",
         "sales_monitor", "shipment_monitor", "source_management",
         "quality", "blending_simulation", "market_price", "market_price_edit",
-        "meetings", "transshipment", "outstanding_payment",
+        "meetings", "transshipment", "document_drive", "outstanding_payment",
     ],
     director: [
         "dashboard", "approval_inbox", "my_tasks", "all_tasks",
@@ -29,27 +29,30 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
         "move_to_done", "chatbot", "view_restricted_finance",
         "sales_monitor", "shipment_monitor", "source_management",
         "quality", "blending_simulation", "market_price", "market_price_edit",
-        "meetings", "transshipment", "outstanding_payment",
+        "meetings", "transshipment", "document_drive", "outstanding_payment",
     ],
     marketing: [
         "my_tasks", "all_tasks",
         "sales_orders", "purchase_requests", "chatbot",
         "sales_monitor", "shipment_monitor", "source_management",
         "quality", "blending_simulation", "market_price",
-        "meetings", "transshipment", "move_any_task",
+        "meetings", "transshipment", "document_drive", "move_any_task",
     ],
     purchasing: [
         "my_tasks", "all_tasks",
         "purchase_requests", "profit_loss", "chatbot",
         "source_management", "quality", "market_price",
-        "meetings", "approve_purchases",
+        "meetings", "document_drive", "approve_purchases",
     ],
     operation: [
         "my_tasks", "all_tasks",
         "sales_orders", "chatbot",
         "shipment_monitor", "source_management",
         "quality", "meetings", "transshipment",
-        "move_any_task",
+        "document_drive", "move_any_task",
+    ],
+    staff: [
+        "document_drive",
     ],
 };
 
@@ -175,8 +178,9 @@ export const NAV_SECTIONS: NavSection[] = [
     {
         items: [
             { href: "/", label: "Dashboard", icon: "PieChart", permission: "dashboard" },
+            { href: "/document-drive", label: "Document Drive", icon: "FolderOpen", permission: "document_drive" },
             { href: "/directory", label: "Partners & Directory", icon: "Users", permission: "source_management" },
-            { href: "/projects", label: "Projects", icon: "Kanban", permission: "sales_monitor" },
+            { href: "/forecast-sales", label: "Forecast Sales", icon: "Kanban", permission: "sales_monitor" },
         ],
     },
     {
@@ -206,6 +210,7 @@ export const NAV_SECTIONS: NavSection[] = [
         title: "SYSTEM",
         items: [
             { href: "/users", label: "User Management", icon: "Users", permission: "manage_roles" },
+            { href: "/production-readiness", label: "Production Readiness", icon: "ShieldCheck", permission: "audit_logs" },
             { href: "/audit-logs", label: "Audit Logs", icon: "ScrollText", permission: "audit_logs" },
         ],
     },

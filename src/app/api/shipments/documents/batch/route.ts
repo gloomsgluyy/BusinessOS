@@ -36,6 +36,9 @@ async function ensureShipmentDocumentTable() {
   `);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentDocument_shipmentId_idx" ON "ShipmentDocument"("shipmentId");`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ShipmentDocument_shipmentId_documentGroup_idx" ON "ShipmentDocument"("shipmentId", "documentGroup");`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "storageProvider" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "storageKey" TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ShipmentDocument" ADD COLUMN IF NOT EXISTS "storageUrl" TEXT;`);
   shipmentDocumentTableReady = true;
 }
 
@@ -56,6 +59,9 @@ function docSelect() {
     fileName: true,
     mimeType: true,
     sizeBytes: true,
+    storageProvider: true,
+    storageKey: true,
+    storageUrl: true,
     uploadedBy: true,
     uploadedByName: true,
     createdAt: true,

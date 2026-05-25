@@ -13,6 +13,135 @@ function cleanText(v: unknown): string | null {
   return text || null;
 }
 
+function numberOrNull(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function dateOrNull(value: unknown): Date | null | undefined {
+  if (value === undefined) return undefined;
+  const text = cleanText(value);
+  if (!text) return null;
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseApprovalHistory(value: unknown): any[] {
+  if (!value || typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonHistory(value: unknown): any[] {
+  if (!value || typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonObject(value: unknown): Record<string, any> | null {
+  if (!value || typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function inferSupplierPrice(value: unknown, blendingScenario?: unknown): number {
+  const scenario = parseJsonObject(blendingScenario);
+  const scenarioCost = Number(scenario?.result?.avgCost);
+  if (Number.isFinite(scenarioCost) && scenarioCost > 0) return scenarioCost;
+
+  const text = cleanText(value) || "";
+  const matches = Array.from(text.matchAll(/(?:\$|usd\s*)\s*([0-9]+(?:[.,][0-9]+)?)/gi))
+    .map((match) => Number(String(match[1]).replace(",", ".")))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (matches.length) return Math.min(...matches);
+  return 0;
+}
+
+function buildRoughPnl(input: {
+  id?: string | null;
+  name?: string | null;
+  quantity?: number | null;
+  targetSellingPrice?: number | null;
+  supplierCandidates?: string | null;
+  blendingScenario?: string | null;
+  surveyor?: string | null;
+}) {
+  const quantity = Number(input.quantity || 0);
+  const sellingPrice = Number(input.targetSellingPrice || 0);
+  const supplierPrice = inferSupplierPrice(input.supplierCandidates, input.blendingScenario);
+  const freightCost = 0;
+  const blendingCost = 0;
+  const surveyorCost = 0;
+  const royaltyCost = 0;
+  const taxExportCost = 0;
+  const otherCost = 0;
+  const variableCostPerMt = supplierPrice + freightCost + blendingCost + surveyorCost + royaltyCost + taxExportCost + otherCost;
+  const revenue = quantity * sellingPrice;
+  const totalCost = quantity * variableCostPerMt;
+  const estimatedGrossProfit = revenue - totalCost;
+  const marginPerMt = sellingPrice - variableCostPerMt;
+  const marginPercent = revenue ? (estimatedGrossProfit / revenue) * 100 : 0;
+
+  return JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    source: "auto_forecast_sales",
+    forecastSalesId: input.id || null,
+    forecastSalesName: input.name || null,
+    quantity,
+    sellingPrice,
+    supplierPrice,
+    freightCost,
+    blendingCost,
+    surveyorCost,
+    royaltyCost,
+    taxExportCost,
+    otherCost,
+    variableCostPerMt,
+    revenue,
+    totalCost,
+    estimatedGrossProfit,
+    marginPerMt,
+    marginPercent,
+    notes: supplierPrice
+      ? "Supplier price inferred from saved blending scenario or supplier candidate text."
+      : "Supplier price not available yet; rough P&L should be updated when source cost is selected.",
+  });
+}
+
+function dateValue(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function comparableValue(value: unknown): string {
+  if (value instanceof Date) return dateValue(value) || "";
+  if (value === null || value === undefined) return "";
+  return String(value).replace(/\s+/g, " ").trim();
+}
+
+function needsBelowSpecAcknowledgement(value: unknown): boolean {
+  const text = cleanText(value) || "";
+  const fitScores = Array.from(text.matchAll(/fit\s+(\d{1,3})%/gi)).map((match) => Number(match[1]));
+  return fitScores.some((score) => Number.isFinite(score) && score < 80) ||
+    /below|above target|stock below|kyc not verified|psi failed/i.test(text);
+}
+
 async function ensureProjectTable() {
   try {
     await prisma.$executeRawUnsafe(`
@@ -37,8 +166,40 @@ async function ensureProjectTable() {
     await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvedBy" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvedByName" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvedAt" TIMESTAMP(3);`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvalHistory" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "revisionHistory" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "fcoNumber" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "fcoGeneratedAt" TIMESTAMP(3);`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "fcoHistory" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "buyerFeedbackStatus" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "buyerFeedbackReason" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "buyerFeedbackUpdatedAt" TIMESTAMP(3);`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "buyerFeedbackHistory" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "templateType" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "templateChecklist" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "buyerCountry" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "commodity" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "quantity" DOUBLE PRECISION;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "laycanStart" TIMESTAMP(3);`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "laycanEnd" TIMESTAMP(3);`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "portOfLoading" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "salesTerm" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "targetSellingPrice" DOUBLE PRECISION;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "priceBasis" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "paymentTerms" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "surveyor" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "gar" DOUBLE PRECISION;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "tm" DOUBLE PRECISION;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "ts" DOUBLE PRECISION;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "ash" DOUBLE PRECISION;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "vm" DOUBLE PRECISION;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "size" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "supplierCandidates" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "belowSpecReason" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "belowSpecAcknowledgedAt" TIMESTAMP(3);`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "belowSpecAcknowledgedByName" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "blendingScenario" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "roughPnl" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "urgencyScore" INTEGER;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "urgencyLevel" TEXT;`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "urgencyReport" TEXT;`);
@@ -63,6 +224,23 @@ async function tryAuditLog(userId: string, userName: string, action: string, ent
   } catch (error: any) {
     console.warn("[projects] audit skipped:", error?.code || error?.message);
   }
+}
+
+function structuredAuditDetails(input: {
+  actionType: string;
+  reason?: string | null;
+  evidence?: string | null;
+  changes?: Array<{ field: string; oldValue: unknown; newValue: unknown }>;
+  context?: Record<string, unknown>;
+}) {
+  return JSON.stringify({
+    schemaVersion: 1,
+    actionType: input.actionType,
+    reason: input.reason || null,
+    evidence: input.evidence || null,
+    changes: input.changes || [],
+    context: input.context || {},
+  });
 }
 
 export async function GET(req: Request) {
@@ -109,15 +287,52 @@ export async function POST(req: Request) {
 
     const data = await req.json();
     const name = cleanText(data.name);
-    if (!name) return NextResponse.json({ error: "Project name is required" }, { status: 400 });
+    if (!name) return NextResponse.json({ error: "Forecast Sales name is required" }, { status: 400 });
+    if (
+      String(cleanText(data.status) || "draft").toLowerCase() === "waiting_approval" &&
+      needsBelowSpecAcknowledgement(data.supplierCandidates) &&
+      !cleanText(data.belowSpecReason)
+    ) {
+      return NextResponse.json({ error: "Below-spec acknowledgement reason is required" }, { status: 400 });
+    }
 
     const project = await prisma.projectItem.create({
       data: {
         name,
         segment: cleanText(data.segment),
         buyer: cleanText(data.buyer),
-        status: "waiting_approval",
+        status: cleanText(data.status) || "draft",
         notes: cleanText(data.notes),
+        buyerCountry: cleanText(data.buyerCountry),
+        commodity: cleanText(data.commodity),
+        quantity: numberOrNull(data.quantity),
+        laycanStart: dateOrNull(data.laycanStart),
+        laycanEnd: dateOrNull(data.laycanEnd),
+        portOfLoading: cleanText(data.portOfLoading),
+        salesTerm: cleanText(data.salesTerm),
+        targetSellingPrice: numberOrNull(data.targetSellingPrice),
+        priceBasis: cleanText(data.priceBasis),
+        paymentTerms: cleanText(data.paymentTerms),
+        surveyor: cleanText(data.surveyor),
+        gar: numberOrNull(data.gar),
+        tm: numberOrNull(data.tm),
+        ts: numberOrNull(data.ts),
+        ash: numberOrNull(data.ash),
+        vm: numberOrNull(data.vm),
+        size: cleanText(data.size),
+        supplierCandidates: cleanText(data.supplierCandidates),
+        belowSpecReason: cleanText(data.belowSpecReason),
+        belowSpecAcknowledgedAt: cleanText(data.belowSpecReason) ? new Date() : null,
+        belowSpecAcknowledgedByName: cleanText(data.belowSpecReason) ? (session.user.name || null) : null,
+        blendingScenario: cleanText(data.blendingScenario),
+        roughPnl: buildRoughPnl({
+          name,
+          quantity: numberOrNull(data.quantity) ?? null,
+          targetSellingPrice: numberOrNull(data.targetSellingPrice) ?? null,
+          supplierCandidates: cleanText(data.supplierCandidates),
+          blendingScenario: cleanText(data.blendingScenario),
+          surveyor: cleanText(data.surveyor),
+        }),
         templateType: cleanText(data.templateType),
         templateChecklist: cleanText(data.templateChecklist),
         createdBy: session.user.id,
@@ -134,11 +349,36 @@ export async function POST(req: Request) {
         segment: project.segment,
         buyer: project.buyer,
         status: project.status,
+        buyerCountry: project.buyerCountry,
+        commodity: project.commodity,
+        quantity: project.quantity,
+        laycanStart: project.laycanStart,
+        laycanEnd: project.laycanEnd,
+        portOfLoading: project.portOfLoading,
+        salesTerm: project.salesTerm,
+        targetSellingPrice: project.targetSellingPrice,
+        priceBasis: project.priceBasis,
+        paymentTerms: project.paymentTerms,
+        surveyor: project.surveyor,
+        belowSpecReason: project.belowSpecReason,
+        belowSpecAcknowledgedAt: project.belowSpecAcknowledgedAt,
+        belowSpecAcknowledgedByName: project.belowSpecAcknowledgedByName,
+        blendingScenario: project.blendingScenario,
+        roughPnl: project.roughPnl,
         templateType: project.templateType,
         templateChecklist: project.templateChecklist,
         approvedBy: project.approvedBy,
         approvedByName: project.approvedByName,
         approvedAt: project.approvedAt,
+        approvalHistory: project.approvalHistory,
+        revisionHistory: project.revisionHistory,
+        fcoNumber: project.fcoNumber,
+        fcoGeneratedAt: project.fcoGeneratedAt,
+        fcoHistory: project.fcoHistory,
+        buyerFeedbackStatus: project.buyerFeedbackStatus,
+        buyerFeedbackReason: project.buyerFeedbackReason,
+        buyerFeedbackUpdatedAt: project.buyerFeedbackUpdatedAt,
+        buyerFeedbackHistory: project.buyerFeedbackHistory,
       }),
     );
 
@@ -146,7 +386,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("POST /api/memory/projects error:", error);
     return NextResponse.json(
-      { error: "Failed to create project", details: error instanceof Error ? error.message : String(error) },
+      { error: "Failed to create Forecast Sales", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
@@ -159,25 +399,157 @@ export async function PUT(req: Request) {
     await ensureProjectTable();
 
     const data = await req.json();
-    if (!data.id) return NextResponse.json({ error: "Project ID missing" }, { status: 400 });
+    if (!data.id) return NextResponse.json({ error: "Forecast Sales ID missing" }, { status: 400 });
 
     const existing = await prisma.projectItem.findUnique({ where: { id: data.id } });
     if (!existing || existing.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     const nextName = data.name !== undefined ? cleanText(data.name) : undefined;
     if (data.name !== undefined && !nextName) {
-      return NextResponse.json({ error: "Project name cannot be empty" }, { status: 400 });
+      return NextResponse.json({ error: "Forecast Sales name cannot be empty" }, { status: 400 });
     }
 
     const nextStatus =
       data.status !== undefined ? (cleanText(data.status) || undefined) : undefined;
     const approvalTarget = (nextStatus || "").toLowerCase();
-    if (approvalTarget && ["approved", "rejected"].includes(approvalTarget) && !canApproveProjectStatus(session.user.role)) {
-      return NextResponse.json({ error: "Forbidden: only CEO/DIRUT/ASS_DIRUT can approve project" }, { status: 403 });
+    const approvalStatuses = new Set(["approved", "rejected", "revision_requested"]);
+    if (approvalTarget && approvalStatuses.has(approvalTarget) && !canApproveProjectStatus(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden: only CEO/DIRUT/ASS_DIRUT can approve Forecast Sales" }, { status: 403 });
+    }
+    const approvalComment = cleanText(data.approvalComment);
+    if (approvalTarget && approvalStatuses.has(approvalTarget) && !approvalComment) {
+      return NextResponse.json({ error: "Approval comment is required" }, { status: 400 });
     }
     const toApprovalStatus = (nextStatus || "").toLowerCase();
+    const nextBuyerFeedbackStatus = data.buyerFeedbackStatus !== undefined ? cleanText(data.buyerFeedbackStatus) : undefined;
+    if (nextBuyerFeedbackStatus === "failed" && !cleanText(data.buyerFeedbackReason)) {
+      return NextResponse.json({ error: "Failed buyer feedback reason is required" }, { status: 400 });
+    }
+    const supplierForCheck = data.supplierCandidates !== undefined ? data.supplierCandidates : existing.supplierCandidates;
+    const belowSpecReasonForCheck = data.belowSpecReason !== undefined ? data.belowSpecReason : existing.belowSpecReason;
+    if (
+      toApprovalStatus === "waiting_approval" &&
+      needsBelowSpecAcknowledgement(supplierForCheck) &&
+      !cleanText(belowSpecReasonForCheck)
+    ) {
+      return NextResponse.json({ error: "Below-spec acknowledgement reason is required" }, { status: 400 });
+    }
     const shouldSetApproval = toApprovalStatus === "approved";
-    const shouldResetApproval = toApprovalStatus === "rejected" || toApprovalStatus === "waiting_approval";
+    const shouldResetApproval = toApprovalStatus === "rejected" || toApprovalStatus === "waiting_approval" || toApprovalStatus === "revision_requested";
+    const shouldAppendApprovalHistory = Boolean(nextStatus && cleanText(nextStatus) !== cleanText(existing.status) && approvalComment);
+    const approvalHistory = shouldAppendApprovalHistory
+      ? JSON.stringify([
+        {
+          status: nextStatus,
+          comment: approvalComment,
+          userId: session.user.id,
+          userName: session.user.name || "Unknown",
+          createdAt: new Date().toISOString(),
+        },
+        ...parseApprovalHistory(existing.approvalHistory),
+      ])
+      : undefined;
+
+    const revisionFields = [
+      {
+        key: "targetSellingPrice",
+        label: "Target Selling Price",
+        incoming: data.targetSellingPrice,
+        previous: existing.targetSellingPrice,
+        next: numberOrNull(data.targetSellingPrice),
+      },
+      {
+        key: "laycanStart",
+        label: "Laycan Start",
+        incoming: data.laycanStart,
+        previous: dateValue(existing.laycanStart),
+        next: dateValue(dateOrNull(data.laycanStart) as Date | null | undefined),
+      },
+      {
+        key: "laycanEnd",
+        label: "Laycan End",
+        incoming: data.laycanEnd,
+        previous: dateValue(existing.laycanEnd),
+        next: dateValue(dateOrNull(data.laycanEnd) as Date | null | undefined),
+      },
+      {
+        key: "supplierCandidates",
+        label: "Supplier Candidates",
+        incoming: data.supplierCandidates,
+        previous: existing.supplierCandidates,
+        next: cleanText(data.supplierCandidates),
+      },
+      {
+        key: "quantity",
+        label: "Quantity",
+        incoming: data.quantity,
+        previous: existing.quantity,
+        next: numberOrNull(data.quantity),
+      },
+    ];
+    const revisionChanges = revisionFields
+      .filter((field) => field.incoming !== undefined && comparableValue(field.previous) !== comparableValue(field.next))
+      .map((field) => ({
+        field: field.key,
+        label: field.label,
+        oldValue: comparableValue(field.previous) || null,
+        newValue: comparableValue(field.next) || null,
+      }));
+    const revisionHistory = revisionChanges.length
+      ? JSON.stringify([
+        {
+          changes: revisionChanges,
+          reason: cleanText(data.revisionReason) || cleanText(data.approvalComment) || "Forecast Sales updated",
+          statusAtChange: existing.status,
+          userId: session.user.id,
+          userName: session.user.name || "Unknown",
+          createdAt: new Date().toISOString(),
+        },
+        ...parseJsonHistory(existing.revisionHistory),
+      ])
+      : undefined;
+
+    const fcoHistory = (data.fcoNumber !== undefined || data.fcoGeneratedAt !== undefined)
+      ? JSON.stringify([
+        {
+          version: parseJsonHistory(existing.fcoHistory).length + 1,
+          action: existing.fcoNumber && cleanText(data.fcoNumber) === existing.fcoNumber ? "download" : "generate",
+          fcoNumber: cleanText(data.fcoNumber) || existing.fcoNumber || null,
+          previousFcoNumber: existing.fcoNumber || null,
+          generatedAt: data.fcoGeneratedAt || new Date().toISOString(),
+          userId: session.user.id,
+          userName: session.user.name || "Unknown",
+          createdAt: new Date().toISOString(),
+        },
+        ...parseJsonHistory(existing.fcoHistory),
+      ])
+      : undefined;
+
+    const buyerFeedbackHistory = nextBuyerFeedbackStatus !== undefined
+      ? JSON.stringify([
+        {
+          status: nextBuyerFeedbackStatus,
+          previousStatus: existing.buyerFeedbackStatus || null,
+          reason: cleanText(data.buyerFeedbackReason) || null,
+          fcoNumber: data.fcoNumber !== undefined ? cleanText(data.fcoNumber) : existing.fcoNumber,
+          userId: session.user.id,
+          userName: session.user.name || "Unknown",
+          createdAt: data.buyerFeedbackUpdatedAt || new Date().toISOString(),
+        },
+        ...parseJsonHistory(existing.buyerFeedbackHistory),
+      ])
+      : undefined;
+
+    const mergedForPnl = {
+      id: existing.id,
+      name: nextName || existing.name,
+      quantity: data.quantity !== undefined ? numberOrNull(data.quantity) : existing.quantity,
+      targetSellingPrice: data.targetSellingPrice !== undefined ? numberOrNull(data.targetSellingPrice) : existing.targetSellingPrice,
+      supplierCandidates: data.supplierCandidates !== undefined ? cleanText(data.supplierCandidates) : existing.supplierCandidates,
+      blendingScenario: data.blendingScenario !== undefined ? cleanText(data.blendingScenario) : existing.blendingScenario,
+      surveyor: data.surveyor !== undefined ? cleanText(data.surveyor) : existing.surveyor,
+    };
+
     const project = await prisma.projectItem.update({
       where: { id: data.id },
       data: {
@@ -186,6 +558,33 @@ export async function PUT(req: Request) {
         buyer: data.buyer !== undefined ? cleanText(data.buyer) : undefined,
         status: nextStatus,
         notes: data.notes !== undefined ? cleanText(data.notes) : undefined,
+        buyerCountry: data.buyerCountry !== undefined ? cleanText(data.buyerCountry) : undefined,
+        commodity: data.commodity !== undefined ? cleanText(data.commodity) : undefined,
+        quantity: numberOrNull(data.quantity),
+        laycanStart: dateOrNull(data.laycanStart),
+        laycanEnd: dateOrNull(data.laycanEnd),
+        portOfLoading: data.portOfLoading !== undefined ? cleanText(data.portOfLoading) : undefined,
+        salesTerm: data.salesTerm !== undefined ? cleanText(data.salesTerm) : undefined,
+        targetSellingPrice: numberOrNull(data.targetSellingPrice),
+        priceBasis: data.priceBasis !== undefined ? cleanText(data.priceBasis) : undefined,
+        paymentTerms: data.paymentTerms !== undefined ? cleanText(data.paymentTerms) : undefined,
+        surveyor: data.surveyor !== undefined ? cleanText(data.surveyor) : undefined,
+        gar: numberOrNull(data.gar),
+        tm: numberOrNull(data.tm),
+        ts: numberOrNull(data.ts),
+        ash: numberOrNull(data.ash),
+        vm: numberOrNull(data.vm),
+        size: data.size !== undefined ? cleanText(data.size) : undefined,
+        supplierCandidates: data.supplierCandidates !== undefined ? cleanText(data.supplierCandidates) : undefined,
+        belowSpecReason: data.belowSpecReason !== undefined ? cleanText(data.belowSpecReason) : undefined,
+        belowSpecAcknowledgedAt: data.belowSpecReason !== undefined
+          ? (cleanText(data.belowSpecReason) ? new Date() : null)
+          : undefined,
+        belowSpecAcknowledgedByName: data.belowSpecReason !== undefined
+          ? (cleanText(data.belowSpecReason) ? (session.user.name || null) : null)
+          : undefined,
+        blendingScenario: data.blendingScenario !== undefined ? cleanText(data.blendingScenario) : undefined,
+        roughPnl: buildRoughPnl(mergedForPnl),
         templateType: data.templateType !== undefined ? cleanText(data.templateType) : undefined,
         templateChecklist: data.templateChecklist !== undefined ? cleanText(data.templateChecklist) : undefined,
         urgencyScore: data.urgencyScore !== undefined ? Number(data.urgencyScore) : undefined,
@@ -209,21 +608,73 @@ export async function PUT(req: Request) {
           : shouldResetApproval
             ? null
             : undefined,
+        approvalHistory,
+        revisionHistory,
+        fcoNumber: data.fcoNumber !== undefined ? cleanText(data.fcoNumber) : undefined,
+        fcoGeneratedAt: data.fcoGeneratedAt !== undefined
+          ? (data.fcoGeneratedAt ? new Date(data.fcoGeneratedAt) : null)
+          : undefined,
+        fcoHistory,
+        buyerFeedbackStatus: nextBuyerFeedbackStatus,
+        buyerFeedbackReason: data.buyerFeedbackReason !== undefined ? cleanText(data.buyerFeedbackReason) : undefined,
+        buyerFeedbackUpdatedAt: data.buyerFeedbackStatus !== undefined
+          ? (data.buyerFeedbackUpdatedAt ? new Date(data.buyerFeedbackUpdatedAt) : new Date())
+          : undefined,
+        buyerFeedbackHistory,
       },
     });
+    const generalAuditFields = [
+      "name",
+      "segment",
+      "buyer",
+      "status",
+      "buyerCountry",
+      "commodity",
+      "portOfLoading",
+      "salesTerm",
+      "priceBasis",
+      "paymentTerms",
+      "surveyor",
+      "belowSpecReason",
+      "blendingScenario",
+      "templateType",
+      "fcoNumber",
+      "buyerFeedbackStatus",
+      "buyerFeedbackReason",
+    ];
+    const structuredChanges = [
+      ...revisionChanges.map((change) => ({ field: change.field, oldValue: change.oldValue, newValue: change.newValue })),
+      ...generalAuditFields
+        .filter((field) => data[field] !== undefined && comparableValue((existing as any)[field]) !== comparableValue((project as any)[field]))
+        .map((field) => ({
+          field,
+          oldValue: (existing as any)[field] ?? null,
+          newValue: (project as any)[field] ?? null,
+        })),
+    ];
     await tryAuditLog(
       session.user.id,
       session.user.name || "Unknown",
       "UPDATE",
       project.id,
-      JSON.stringify(data),
+      structuredAuditDetails({
+        actionType: approvalTarget ? `status_${approvalTarget}` : nextBuyerFeedbackStatus ? "buyer_feedback" : "update",
+        reason: cleanText(data.revisionReason) || approvalComment || cleanText(data.buyerFeedbackReason) || cleanText(data.reason) || null,
+        evidence: cleanText(data.evidence) || null,
+        changes: structuredChanges,
+        context: {
+          approvalComment: approvalComment || null,
+          buyerFeedbackStatus: nextBuyerFeedbackStatus || null,
+          roughPnlRefreshed: true,
+        },
+      }),
     );
 
     return NextResponse.json({ success: true, project });
   } catch (error) {
     console.error("PUT /api/memory/projects error:", error);
     return NextResponse.json(
-      { error: "Failed to update project", details: error instanceof Error ? error.message : String(error) },
+      { error: "Failed to update Forecast Sales", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
@@ -237,7 +688,7 @@ export async function DELETE(req: Request) {
 
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
-    if (!id) return NextResponse.json({ error: "Project ID missing" }, { status: 400 });
+    if (!id) return NextResponse.json({ error: "Forecast Sales ID missing" }, { status: 400 });
 
     const existing = await prisma.projectItem.findUnique({ where: { id } });
     if (!existing || existing.isDeleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -258,7 +709,7 @@ export async function DELETE(req: Request) {
   } catch (error) {
     console.error("DELETE /api/memory/projects error:", error);
     return NextResponse.json(
-      { error: "Failed to delete project", details: error instanceof Error ? error.message : String(error) },
+      { error: "Failed to delete Forecast Sales", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }

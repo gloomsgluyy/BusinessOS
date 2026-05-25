@@ -407,7 +407,7 @@ ${marketPrices[0] ? `- ICI 4 (4200): $${marketPrices[0].ici_4}\n- Newcastle: $${
     : ""
 }
 
-### Projects: ${projects.length}
+### Forecast Sales: ${projects.length}
 ### Tasks Open: ${tasks.filter((t) => t.status !== "done").length}`;
     };
 
@@ -671,7 +671,7 @@ ${marketPrices[0] ? `- ICI 4 (4200): $${marketPrices[0].ici_4}\n- Newcastle: $${
                 return `| ${dateText} | ${name} | ${shipmentStatusLabel(s.status || s.shipment_status)} | ${reason.slice(0, 90)} | ${qty} |`;
             }).join("\n");
 
-            return `Ringkasan status shipment **${days} hari terakhir** ${projectMatch ? `untuk project **${projectMatch.name}**` : ""}.\n\n### Status Summary\n${countsText}\n\n### Detail Shipment\n| Tanggal | Project/MV | Status | Reason | Qty (MT) |\n|---|---|---|---|---|\n${rowsTable || "| - | - | - | - | - |"}`;
+            return `Ringkasan status shipment **${days} hari terakhir** ${projectMatch ? `untuk Forecast Sales **${projectMatch.name}**` : ""}.\n\n### Status Summary\n${countsText}\n\n### Detail Shipment\n| Tanggal | Forecast Sales/MV | Status | Reason | Qty (MT) |\n|---|---|---|---|---|\n${rowsTable || "| - | - | - | - | - |"}`;
         }
 
         if (/(meeting|meetings).*(status|jadwal|berapa)|jadwal meeting/i.test(q)) {
