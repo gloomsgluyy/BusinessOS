@@ -2659,3 +2659,36 @@ Verification:
 Remaining risk:
 
 - Public Drive intentionally excludes critical documents for logged-out users; critical access still requires executive login.
+
+## 2026-05-25 - Forecast Sales Production Load Guard
+
+Type:
+
+- Code
+- Performance
+- UI
+
+Changed:
+
+- `src/app/api/memory/projects/route.ts`
+- `src/app/projects/page.tsx`
+
+SRS refs:
+
+- UI-FS-001
+- Production readiness / Vercel load stability
+
+What changed:
+
+- Forecast Sales API no longer runs every `ALTER TABLE IF NOT EXISTS` guard on every GET; it checks existing columns first, adds only missing columns, and caches the check per server instance.
+- Forecast Sales page now forces an initial sync on mount and shows a syncing state instead of rendering zero dashboard values while production data is still loading.
+- Forecast Sales API responses explicitly return `Cache-Control: no-store` so dashboard data is not served from a stale route cache.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `git diff --check` passed with only existing Windows CRLF warnings.
+
+Remaining risk:
+
+- If Vercel/Supabase production database itself has no Forecast Sales rows, the dashboard will correctly show zero after sync; this patch prevents false-zero while the API is still loading or delayed.

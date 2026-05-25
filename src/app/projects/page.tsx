@@ -530,7 +530,7 @@ export default function ProjectsPage() {
   const searchParams = useSearchParams();
   const { currentUser } = useAuthStore();
   const { shipments, projects, sources, marketPrices, syncFromMemory, addProject, updateProject, deleteProject, addShipment, updateShipment } = useCommercialStore();
-  const [, setIsInitializing] = React.useState(false);
+  const [isInitializing, setIsInitializing] = React.useState(true);
   const [search, setSearch] = React.useState(() => searchParams.get("q") || "");
   const [yearFilter, setYearFilter] = React.useState("all");
   const [statusFilter, setStatusFilter] = React.useState<"all" | ProjectStatus>("all");
@@ -566,7 +566,14 @@ export default function ProjectsPage() {
   }, [marketPrices]);
 
   React.useEffect(() => {
-    syncFromMemory().finally(() => setIsInitializing(false));
+    let active = true;
+    setIsInitializing(true);
+    syncFromMemory({ force: true }).finally(() => {
+      if (active) setIsInitializing(false);
+    });
+    return () => {
+      active = false;
+    };
   }, [syncFromMemory]);
   React.useEffect(() => {
     const q = searchParams.get("q");
@@ -812,6 +819,8 @@ export default function ProjectsPage() {
       failed: byFeedback(["failed"]),
     };
   }, [cards]);
+
+  const isInitialForecastLoading = isInitializing && projects.length === 0 && shipments.length === 0;
 
   const sourceCandidateRows = React.useMemo(() => {
     const target = {
@@ -2053,14 +2062,14 @@ export default function ProjectsPage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 items-start">
           {[
-            { key: "total" as const, label: "Total Forecast", value: fmtInt(forecastDashboard.total), tone: "border-emerald-500/20" },
-            { key: "draft" as const, label: "Draft", value: fmtInt(forecastDashboard.draft), tone: "border-slate-500/20" },
-            { key: "waitingApproval" as const, label: "CEO Review", value: fmtInt(forecastDashboard.waitingApproval), tone: "border-amber-500/25" },
-            { key: "approved" as const, label: "Approved", value: fmtInt(forecastDashboard.approved), tone: "border-blue-500/25" },
-            { key: "fcoSent" as const, label: "FCO Sent", value: fmtInt(forecastDashboard.fcoSent), tone: "border-cyan-500/25" },
-            { key: "pendingBuyer" as const, label: "Buyer Pending", value: fmtInt(forecastDashboard.pendingBuyer), tone: "border-orange-500/25" },
-            { key: "deal" as const, label: "Deal", value: fmtInt(forecastDashboard.deal), tone: "border-emerald-500/25" },
-            { key: "failed" as const, label: "Failed", value: fmtInt(forecastDashboard.failed), tone: "border-rose-500/25" },
+            { key: "total" as const, label: "Total Forecast", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.total), tone: "border-emerald-500/20" },
+            { key: "draft" as const, label: "Draft", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.draft), tone: "border-slate-500/20" },
+            { key: "waitingApproval" as const, label: "CEO Review", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.waitingApproval), tone: "border-amber-500/25" },
+            { key: "approved" as const, label: "Approved", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.approved), tone: "border-blue-500/25" },
+            { key: "fcoSent" as const, label: "FCO Sent", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.fcoSent), tone: "border-cyan-500/25" },
+            { key: "pendingBuyer" as const, label: "Buyer Pending", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.pendingBuyer), tone: "border-orange-500/25" },
+            { key: "deal" as const, label: "Deal", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.deal), tone: "border-emerald-500/25" },
+            { key: "failed" as const, label: "Failed", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.failed), tone: "border-rose-500/25" },
           ].map((item) => (
             <div key={item.label} className={cn("self-start rounded-lg border bg-card p-3 min-h-[88px]", item.tone)}>
               <button
@@ -2104,11 +2113,11 @@ export default function ProjectsPage() {
           ))}
           <div className="self-start rounded-lg border border-violet-500/20 bg-card p-3 min-h-[88px]">
             <p className="text-[10px] uppercase font-bold text-muted-foreground leading-tight">Revenue</p>
-            <p className="mt-2 text-lg font-bold leading-none">{canApprove ? fmtUsd(forecastDashboard.estimatedRevenue) : "Restricted"}</p>
+            <p className="mt-2 text-lg font-bold leading-none">{isInitialForecastLoading ? "Syncing..." : canApprove ? fmtUsd(forecastDashboard.estimatedRevenue) : "Restricted"}</p>
           </div>
           <div className="self-start rounded-lg border border-fuchsia-500/20 bg-card p-3 min-h-[88px]">
             <p className="text-[10px] uppercase font-bold text-muted-foreground leading-tight">Shipment GP</p>
-            <p className="mt-2 text-lg font-bold leading-none">{canApprove ? fmtUsd(forecastDashboard.shipmentGrossProfit) : "Restricted"}</p>
+            <p className="mt-2 text-lg font-bold leading-none">{isInitialForecastLoading ? "Syncing..." : canApprove ? fmtUsd(forecastDashboard.shipmentGrossProfit) : "Restricted"}</p>
           </div>
         </div>
 
@@ -2169,9 +2178,15 @@ export default function ProjectsPage() {
 
         {filtered.length === 0 && (
           <div className="text-center py-16 px-8 card-elevated border-dashed border-2">
-            <FolderKanban className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4" />
-            <h3 className="text-lg font-bold mb-1">No Forecast Sales Data</h3>
-            <p className="text-sm text-muted-foreground">Tidak ada Forecast Sales yang cocok dengan filter saat ini.</p>
+            {isInitialForecastLoading ? (
+              <Loader2 className="w-12 h-12 text-emerald-500 mx-auto mb-4 animate-spin" />
+            ) : (
+              <FolderKanban className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4" />
+            )}
+            <h3 className="text-lg font-bold mb-1">{isInitialForecastLoading ? "Syncing Forecast Sales" : "No Forecast Sales Data"}</h3>
+            <p className="text-sm text-muted-foreground">
+              {isInitialForecastLoading ? "Mengambil data terbaru dari server production." : "Tidak ada Forecast Sales yang cocok dengan filter saat ini."}
+            </p>
           </div>
         )}
 

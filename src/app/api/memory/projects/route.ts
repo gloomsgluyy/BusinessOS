@@ -142,7 +142,54 @@ function needsBelowSpecAcknowledgement(value: unknown): boolean {
     /below|above target|stock below|kyc not verified|psi failed/i.test(text);
 }
 
-async function ensureProjectTable() {
+const PROJECT_ITEM_COLUMN_SPECS = [
+  { name: "approvedBy", sql: `"approvedBy" TEXT` },
+  { name: "approvedByName", sql: `"approvedByName" TEXT` },
+  { name: "approvedAt", sql: `"approvedAt" TIMESTAMP(3)` },
+  { name: "approvalHistory", sql: `"approvalHistory" TEXT` },
+  { name: "revisionHistory", sql: `"revisionHistory" TEXT` },
+  { name: "fcoNumber", sql: `"fcoNumber" TEXT` },
+  { name: "fcoGeneratedAt", sql: `"fcoGeneratedAt" TIMESTAMP(3)` },
+  { name: "fcoHistory", sql: `"fcoHistory" TEXT` },
+  { name: "buyerFeedbackStatus", sql: `"buyerFeedbackStatus" TEXT` },
+  { name: "buyerFeedbackReason", sql: `"buyerFeedbackReason" TEXT` },
+  { name: "buyerFeedbackUpdatedAt", sql: `"buyerFeedbackUpdatedAt" TIMESTAMP(3)` },
+  { name: "buyerFeedbackHistory", sql: `"buyerFeedbackHistory" TEXT` },
+  { name: "templateType", sql: `"templateType" TEXT` },
+  { name: "templateChecklist", sql: `"templateChecklist" TEXT` },
+  { name: "buyerCountry", sql: `"buyerCountry" TEXT` },
+  { name: "commodity", sql: `"commodity" TEXT` },
+  { name: "quantity", sql: `"quantity" DOUBLE PRECISION` },
+  { name: "laycanStart", sql: `"laycanStart" TIMESTAMP(3)` },
+  { name: "laycanEnd", sql: `"laycanEnd" TIMESTAMP(3)` },
+  { name: "portOfLoading", sql: `"portOfLoading" TEXT` },
+  { name: "salesTerm", sql: `"salesTerm" TEXT` },
+  { name: "targetSellingPrice", sql: `"targetSellingPrice" DOUBLE PRECISION` },
+  { name: "priceBasis", sql: `"priceBasis" TEXT` },
+  { name: "paymentTerms", sql: `"paymentTerms" TEXT` },
+  { name: "surveyor", sql: `"surveyor" TEXT` },
+  { name: "gar", sql: `"gar" DOUBLE PRECISION` },
+  { name: "tm", sql: `"tm" DOUBLE PRECISION` },
+  { name: "ts", sql: `"ts" DOUBLE PRECISION` },
+  { name: "ash", sql: `"ash" DOUBLE PRECISION` },
+  { name: "vm", sql: `"vm" DOUBLE PRECISION` },
+  { name: "size", sql: `"size" TEXT` },
+  { name: "supplierCandidates", sql: `"supplierCandidates" TEXT` },
+  { name: "belowSpecReason", sql: `"belowSpecReason" TEXT` },
+  { name: "belowSpecAcknowledgedAt", sql: `"belowSpecAcknowledgedAt" TIMESTAMP(3)` },
+  { name: "belowSpecAcknowledgedByName", sql: `"belowSpecAcknowledgedByName" TEXT` },
+  { name: "blendingScenario", sql: `"blendingScenario" TEXT` },
+  { name: "roughPnl", sql: `"roughPnl" TEXT` },
+  { name: "urgencyScore", sql: `"urgencyScore" INTEGER` },
+  { name: "urgencyLevel", sql: `"urgencyLevel" TEXT` },
+  { name: "urgencyReport", sql: `"urgencyReport" TEXT` },
+  { name: "lastUrgencyAnalyzedAt", sql: `"lastUrgencyAnalyzedAt" TIMESTAMP(3)` },
+];
+
+let projectTableEnsurePromise: Promise<void> | null = null;
+let projectTableEnsuredAt = 0;
+
+async function ensureProjectTable(): Promise<boolean> {
   try {
     await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "ProjectItem" (
@@ -163,50 +210,41 @@ async function ensureProjectTable() {
         CONSTRAINT "ProjectItem_pkey" PRIMARY KEY ("id")
       );
     `);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvedBy" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvedByName" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvedAt" TIMESTAMP(3);`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "approvalHistory" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "revisionHistory" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "fcoNumber" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "fcoGeneratedAt" TIMESTAMP(3);`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "fcoHistory" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "buyerFeedbackStatus" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "buyerFeedbackReason" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "buyerFeedbackUpdatedAt" TIMESTAMP(3);`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "buyerFeedbackHistory" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "templateType" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "templateChecklist" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "buyerCountry" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "commodity" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "quantity" DOUBLE PRECISION;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "laycanStart" TIMESTAMP(3);`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "laycanEnd" TIMESTAMP(3);`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "portOfLoading" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "salesTerm" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "targetSellingPrice" DOUBLE PRECISION;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "priceBasis" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "paymentTerms" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "surveyor" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "gar" DOUBLE PRECISION;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "tm" DOUBLE PRECISION;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "ts" DOUBLE PRECISION;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "ash" DOUBLE PRECISION;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "vm" DOUBLE PRECISION;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "size" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "supplierCandidates" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "belowSpecReason" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "belowSpecAcknowledgedAt" TIMESTAMP(3);`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "belowSpecAcknowledgedByName" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "blendingScenario" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "roughPnl" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "urgencyScore" INTEGER;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "urgencyLevel" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "urgencyReport" TEXT;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS "lastUrgencyAnalyzedAt" TIMESTAMP(3);`);
+    const existingColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'ProjectItem'
+    `;
+    const existing = new Set(existingColumns.map((column) => column.column_name));
+    const missing = PROJECT_ITEM_COLUMN_SPECS.filter((column) => !existing.has(column.name));
+    for (const column of missing) {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "ProjectItem" ADD COLUMN IF NOT EXISTS ${column.sql};`);
+    }
+    if (missing.length) {
+      console.info(`[projects] ensured ${missing.length} missing ProjectItem columns`);
+    }
+    return true;
   } catch (error) {
     console.error("[projects] ensureProjectTable failed:", error);
+    return false;
   }
+}
+
+function ensureProjectTableCached(options: { force?: boolean } = {}) {
+  const now = Date.now();
+  if (!options.force && projectTableEnsuredAt && now - projectTableEnsuredAt < 10 * 60 * 1000) {
+    return Promise.resolve();
+  }
+  if (!options.force && projectTableEnsurePromise) return projectTableEnsurePromise;
+  projectTableEnsurePromise = ensureProjectTable()
+    .then((ensured) => {
+      if (ensured) projectTableEnsuredAt = Date.now();
+    })
+    .finally(() => {
+      projectTableEnsurePromise = null;
+    });
+  return projectTableEnsurePromise;
 }
 
 async function tryAuditLog(userId: string, userName: string, action: string, entityId: string, details: string) {
@@ -247,7 +285,7 @@ export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    await ensureProjectTable();
+    await ensureProjectTableCached();
 
     const url = new URL(req.url);
     const pagination = parsePaginationParams(url.searchParams);
@@ -264,7 +302,7 @@ export async function GET(req: Request) {
         prisma.projectItem.count({ where }),
       ]);
       const meta = buildPaginationMeta(totalItems, pagination.page, pagination.pageSize);
-      return NextResponse.json({ success: true, projects, meta });
+      return NextResponse.json({ success: true, projects, meta }, { headers: { "Cache-Control": "no-store" } });
     }
 
     const projects = await prisma.projectItem.findMany({
@@ -272,7 +310,7 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json({ success: true, projects });
+    return NextResponse.json({ success: true, projects }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("GET /api/memory/projects error:", error);
     return NextResponse.json({ error: "Failed to fetch projects" }, { status: 500 });
@@ -283,7 +321,7 @@ export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    await ensureProjectTable();
+    await ensureProjectTableCached();
 
     const data = await req.json();
     const name = cleanText(data.name);
@@ -396,7 +434,7 @@ export async function PUT(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    await ensureProjectTable();
+    await ensureProjectTableCached();
 
     const data = await req.json();
     if (!data.id) return NextResponse.json({ error: "Forecast Sales ID missing" }, { status: 400 });
@@ -684,7 +722,7 @@ export async function DELETE(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    await ensureProjectTable();
+    await ensureProjectTableCached();
 
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
