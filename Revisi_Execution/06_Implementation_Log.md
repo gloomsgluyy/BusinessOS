@@ -2751,3 +2751,39 @@ Verification:
 
 - `npx tsc --noEmit` passed.
 - `git diff --check` passed with only existing Windows CRLF warnings.
+
+## 2026-05-25 - Commercial Sync Status and Parallel Module Loading
+
+Type:
+
+- Code
+- Performance
+- UI
+
+Changed:
+
+- `src/store/commercial-store.ts`
+- `src/components/layout/app-shell.tsx`
+- `src/app/projects/page.tsx`
+
+SRS refs:
+
+- Production readiness / perceived load performance
+- UI-FS-001
+
+What changed:
+
+- Commercial sync now starts all commercial endpoints in parallel. Forecast Sales/project data is no longer blocked behind the shipment endpoint.
+- Commercial store now tracks sync status, pending endpoints, loaded endpoints, errors, and completion time.
+- AppShell now uses route-specific commercial endpoint status to show skeletons even when unrelated cached data exists.
+- AppShell shows a small data status chip: syncing progress, loaded time, or sync issue count.
+- Forecast Sales skeleton now depends on project endpoint loading state, not on shipment/project arrays both being empty.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `git diff --check` passed with only existing Windows CRLF warnings.
+
+Root cause note:
+
+- The 40-second Forecast Sales delay could happen because `syncFromMemory()` awaited `/api/memory/shipments` before starting the other commercial requests. If shipment loading was slow, Forecast Sales had not even requested `/api/memory/projects` yet.

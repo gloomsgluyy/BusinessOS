@@ -729,3 +729,13 @@ For critical fields:
 - [x] Added duplicate-click guard/loading state for the FCO button.
 - [x] Ran `npx tsc --noEmit`.
 - [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.
+
+## 66. 2026-05-25 Commercial Sync Status and Parallel Loading Safety Record
+
+- [x] Commercial endpoint mapping/parsing logic remains unchanged.
+- [x] All commercial endpoints now start in parallel; slow shipment loading no longer blocks Forecast Sales/project request startup.
+- [x] Added non-persisted sync metadata only; business records are not mutated by sync status tracking.
+- [x] AppShell skeleton/status chip is presentation-only and does not alter permissions or module routes.
+- [x] Forecast Sales skeleton now keys off project endpoint pending state so unrelated cached data cannot hide it.
+- [x] Ran `npx tsc --noEmit`.
+- [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.

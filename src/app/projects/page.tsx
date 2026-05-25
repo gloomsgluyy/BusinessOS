@@ -529,7 +529,7 @@ const urgencyBadgeClass = (level?: string | null) =>
 export default function ProjectsPage() {
   const searchParams = useSearchParams();
   const { currentUser } = useAuthStore();
-  const { shipments, projects, sources, marketPrices, syncFromMemory, addProject, updateProject, deleteProject, addShipment, updateShipment } = useCommercialStore();
+  const { shipments, projects, sources, marketPrices, syncMeta, syncFromMemory, addProject, updateProject, deleteProject, addShipment, updateShipment } = useCommercialStore();
   const [isInitializing, setIsInitializing] = React.useState(true);
   const [search, setSearch] = React.useState(() => searchParams.get("q") || "");
   const [yearFilter, setYearFilter] = React.useState("all");
@@ -821,7 +821,10 @@ export default function ProjectsPage() {
     };
   }, [cards]);
 
-  const isInitialForecastLoading = isInitializing && projects.length === 0 && shipments.length === 0;
+  const projectEndpointPending = syncMeta.isSyncing &&
+    syncMeta.pendingEndpoints.includes("projects") &&
+    !syncMeta.loadedEndpoints.includes("projects");
+  const isInitialForecastLoading = projects.length === 0 && (isInitializing || projectEndpointPending);
 
   const sourceCandidateRows = React.useMemo(() => {
     const target = {
