@@ -224,34 +224,31 @@ export async function GET() {
     ));
   }
 
-  const schemaChecks = await Promise.all(Object.entries(expectedSchema).map(async ([table, columns]) => {
-    const tableChecks: ReadinessCheck[] = [];
+  for (const [table, columns] of Object.entries(expectedSchema)) {
     try {
       const exists = await tableExists(table);
       if (!exists) {
-        tableChecks.push(check(`table:${table}`, `Table ${table}`, "fail", "Table is missing"));
-        return tableChecks;
+        checks.push(check(`table:${table}`, `Table ${table}`, "fail", "Table is missing"));
+        continue;
       }
-      tableChecks.push(check(`table:${table}`, `Table ${table}`, "pass", "Table exists"));
+      checks.push(check(`table:${table}`, `Table ${table}`, "pass", "Table exists"));
       const present = await existingColumns(table);
       const missing = columns.filter((column) => !present.has(column));
-      tableChecks.push(check(
+      checks.push(check(
         `columns:${table}`,
         `Columns ${table}`,
         missing.length ? "fail" : "pass",
         missing.length ? `Missing columns: ${missing.join(", ")}` : "Expected production columns exist",
       ));
     } catch (error) {
-      tableChecks.push(check(
+      checks.push(check(
         `schema:${table}`,
         `Schema ${table}`,
         "fail",
         error instanceof Error ? error.message : "Schema check failed",
       ));
     }
-    return tableChecks;
-  }));
-  checks.push(...schemaChecks.flat());
+  }
 
   const failed = checks.filter((item) => item.status === "fail").length;
   const warnings = checks.filter((item) => item.status === "warn").length;

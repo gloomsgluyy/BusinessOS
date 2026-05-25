@@ -51,18 +51,6 @@ Beberapa kata dari voice-to-text perlu dinormalisasi agar menjadi requirement ya
 
 ## 4. Forecast Sales Workflow
 
-### UI-FS-001 Dashboard Summary Drilldown Layout
-
-Forecast Sales dashboard summary cards harus tetap terbaca saat salah satu card drilldown dibuka.
-
-Rules:
-
-- Membuka dropdown pada satu summary card tidak boleh membuat card summary lain ikut memanjang secara visual.
-- Card summary harus cukup lebar untuk membaca label, angka, buyer, offer-by, dan status.
-- Dropdown item harus menampilkan minimal Forecast Sales name, buyer, offer by, dan status.
-- Layout desktop boleh memakai beberapa row agar card tidak terlalu gepeng.
-- Dropdown harus scroll internal jika list terlalu panjang.
-
 ### WF-FS-001 Draft
 
 Trader dapat membuat Forecast Sales sebagai draft.

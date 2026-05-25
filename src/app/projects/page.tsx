@@ -529,8 +529,8 @@ const urgencyBadgeClass = (level?: string | null) =>
 export default function ProjectsPage() {
   const searchParams = useSearchParams();
   const { currentUser } = useAuthStore();
-  const { shipments, projects, sources, marketPrices, syncMeta, syncFromMemory, addProject, updateProject, deleteProject, addShipment, updateShipment } = useCommercialStore();
-  const [isInitializing, setIsInitializing] = React.useState(true);
+  const { shipments, projects, sources, marketPrices, syncFromMemory, addProject, updateProject, deleteProject, addShipment, updateShipment } = useCommercialStore();
+  const [, setIsInitializing] = React.useState(false);
   const [search, setSearch] = React.useState(() => searchParams.get("q") || "");
   const [yearFilter, setYearFilter] = React.useState("all");
   const [statusFilter, setStatusFilter] = React.useState<"all" | ProjectStatus>("all");
@@ -545,7 +545,6 @@ export default function ProjectsPage() {
   const [shipmentDocDownloads, setShipmentDocDownloads] = React.useState<Record<string, ShipmentDocument[]>>({});
   const [loadingShipmentDocs, setLoadingShipmentDocs] = React.useState(false);
   const [downloadingRequiredZip, setDownloadingRequiredZip] = React.useState<Record<string, boolean>>({});
-  const [downloadingFco, setDownloadingFco] = React.useState<string | null>(null);
   const [approvalComment, setApprovalComment] = React.useState("");
   const [buyerFeedbackReason, setBuyerFeedbackReason] = React.useState("");
   const [convertingShipment, setConvertingShipment] = React.useState(false);
@@ -567,14 +566,7 @@ export default function ProjectsPage() {
   }, [marketPrices]);
 
   React.useEffect(() => {
-    let active = true;
-    setIsInitializing(true);
-    syncFromMemory().finally(() => {
-      if (active) setIsInitializing(false);
-    });
-    return () => {
-      active = false;
-    };
+    syncFromMemory().finally(() => setIsInitializing(false));
   }, [syncFromMemory]);
   React.useEffect(() => {
     const q = searchParams.get("q");
@@ -820,11 +812,6 @@ export default function ProjectsPage() {
       failed: byFeedback(["failed"]),
     };
   }, [cards]);
-
-  const projectEndpointPending = syncMeta.isSyncing &&
-    syncMeta.pendingEndpoints.includes("projects") &&
-    !syncMeta.loadedEndpoints.includes("projects");
-  const isInitialForecastLoading = projects.length === 0 && (isInitializing || projectEndpointPending);
 
   const sourceCandidateRows = React.useMemo(() => {
     const target = {
@@ -1513,7 +1500,6 @@ export default function ProjectsPage() {
   };
 
   const downloadForecastSalesFco = async (project: ProjectCard) => {
-    if (downloadingFco) return;
     if (!project.projectRecord) {
       window.alert("FCO hanya tersedia untuk Forecast Sales master record.");
       return;
@@ -1523,11 +1509,15 @@ export default function ProjectsPage() {
       return;
     }
 
-    setDownloadingFco(project.id);
     const fcoNumber = buildFcoNumber(project);
     const generatedAt = new Date().toISOString();
+    await updateProject(project.projectRecord.id, {
+      fco_number: fcoNumber,
+      fco_generated_at: generatedAt,
+    } as Partial<ProjectItem>);
+    await syncFromMemory({ force: true });
+
     const p = project.projectRecord;
-    try {
     const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -1723,33 +1713,6 @@ export default function ProjectsPage() {
     doc.text(`Generated from approved Forecast Sales by ${p.approved_by_name || "Executive"}`, left, y + 14);
 
     doc.save(`${slugFile(fcoNumber)}-${slugFile(project.projectName)}.pdf`);
-
-    const optimisticRecord = {
-      ...p,
-      fco_number: fcoNumber,
-      fco_generated_at: generatedAt,
-    };
-    setSelectedProject((current) =>
-      current?.id === project.id
-        ? { ...current, projectRecord: optimisticRecord }
-        : current,
-    );
-
-    void updateProject(project.projectRecord.id, {
-      fco_number: fcoNumber,
-      fco_generated_at: generatedAt,
-    } as Partial<ProjectItem>)
-      .then(() => syncFromMemory())
-      .catch((error: any) => {
-        console.error("[forecast-sales] FCO history update failed", error);
-        window.alert("PDF sudah ter-download, tapi history FCO gagal tersimpan. Coba refresh lalu cek FCO Control.");
-      })
-      .finally(() => setDownloadingFco(null));
-    } catch (error: any) {
-      console.error("[forecast-sales] FCO download failed", error);
-      setDownloadingFco(null);
-      window.alert(error?.message || "FCO gagal di-download.");
-    }
   };
 
   const uploadProjectDocument = async (project: ProjectItem, index: number, file: File | null) => {
@@ -2088,18 +2051,18 @@ export default function ProjectsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 items-start">
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-10 gap-3">
           {[
-            { key: "total" as const, label: "Total Forecast", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.total), tone: "border-emerald-500/20" },
-            { key: "draft" as const, label: "Draft", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.draft), tone: "border-slate-500/20" },
-            { key: "waitingApproval" as const, label: "CEO Review", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.waitingApproval), tone: "border-amber-500/25" },
-            { key: "approved" as const, label: "Approved", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.approved), tone: "border-blue-500/25" },
-            { key: "fcoSent" as const, label: "FCO Sent", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.fcoSent), tone: "border-cyan-500/25" },
-            { key: "pendingBuyer" as const, label: "Buyer Pending", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.pendingBuyer), tone: "border-orange-500/25" },
-            { key: "deal" as const, label: "Deal", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.deal), tone: "border-emerald-500/25" },
-            { key: "failed" as const, label: "Failed", value: isInitialForecastLoading ? "..." : fmtInt(forecastDashboard.failed), tone: "border-rose-500/25" },
+            { key: "total" as const, label: "Total Forecast", value: fmtInt(forecastDashboard.total), tone: "border-emerald-500/20" },
+            { key: "draft" as const, label: "Draft", value: fmtInt(forecastDashboard.draft), tone: "border-slate-500/20" },
+            { key: "waitingApproval" as const, label: "CEO Review", value: fmtInt(forecastDashboard.waitingApproval), tone: "border-amber-500/25" },
+            { key: "approved" as const, label: "Approved", value: fmtInt(forecastDashboard.approved), tone: "border-blue-500/25" },
+            { key: "fcoSent" as const, label: "FCO Sent", value: fmtInt(forecastDashboard.fcoSent), tone: "border-cyan-500/25" },
+            { key: "pendingBuyer" as const, label: "Buyer Pending", value: fmtInt(forecastDashboard.pendingBuyer), tone: "border-orange-500/25" },
+            { key: "deal" as const, label: "Deal", value: fmtInt(forecastDashboard.deal), tone: "border-emerald-500/25" },
+            { key: "failed" as const, label: "Failed", value: fmtInt(forecastDashboard.failed), tone: "border-rose-500/25" },
           ].map((item) => (
-            <div key={item.label} className={cn("self-start rounded-lg border bg-card p-3 min-h-[88px]", item.tone)}>
+            <div key={item.label} className={cn("rounded-lg border bg-card p-3 min-h-[76px]", item.tone)}>
               <button
                 type="button"
                 onClick={() => setOpenDashboardBucket((current) => current === item.key ? null : item.key)}
@@ -2112,7 +2075,7 @@ export default function ProjectsPage() {
                 <ChevronDown className={cn("mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", openDashboardBucket === item.key && "rotate-180")} />
               </button>
               {openDashboardBucket === item.key && (
-                <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                <div className="mt-3 max-h-48 space-y-1 overflow-y-auto pr-1">
                   {forecastDashboardBuckets[item.key].length === 0 ? (
                     <p className="rounded-md bg-accent/40 px-2 py-2 text-[10px] text-muted-foreground">Tidak ada record.</p>
                   ) : (
@@ -2121,12 +2084,12 @@ export default function ProjectsPage() {
                         key={entry.id}
                         type="button"
                         onClick={() => setSelectedProject(entry.card)}
-                        className="w-full rounded-lg border border-border/60 bg-background/70 px-3 py-2 text-left hover:border-primary/40 hover:bg-accent"
+                        className="w-full rounded-md border border-border/60 bg-background/70 px-2 py-1.5 text-left hover:border-primary/40 hover:bg-accent"
                       >
-                        <span className="block truncate text-xs font-bold">{entry.projectName}</span>
-                        <span className="mt-1 block truncate text-[11px] text-muted-foreground">Buyer: {entry.buyer}</span>
-                        <span className="block truncate text-[11px] text-muted-foreground">Offer by: {entry.offerBy}</span>
-                        <span className="mt-2 inline-flex rounded-md bg-accent px-2 py-1 text-[10px] font-semibold uppercase text-muted-foreground">{entry.statusText}</span>
+                        <span className="block truncate text-[11px] font-bold">{entry.projectName}</span>
+                        <span className="block truncate text-[10px] text-muted-foreground">Buyer: {entry.buyer}</span>
+                        <span className="block truncate text-[10px] text-muted-foreground">Offer by: {entry.offerBy}</span>
+                        <span className="mt-1 inline-flex rounded bg-accent px-1.5 py-0.5 text-[9px] font-semibold uppercase text-muted-foreground">{entry.statusText}</span>
                       </button>
                     ))
                   )}
@@ -2139,42 +2102,16 @@ export default function ProjectsPage() {
               )}
             </div>
           ))}
-          <div className="self-start rounded-lg border border-violet-500/20 bg-card p-3 min-h-[88px]">
+          <div className="rounded-lg border border-violet-500/20 bg-card p-3 min-h-[76px]">
             <p className="text-[10px] uppercase font-bold text-muted-foreground leading-tight">Revenue</p>
-            <p className="mt-2 text-lg font-bold leading-none">{isInitialForecastLoading ? "Syncing..." : canApprove ? fmtUsd(forecastDashboard.estimatedRevenue) : "Restricted"}</p>
+            <p className="mt-2 text-lg font-bold leading-none">{canApprove ? fmtUsd(forecastDashboard.estimatedRevenue) : "Restricted"}</p>
           </div>
-          <div className="self-start rounded-lg border border-fuchsia-500/20 bg-card p-3 min-h-[88px]">
+          <div className="rounded-lg border border-fuchsia-500/20 bg-card p-3 min-h-[76px]">
             <p className="text-[10px] uppercase font-bold text-muted-foreground leading-tight">Shipment GP</p>
-            <p className="mt-2 text-lg font-bold leading-none">{isInitialForecastLoading ? "Syncing..." : canApprove ? fmtUsd(forecastDashboard.shipmentGrossProfit) : "Restricted"}</p>
+            <p className="mt-2 text-lg font-bold leading-none">{canApprove ? fmtUsd(forecastDashboard.shipmentGrossProfit) : "Restricted"}</p>
           </div>
         </div>
 
-        {isInitialForecastLoading && (
-          <div className="space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <div key={index} className="rounded-xl border border-border/60 bg-card p-5 space-y-4 animate-pulse">
-                  <div className="flex justify-between gap-3">
-                    <div className="space-y-2 flex-1">
-                      <div className="h-4 w-2/3 rounded bg-accent" />
-                      <div className="h-3 w-1/2 rounded bg-accent/70" />
-                    </div>
-                    <div className="h-6 w-20 rounded bg-accent" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="h-12 rounded bg-accent/70" />
-                    <div className="h-12 rounded bg-accent/70" />
-                    <div className="h-12 rounded bg-accent/70" />
-                    <div className="h-12 rounded bg-accent/70" />
-                  </div>
-                  <div className="h-16 rounded bg-accent/50" />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {!isInitialForecastLoading && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filtered.map((p) => (
             <div key={p.id} onClick={() => setSelectedProject(p)} className="card-interactive cursor-pointer p-5 space-y-3">
@@ -2229,9 +2166,8 @@ export default function ProjectsPage() {
             </div>
           ))}
         </div>
-        )}
 
-        {!isInitialForecastLoading && filtered.length === 0 && (
+        {filtered.length === 0 && (
           <div className="text-center py-16 px-8 card-elevated border-dashed border-2">
             <FolderKanban className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4" />
             <h3 className="text-lg font-bold mb-1">No Forecast Sales Data</h3>
@@ -2596,22 +2532,16 @@ export default function ProjectsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => downloadForecastSalesFco(selectedProject)}
-                    disabled={downloadingFco === selectedProject.id}
                     className={cn(
                       "px-3 py-2 rounded-lg text-xs font-semibold hover:shadow-md",
-                      downloadingFco === selectedProject.id && "opacity-70 cursor-wait",
                       selectedProject.projectRecord && mapMasterStatus(selectedProject.projectRecord.status) === "approved"
                         ? "bg-blue-600 text-white"
                         : "bg-accent text-muted-foreground",
                     )}
                     title="Download FCO PDF"
                   >
-                    {downloadingFco === selectedProject.id ? (
-                      <Loader2 className="w-3.5 h-3.5 inline mr-1.5 animate-spin" />
-                    ) : (
-                      <Download className="w-3.5 h-3.5 inline mr-1.5" />
-                    )}
-                    {downloadingFco === selectedProject.id ? "Preparing..." : "FCO"}
+                    <Download className="w-3.5 h-3.5 inline mr-1.5" />
+                    FCO
                   </button>
                   <button
                     onClick={() => downloadProjectSummaryReport(selectedProject)}

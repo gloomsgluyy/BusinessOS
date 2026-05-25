@@ -14,7 +14,6 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DISABLE_SKELETON_LOADERS } from "@/lib/feature-flags";
-import { CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
 
 function SessionWatcher() {
     const { data: session } = useSession();
@@ -126,13 +125,6 @@ export function AppShell({ children }: AppShellProps) {
     const shipmentCount = useCommercialStore((s) => s.shipments.length);
     const dealCount = useCommercialStore((s) => s.deals.length);
     const sourceCount = useCommercialStore((s) => s.sources.length);
-    const projectCount = useCommercialStore((s) => s.projects.length);
-    const qualityCount = useCommercialStore((s) => s.qualityResults.length);
-    const marketPriceCount = useCommercialStore((s) => s.marketPrices.length);
-    const meetingCount = useCommercialStore((s) => s.meetings.length);
-    const blendingCount = useCommercialStore((s) => s.blendingHistory.length);
-    const plForecastCount = useCommercialStore((s) => s.plForecasts.length);
-    const syncMeta = useCommercialStore((s) => s.syncMeta);
     const { currentUser, hasPermission } = useAuthStore();
     const pathname = usePathname();
     const sessionRole = String((session?.user as any)?.role || "").toUpperCase();
@@ -162,37 +154,9 @@ export function AppShell({ children }: AppShellProps) {
             "outstanding_payment",
         ].some((permission) => hasPermission(permission as any)),
     );
-    const hasAnyData = (taskCount + salesCount + purchaseCount + shipmentCount + dealCount + sourceCount + projectCount) > 0;
-    const commercialRoute = React.useMemo(() => {
-        if (pathname === "/forecast-sales" || pathname === "/projects") return { endpoint: "projects" as const, count: projectCount };
-        if (pathname.startsWith("/shipment-monitor")) return { endpoint: "shipments" as const, count: shipmentCount };
-        if (pathname.startsWith("/sources")) return { endpoint: "sources" as const, count: sourceCount };
-        if (pathname.startsWith("/quality")) return { endpoint: "quality" as const, count: qualityCount };
-        if (pathname.startsWith("/market-price")) return { endpoint: "market-prices" as const, count: marketPriceCount };
-        if (pathname.startsWith("/meetings")) return { endpoint: "meetings" as const, count: meetingCount };
-        if (pathname.startsWith("/blending")) return { endpoint: "blending" as const, count: blendingCount };
-        if (pathname.startsWith("/pl-forecast")) return { endpoint: "pl-forecasts" as const, count: plForecastCount };
-        return null;
-    }, [blendingCount, marketPriceCount, meetingCount, pathname, plForecastCount, projectCount, qualityCount, shipmentCount, sourceCount]);
-    const routeDataPending = Boolean(
-        commercialRoute &&
-        commercialRoute.count === 0 &&
-        syncMeta.isSyncing &&
-        !syncMeta.loadedEndpoints.includes(commercialRoute.endpoint) &&
-        syncMeta.pendingEndpoints.includes(commercialRoute.endpoint),
-    );
-    const showBootSkeleton = !documentOnlyUser && !DISABLE_SKELETON_LOADERS && ((isBootSyncing && !hasAnyData) || routeDataPending);
+    const hasAnyData = (taskCount + salesCount + purchaseCount + shipmentCount + dealCount + sourceCount) > 0;
+    const showBootSkeleton = !documentOnlyUser && !DISABLE_SKELETON_LOADERS && isBootSyncing && !hasAnyData;
     const blockedDocumentOnlyRoute = documentOnlyUser && pathname !== "/document-drive";
-    const loadedCount = syncMeta.loadedEndpoints.length;
-    const totalSyncCount = loadedCount + syncMeta.pendingEndpoints.length;
-    const syncErrorCount = Object.keys(syncMeta.errors || {}).length;
-    const syncLabel = syncMeta.isSyncing
-        ? `Syncing data ${loadedCount}/${Math.max(totalSyncCount, loadedCount || 1)}`
-        : syncErrorCount
-            ? `${syncErrorCount} sync issue${syncErrorCount > 1 ? "s" : ""}`
-            : syncMeta.completedAt
-                ? `Data loaded ${new Date(syncMeta.completedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-                : null;
 
     return (
         <div className="flex h-screen overflow-hidden bg-background text-foreground">
@@ -200,20 +164,6 @@ export function AppShell({ children }: AppShellProps) {
             <div className="flex-1 flex flex-col overflow-hidden min-w-0">
                 <Header />
                 <main className="flex-1 overflow-y-auto custom-scrollbar pb-16 md:pb-0">
-                    {syncLabel && !blockedDocumentOnlyRoute && !showBootSkeleton && (
-                        <div className="sticky top-2 z-30 flex justify-end px-4 pt-2 md:px-6 lg:px-8">
-                            <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-card/95 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground shadow-sm backdrop-blur">
-                                {syncMeta.isSyncing ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                                ) : syncErrorCount ? (
-                                    <TriangleAlert className="h-3.5 w-3.5 text-amber-500" />
-                                ) : (
-                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                                )}
-                                {syncLabel}
-                            </div>
-                        </div>
-                    )}
                     {blockedDocumentOnlyRoute ? (
                         <div className="flex min-h-[60vh] items-center justify-center p-6">
                             <div className="max-w-sm rounded-lg border border-border bg-card p-6 text-center shadow-sm">

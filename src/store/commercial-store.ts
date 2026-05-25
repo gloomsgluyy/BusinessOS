@@ -132,18 +132,6 @@ type CommercialSyncOptions = {
     force?: boolean;
 };
 
-type CommercialEndpointKey = "shipments" | "sources" | "quality" | "market-prices" | "meetings" | "pl-forecasts" | "sales-deals" | "blending" | "projects";
-
-type CommercialSyncMeta = {
-    isSyncing: boolean;
-    startedAt?: string;
-    completedAt?: string;
-    pendingEndpoints: CommercialEndpointKey[];
-    loadedEndpoints: CommercialEndpointKey[];
-    errors: Partial<Record<CommercialEndpointKey, string>>;
-    lastUpdatedEndpoint?: CommercialEndpointKey;
-};
-
 // ── Helper ────────────────────────────────────────────────────
 function blendSpecs(inputs: { quantity: number; spec: CoalSpec }[]): CoalSpec {
     const totalQty = inputs.reduce((s, i) => s + i.quantity, 0);
@@ -336,7 +324,6 @@ interface CommercialState {
 
     // Sync Integration
     lastSyncTime: string;
-    syncMeta: CommercialSyncMeta;
     syncFromMemory: (options?: CommercialSyncOptions) => Promise<void>;
 }
 
@@ -349,12 +336,6 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
     _rawDeals: [],
     deals: [],
     lastSyncTime: new Date(0).toISOString(),
-    syncMeta: {
-        isSyncing: false,
-        pendingEndpoints: [],
-        loadedEndpoints: [],
-        errors: {},
-    },
     addDeal: async (d) => {
         const res = await fetch("/api/memory/sales-deals", {
             method: "POST",
@@ -1468,7 +1449,8 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                 const ts = Date.now();
                 const fetchOpts = { cache: "no-store" as RequestCache, headers: { "Cache-Control": "no-cache, no-store, must-revalidate" } };
 
-                const endpoints: Array<{ key: CommercialEndpointKey; url: string }> = mode === "dashboard_fast"
+                type EndpointKey = "shipments" | "sources" | "quality" | "market-prices" | "meetings" | "pl-forecasts" | "sales-deals" | "blending" | "projects";
+                const endpoints: Array<{ key: EndpointKey; url: string }> = mode === "dashboard_fast"
                     ? [
                         { key: "shipments", url: `/api/memory/shipments?t=${ts}&lite=1` },
                         { key: "sales-deals", url: `/api/memory/sales-deals?t=${ts}` },
@@ -1485,42 +1467,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                         { key: "blending", url: `/api/memory/blending?t=${ts}` },
                     ];
 
-                set((state) => ({
-                    syncMeta: {
-                        isSyncing: true,
-                        startedAt: new Date().toISOString(),
-                        completedAt: state.syncMeta.completedAt,
-                        pendingEndpoints: endpoints.map((endpoint) => endpoint.key),
-                        loadedEndpoints: [],
-                        errors: {},
-                    },
-                }));
-
-                const markEndpoint = (key: CommercialEndpointKey, ok: boolean, error?: string) => {
-                    set((state) => {
-                        const pendingEndpoints = state.syncMeta.pendingEndpoints.filter((endpoint) => endpoint !== key);
-                        const loadedEndpoints = ok
-                            ? Array.from(new Set([...state.syncMeta.loadedEndpoints, key]))
-                            : state.syncMeta.loadedEndpoints.filter((endpoint) => endpoint !== key);
-                        const errors = { ...state.syncMeta.errors };
-                        if (ok) {
-                            delete errors[key];
-                        } else {
-                            errors[key] = error || "request failed";
-                        }
-                        return {
-                            syncMeta: {
-                                ...state.syncMeta,
-                                pendingEndpoints,
-                                loadedEndpoints,
-                                errors,
-                                lastUpdatedEndpoint: key,
-                            },
-                        };
-                    });
-                };
-
-                const applyPayloads = (payloads: Partial<Record<CommercialEndpointKey, any>>) => {
+                const applyPayloads = (payloads: Partial<Record<EndpointKey, any>>) => {
                     const shipRes = payloads["shipments"];
                     const srcRes = payloads["sources"];
                     const qRes = payloads["quality"];
@@ -1810,47 +1757,39 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                     });
                 };
 
-                const fetchEndpoint = async (e: { key: CommercialEndpointKey; url: string }) => {
+                const fetchEndpoint = async (e: { key: EndpointKey; url: string }) => {
                     const res = await fetch(e.url, fetchOpts);
                     if (!res.ok) throw new Error(`${e.url} -> ${res.status}`);
                     return res.json();
                 };
 
-                await Promise.allSettled(
-                    endpoints.map(async (e) => {
-                        try {
-                            const payload = await fetchEndpoint(e);
-                            applyPayloads({ [e.key]: payload } as Partial<Record<CommercialEndpointKey, any>>);
-                            markEndpoint(e.key, true);
-                        } catch (err: any) {
-                            applyPayloads({ [e.key]: { success: false, error: err?.message || "request failed" } } as Partial<Record<CommercialEndpointKey, any>>);
-                            markEndpoint(e.key, false, err?.message || "request failed");
-                        }
-                    })
-                );
+                const shipmentsEndpoint = endpoints.find((e) => e.key === "shipments");
+                if (shipmentsEndpoint) {
+                    try {
+                        const shipmentPayload = await fetchEndpoint(shipmentsEndpoint);
+                        applyPayloads({ shipments: shipmentPayload });
+                    } catch (err: any) {
+                        applyPayloads({ shipments: { success: false, error: err?.message || "request failed" } });
+                    }
+                }
+
+                const remainingEndpoints = endpoints.filter((e) => e.key !== "shipments");
+                if (remainingEndpoints.length) {
+                    const remainingPayloads: Partial<Record<EndpointKey, any>> = {};
+                    await Promise.allSettled(
+                        remainingEndpoints.map(async (e) => {
+                            try {
+                                remainingPayloads[e.key] = await fetchEndpoint(e);
+                            } catch (err: any) {
+                                remainingPayloads[e.key] = { success: false, error: err?.message || "request failed" };
+                            }
+                        })
+                    );
+                    applyPayloads(remainingPayloads);
+                }
                 commercialLastSyncSucceededAt = Date.now();
-                set((state) => ({
-                    syncMeta: {
-                        ...state.syncMeta,
-                        isSyncing: false,
-                        pendingEndpoints: [],
-                        completedAt: new Date().toISOString(),
-                    },
-                }));
             } catch (error) {
                 console.error("syncFromMemory error:", error);
-                set((state) => ({
-                    syncMeta: {
-                        ...state.syncMeta,
-                        isSyncing: false,
-                        pendingEndpoints: [],
-                        completedAt: new Date().toISOString(),
-                        errors: {
-                            ...state.syncMeta.errors,
-                            shipments: error instanceof Error ? error.message : "sync failed",
-                        },
-                    },
-                }));
             } finally {
                 commercialSyncInFlight = null;
             }

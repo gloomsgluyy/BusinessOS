@@ -23,7 +23,7 @@ This file tracks implementation state by module. Update it whenever code changes
 | Sales Monitor | Partial | `src/app/sales-monitor/page.tsx` | Should become funnel monitoring layer |
 | Shipment Monitor | Partial | `src/app/shipment-monitor/page.tsx`, `ShipmentDetail`, `ShipmentIssueLog`, `ShipmentSourceChangeRequest`, `ShipmentBargeChangeLog` | Can receive linked Forecast Sales deal rows, shows data completeness score, displays Forecast Sales/FCO/MoM/PO commercial reference, source confirmation readiness/evidence, structured issue log plus source/barge change requests, and blocks closing when required docs/SI/linked payment/quality workflow/issues/source/barge/source confirmation are incomplete; still needs SRS sub-tabs |
 | Shipment Documents | Done/Strong | `ShipmentDocument`, `ShipmentDocumentChecklistItem`, `src/lib/document-storage.ts`, documents routes | Checklist item model, visible aging, owner/PIC, hardcopy status, dashboard aging alert, closing blocker integration, critical replacement history, and optional Supabase object storage with DB fallback exist |
-| Document Drive | Done/Strong | `src/app/document-drive/page.tsx`, `/api/document-drive`, `/api/document-drive/files`, `document_drive` permission | Public read-only aggregator for Forecast Sales, Shipment, generated SI, and Domestic Handover documents exists; logged-out/document-only users get only Document Drive surface; visible files and generated SI PDFs download through Drive proxy; critical docs stay executive-only; listing is metadata-only for faster load |
+| Document Drive | Done/Strong | `src/app/document-drive/page.tsx`, `/api/document-drive`, `/api/document-drive/files`, `document_drive` permission | Read-only aggregator for Forecast Sales, Shipment, and Domestic Handover documents exists; document-only staff users get restricted navbar/server route access; visible files download through Drive proxy; critical docs stay executive-only |
 | Source | Partial/Strong | `src/app/sources/page.tsx`, `SourceSupplier`, Shipment source confirmation fields | Source CRUD/stockpile exists; Shipment Monitor has source confirmation status, legal/cargo readiness, notes, evidence upload/link, and closing blocker support; still needs richer source request workflow from Source master |
 | Source Change Traceability | Partial/Strong | `ShipmentSourceChangeRequest`, `/api/shipments/[id]/source-changes` | Request/approval/version/active source exists and direct source/supplier overwrite is blocked; still needs evidence attachment linkage |
 | Quality | Partial/Strong | `src/app/quality/page.tsx`, `QualityResult`, `ShipmentDocument` | Contract/source/QC/PSI/COA POL/COA POD sections, comparison warning, and QC/PSI/COA document evidence links exist; needs dashboard aggregation |
@@ -65,9 +65,6 @@ Implemented in current revision:
 - Deal can create/update a linked Shipment row with Forecast Sales/FCO reference and carried commercial fields.
 - Dashboard KPI cards exist for total, draft, CEO review, approved, FCO sent, buyer pending, deal, failed, revenue, and shipment GP; financial cards are role-restricted.
 - Dashboard KPI cards now expand into drill-down lists showing project name, buyer, offer by, and current status/feedback.
-- Dashboard now shows an initial syncing state instead of false zero values while production data is still loading.
-- Dashboard cold load now shows Forecast Sales card skeletons, and commercial store sync applies returned project/source/market/etc. payloads progressively instead of waiting for every endpoint.
-- `/api/memory/projects` keeps compatibility schema guards but avoids repeated hot-path `ALTER TABLE` scans by checking missing columns and caching the result per server instance.
 - Critical revision log exists for quantity, laycan, target selling price, and supplier candidates, storing old/new values, reason, user, and timestamp.
 
 Latest implementation note:
@@ -112,10 +109,6 @@ Latest implementation note:
 - 2026-05-25: FS-019 done/strong. Summary Report now uses Forecast Sales master spec, saved blending scenario, and rough P&L fallbacks so the sample structure stays useful before shipment data is fully populated.
 - 2026-05-25: FS-020 done/strong. Forecast Sales form now includes market reference/historical selling price comparison and warns when target selling price is below reference.
 - 2026-05-25: PL-001 done/strong. P&L Forecast now shows estimated-vs-actual GP variance using Forecast Sales rough P&L as estimate and shipment/P&L rollup as actual.
-- 2026-05-25: DOC-008/DOC-009 strengthened. Document Drive is now public read-only, includes generated SI PDFs, uses clearer owner-based names, and avoids schema mutation during listing for faster load.
-- 2026-05-25: FS-018 strengthened. Forecast Sales dashboard cards are wider and no longer visually stretch all summary cards when one drilldown is opened.
-- 2026-05-25: Forecast Sales production load guard added. Project API compatibility checks now only alter missing columns, cache the guard per server instance, return no-store responses, and the page shows syncing state during initial load.
-- 2026-05-25: Forecast Sales progressive sync added. Store sync now applies each returned endpoint immediately, removes forced full refresh from initial Forecast Sales mount, and restores client-side skeleton cards for cold loads.
 - Legacy `ProjectItem`, `/projects`, `project_name`, and sheet tab compatibility remain intentionally unchanged.
 
 Implementation approach:
