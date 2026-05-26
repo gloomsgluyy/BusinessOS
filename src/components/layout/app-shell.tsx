@@ -39,6 +39,11 @@ function SessionWatcher() {
 function AutoSyncListener({ onBootSyncChange }: { onBootSyncChange?: (loading: boolean) => void }) {
     const { status } = useSession();
     const pathname = usePathname();
+    const pathnameRef = React.useRef(pathname);
+
+    React.useEffect(() => {
+        pathnameRef.current = pathname;
+    }, [pathname]);
 
     React.useEffect(() => {
         if (status !== "authenticated") {
@@ -63,7 +68,7 @@ function AutoSyncListener({ onBootSyncChange }: { onBootSyncChange?: (loading: b
             const latestSync = lastSyncTimes.length ? Math.max(...lastSyncTimes) : 0;
 
             // Avoid duplicate pull storms from AppShell + page-level sync
-            if (latestSync && now - latestSync < 5000) return;
+            if (latestSync && now - latestSync < 60000) return;
 
             isPulling = true;
             onBootSyncChange?.(true);
@@ -76,7 +81,7 @@ function AutoSyncListener({ onBootSyncChange }: { onBootSyncChange?: (loading: b
 
                 // Dashboard has its own fast-first sync sequence on initial load.
                 // Avoid racing it with an immediate full commercial pull.
-                if (pathname !== "/") {
+                if (pathnameRef.current !== "/") {
                     syncJobs.push(useCommercialStore.getState().syncFromMemory());
                 }
 
@@ -107,7 +112,7 @@ function AutoSyncListener({ onBootSyncChange }: { onBootSyncChange?: (loading: b
             window.removeEventListener("focus", onFocus);
             document.removeEventListener("visibilitychange", onVisible);
         };
-    }, [status, pathname, onBootSyncChange]);
+    }, [status, onBootSyncChange]);
 
     return null;
 }

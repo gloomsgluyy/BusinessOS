@@ -1056,7 +1056,7 @@ export default function ProjectsPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Failed to select supplier candidate");
       await loadProjectSupplierCandidates(projectId);
-      await syncFromMemory();
+      await syncFromMemory({ force: true });
     } finally {
       setCandidateAction(null);
     }
@@ -1743,7 +1743,7 @@ export default function ProjectsPage() {
       fco_number: fcoNumber,
       fco_generated_at: generatedAt,
     } as Partial<ProjectItem>)
-      .then(() => syncFromMemory())
+      .then(() => syncFromMemory({ force: true }))
       .catch((error: any) => {
         console.error("[forecast-sales] FCO history update failed", error);
         window.alert("PDF sudah ter-download, tapi history FCO gagal tersimpan. Coba refresh lalu cek FCO Control.");

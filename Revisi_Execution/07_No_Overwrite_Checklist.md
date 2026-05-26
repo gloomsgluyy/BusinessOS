@@ -768,3 +768,14 @@ For critical fields:
 - [x] No sync endpoint URLs, business formulas, upload behavior, approval logic, or document access rules were changed.
 - [x] Ran `npx tsc --noEmit`.
 - [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.
+
+## 69. 2026-05-26 Navigation Warm Cache Safety Record
+
+- [x] Added SRS performance requirement `09_Navigation_Cache_Performance.md` before changing the sync contract further.
+- [x] AppShell no longer treats pathname changes as an immediate global sync trigger.
+- [x] Dashboard automatic sync no longer uses `force: true`.
+- [x] Commercial store now separates `lastSyncTime` from `lastFullSyncTime` so dashboard fast sync does not overwrite full-sync freshness.
+- [x] Task, Sales, Purchase, and Commercial stores now use in-flight guards and 60-second warm-cache skip windows.
+- [x] Manual sync still bypasses cache with `force: true`.
+- [x] Ran `npx tsc --noEmit`.
+- [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.

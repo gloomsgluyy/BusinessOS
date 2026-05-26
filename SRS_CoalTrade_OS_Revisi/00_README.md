@@ -34,6 +34,7 @@ Jika ada revisi baru dari user, AI wajib:
 | `06_Traceability_Matrix.md` | Mapping requirement SRS ke isi 3 dokumen revisi agar tidak ada revisi yang hilang. |
 | `07_Implementation_Roadmap_Acceptance.md` | Roadmap phase, priority, deliverable, dan acceptance test per phase. |
 | `08_Forecast_Sales_FCO_Revision.md` | Revisi lisan terbaru: rename Projects menjadi Forecast Sales, offer workflow, supplier candidate, blending, FCO generator, buyer feedback, rough P&L restricted, dan shipment data completeness. |
+| `09_Navigation_Cache_Performance.md` | Revisi performance: warm cache, route navigation sync guard, full-vs-fast commercial sync, dan acceptance criteria skeleton/cache. |
 
 ## Prinsip Wajib
 
@@ -60,10 +61,10 @@ Gunakan folder ini sebagai kontrak kerja revisi production-grade:
 
 ## Status Dokumen
 
-Version: `v1.1`
+Version: `v1.2`
 
 Created from revision documents dated: `2026-05-22`
 
-Latest oral revision added: `2026-05-23`
+Latest oral/performance revision added: `2026-05-26`
 
 Implementation status: belum otomatis berarti sistem sudah memenuhi semua requirement. Folder ini adalah acuan finalisasi dan gap analysis.

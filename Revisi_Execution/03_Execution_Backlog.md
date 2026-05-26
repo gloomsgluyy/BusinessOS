@@ -110,6 +110,7 @@ Priority values:
 | ID | Priority | SRS Ref | Task | Status | Definition of Done |
 |---|---|---|---|---|---|
 | SYS-001 | P1 | Production readiness | Executive production readiness checker | Done/Strong | `/api/system/production-readiness` and `/production-readiness` check required env vars, optional `NEXTAUTH_URL`, Supabase Storage env, DB connectivity, expected Prisma migrations, and critical production tables/columns across SRS modules |
+| PERF-001 | P0 | FR-PERF-001..009 | Navigation warm-cache and sync storm mitigation | Done/Strong | AppShell route changes no longer trigger immediate global sync, dashboard no longer force-syncs on mount, stores skip fresh warm-cache sync for 60s, full commercial sync has separate freshness from dashboard fast sync, and manual sync can still force refresh |
 
 ## Active Next Recommended Task
 

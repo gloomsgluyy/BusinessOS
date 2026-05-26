@@ -1695,11 +1695,11 @@ export default function DashboardPage() {
             }
 
             // Stage 1: fetch critical dashboard data.
-            await syncCommercial({ mode: "dashboard_fast", force: true });
+            await syncCommercial({ mode: "dashboard_fast" });
 
             // Stage 2: complete dashboard-required sync before turning loader off.
             await Promise.all([
-                syncCommercial({ mode: "full", force: true }),
+                syncCommercial({ mode: "full" }),
                 syncTasks(),
             ]);
 

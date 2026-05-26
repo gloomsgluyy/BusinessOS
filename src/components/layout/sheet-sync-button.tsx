@@ -16,10 +16,10 @@ export function SheetSyncButton() {
         setStatus("idle");
         try {
             await Promise.all([
-                useTaskStore.getState().syncFromMemory(),
-                useSalesStore.getState().syncFromMemory(),
-                usePurchaseStore.getState().syncFromMemory(),
-                useCommercialStore.getState().syncFromMemory()
+                useTaskStore.getState().syncFromMemory({ force: true }),
+                useSalesStore.getState().syncFromMemory({ force: true }),
+                usePurchaseStore.getState().syncFromMemory({ force: true }),
+                useCommercialStore.getState().syncFromMemory({ force: true })
             ]);
 
             setStatus("success");

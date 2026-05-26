@@ -25,10 +25,19 @@ interface SalesState {
     rejectOrder: (id: string) => Promise<void>;
     getPendingOrders: () => SalesOrder[];
     getTotalApprovedRevenue: () => number;
-    syncFromMemory: () => Promise<void>;
+    syncFromMemory: (options?: { force?: boolean }) => Promise<void>;
     resetToDemo: () => void;
     lastSyncTime: string;
 }
+
+const SALES_MIN_SYNC_INTERVAL_MS = 60_000;
+let salesSyncInFlight: Promise<void> | null = null;
+let salesLastSyncSucceededAt = 0;
+
+const parseSyncTimestamp = (value?: string) => {
+    const parsed = Date.parse(value || "");
+    return Number.isFinite(parsed) ? parsed : 0;
+};
 
 export const useSalesStore = create<SalesState>()(persist((set, get) => ({
     _rawOrders: [],
@@ -128,7 +137,17 @@ export const useSalesStore = create<SalesState>()(persist((set, get) => ({
     getTotalApprovedRevenue: () =>
         get().orders.filter((o) => o.status === "approved").reduce((sum, o) => sum + o.amount, 0),
 
-    syncFromMemory: async () => {
+    syncFromMemory: async (options = {}) => {
+        if (salesSyncInFlight) return salesSyncInFlight;
+
+        const now = Date.now();
+        const state = get();
+        const lastSync = Math.max(salesLastSyncSucceededAt, parseSyncTimestamp(state.lastSyncTime));
+        if (!options.force && state.orders.length > 0 && lastSync && now - lastSync < SALES_MIN_SYNC_INTERVAL_MS) {
+            return;
+        }
+
+        salesSyncInFlight = (async () => {
         try {
             const res = await fetch("/api/memory/sales-orders");
             if (res.ok) {
@@ -147,9 +166,15 @@ export const useSalesStore = create<SalesState>()(persist((set, get) => ({
                     });
                 }
             }
+            salesLastSyncSucceededAt = Date.now();
         } catch (error) {
             console.error("Failed to sync Sales Orders from Memory B", error);
+        } finally {
+            salesSyncInFlight = null;
         }
+        })();
+
+        return salesSyncInFlight;
     },
 
     resetToDemo: () => {

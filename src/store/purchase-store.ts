@@ -29,10 +29,19 @@ interface PurchaseState {
     getPendingPurchases: () => PurchaseRequest[];
     getTotalApprovedExpense: () => number;
     getExpenseByCategory: () => { category: string; amount: number }[];
-    syncFromMemory: () => Promise<void>;
+    syncFromMemory: (options?: { force?: boolean }) => Promise<void>;
     resetToDemo: () => void;
     lastSyncTime: string;
 }
+
+const PURCHASE_MIN_SYNC_INTERVAL_MS = 60_000;
+let purchaseSyncInFlight: Promise<void> | null = null;
+let purchaseLastSyncSucceededAt = 0;
+
+const parseSyncTimestamp = (value?: string) => {
+    const parsed = Date.parse(value || "");
+    return Number.isFinite(parsed) ? parsed : 0;
+};
 
 export const usePurchaseStore = create<PurchaseState>()(persist((set, get) => ({
     _rawPurchases: [],
@@ -159,7 +168,17 @@ export const usePurchaseStore = create<PurchaseState>()(persist((set, get) => ({
         return Object.entries(map).map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount);
     },
 
-    syncFromMemory: async () => {
+    syncFromMemory: async (options = {}) => {
+        if (purchaseSyncInFlight) return purchaseSyncInFlight;
+
+        const now = Date.now();
+        const state = get();
+        const lastSync = Math.max(purchaseLastSyncSucceededAt, parseSyncTimestamp(state.lastSyncTime));
+        if (!options.force && state.purchases.length > 0 && lastSync && now - lastSync < PURCHASE_MIN_SYNC_INTERVAL_MS) {
+            return;
+        }
+
+        purchaseSyncInFlight = (async () => {
         try {
             const res = await fetch("/api/memory/purchases");
             if (res.ok) {
@@ -180,9 +199,15 @@ export const usePurchaseStore = create<PurchaseState>()(persist((set, get) => ({
                     });
                 }
             }
+            purchaseLastSyncSucceededAt = Date.now();
         } catch (error) {
             console.error("Failed to sync Purchase Orders from Memory B", error);
+        } finally {
+            purchaseSyncInFlight = null;
         }
+        })();
+
+        return purchaseSyncInFlight;
     },
 
     resetToDemo: () => {

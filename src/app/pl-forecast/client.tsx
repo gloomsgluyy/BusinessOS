@@ -233,7 +233,7 @@ export default function PLForecastClient() {
     const handleManualSync = async () => {
         setIsSyncing(true);
         try {
-            await syncFromMemory();
+            await syncFromMemory({ force: true });
             setToast({ message: "Data synced successfully from Google Sheets!", type: "success" });
         } catch (error) {
             console.error("Manual sync error:", error);

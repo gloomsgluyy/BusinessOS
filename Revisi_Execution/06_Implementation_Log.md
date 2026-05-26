@@ -2875,6 +2875,55 @@ Remaining risk:
 
 - Needs browser smoke test with executive and non-executive accounts to confirm the simplified approval UI is hidden/shown correctly in production.
 
+## 2026-05-26 - Navigation Warm Cache Sync Fix
+
+Type:
+
+- Code
+- Performance
+- SRS Update
+
+Changed:
+
+- `src/components/layout/app-shell.tsx`
+- `src/app/page.tsx`
+- `src/store/commercial-store.ts`
+- `src/store/task-store.ts`
+- `src/store/sales-store.ts`
+- `src/store/purchase-store.ts`
+- `src/components/layout/sheet-sync-button.tsx`
+- `SRS_CoalTrade_OS_Revisi/09_Navigation_Cache_Performance.md`
+
+Root cause:
+
+- Route changes caused `AppShell` auto-sync to re-run and call global sync again.
+- Many module pages also called `syncFromMemory()` on mount.
+- Commercial sync throttle was only 5 seconds, so normal navigation after a short pause could trigger full multi-endpoint fetch again.
+- Dashboard used `force: true` for automatic sync, bypassing cache on every mount.
+
+What changed:
+
+- `AppShell` no longer uses pathname changes as an immediate auto-sync trigger.
+- AppShell duplicate-sync guard is now 60 seconds instead of 5 seconds.
+- Commercial store now uses a 60-second warm cache TTL, an in-flight guard, persisted freshness, and a separate `lastFullSyncTime`.
+- Dashboard automatic sync no longer uses `force: true`.
+- Task, Sales, and Purchase stores now have warm-cache TTL and in-flight guards.
+- Manual layout sync uses `force: true` so user-triggered refresh still fetches server truth.
+- Mutation follow-up syncs that need fresh server state were updated to force refresh where relevant.
+
+SRS refs:
+
+- `SRS_CoalTrade_OS_Revisi/09_Navigation_Cache_Performance.md`
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `git diff --check` passed with only existing Windows CRLF warnings.
+
+Remaining risk:
+
+- Needs production smoke test on the Vercel domain to compare perceived navigation timing after cache warm-up.
+
 ## 2026-05-26 - Cold-Load Skeleton Gate Tuning
 
 Type:

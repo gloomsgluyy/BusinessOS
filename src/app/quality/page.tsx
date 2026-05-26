@@ -261,7 +261,7 @@ export default function QualityPage() {
         try {
             const res = await fetch(`/api/memory/quality?id=${deleteTarget.id}`, { method: "DELETE" });
             if (!res.ok) throw new Error();
-            await syncFromMemory();
+            await syncFromMemory({ force: true });
             showToast("Quality result deleted", "success");
         } catch {
             showToast("Failed to delete quality result", "error");

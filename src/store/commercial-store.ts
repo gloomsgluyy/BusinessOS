@@ -132,6 +132,11 @@ type CommercialSyncOptions = {
     force?: boolean;
 };
 
+const parseSyncTimestamp = (value?: string) => {
+    const parsed = Date.parse(value || "");
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
 // ── Helper ────────────────────────────────────────────────────
 function blendSpecs(inputs: { quantity: number; spec: CoalSpec }[]): CoalSpec {
     const totalQty = inputs.reduce((s, i) => s + i.quantity, 0);
@@ -324,18 +329,21 @@ interface CommercialState {
 
     // Sync Integration
     lastSyncTime: string;
+    lastFullSyncTime: string;
     syncFromMemory: (options?: CommercialSyncOptions) => Promise<void>;
 }
 
-const COMMERCIAL_MIN_SYNC_INTERVAL_MS = 5_000;
+const COMMERCIAL_MIN_SYNC_INTERVAL_MS = 60_000;
 let commercialSyncInFlight: Promise<void> | null = null;
 let commercialLastSyncSucceededAt = 0;
+let commercialLastFullSyncSucceededAt = 0;
 
 export const useCommercialStore = create<CommercialState>()(persist((set, get) => ({
     // ── Sales Deals ──────────────────────────────────────────
     _rawDeals: [],
     deals: [],
     lastSyncTime: new Date(0).toISOString(),
+    lastFullSyncTime: new Date(0).toISOString(),
     addDeal: async (d) => {
         const res = await fetch("/api/memory/sales-deals", {
             method: "POST",
@@ -1442,14 +1450,24 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
     syncFromMemory: async (options = {}) => {
         if (commercialSyncInFlight) return commercialSyncInFlight;
 
+        const mode = options.mode || "full";
         const now = Date.now();
-        if (!options.force && commercialLastSyncSucceededAt && now - commercialLastSyncSucceededAt < COMMERCIAL_MIN_SYNC_INTERVAL_MS) {
-            return;
+        if (!options.force) {
+            const state = get();
+            const lastSync = mode === "full"
+                ? Math.max(commercialLastFullSyncSucceededAt, parseSyncTimestamp(state.lastFullSyncTime))
+                : Math.max(commercialLastSyncSucceededAt, parseSyncTimestamp(state.lastSyncTime));
+            const hasWarmData = mode === "full"
+                ? Boolean(state.shipments.length || state.projects.length || state.sources.length || state.deals.length || state.marketPrices.length)
+                : Boolean(state.shipments.length || state.deals.length);
+
+            if (hasWarmData && lastSync && now - lastSync < COMMERCIAL_MIN_SYNC_INTERVAL_MS) {
+                return;
+            }
         }
 
         commercialSyncInFlight = (async () => {
             try {
-                const mode = options.mode || "full";
                 const ts = Date.now();
                 const fetchOpts = { cache: "no-store" as RequestCache, headers: { "Cache-Control": "no-cache, no-store, must-revalidate" } };
 
@@ -1757,6 +1775,9 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                         }
 
                         updates.lastSyncTime = new Date().toISOString();
+                        if (mode === "full") {
+                            updates.lastFullSyncTime = updates.lastSyncTime;
+                        }
                         return Object.keys(updates).length > 0 ? updates : state;
                     });
                 };
@@ -1791,6 +1812,9 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
                     );
                 }
                 commercialLastSyncSucceededAt = Date.now();
+                if (mode === "full") {
+                    commercialLastFullSyncSucceededAt = commercialLastSyncSucceededAt;
+                }
             } catch (error) {
                 console.error("syncFromMemory error:", error);
             } finally {
@@ -1825,5 +1849,6 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         _rawPLForecasts: state._rawPLForecasts,
         plForecasts: state.plForecasts,
         lastSyncTime: state.lastSyncTime,
+        lastFullSyncTime: state.lastFullSyncTime,
     }),
 }));

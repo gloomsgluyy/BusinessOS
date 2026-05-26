@@ -32,8 +32,17 @@ interface TaskState {
     getTasksByStatus: (status: TaskStatus) => Task[];
     getTasksInReview: () => Task[];
     lastSyncTime: string;
-    syncFromMemory: () => Promise<void>;
+    syncFromMemory: (options?: { force?: boolean }) => Promise<void>;
 }
+
+const TASK_MIN_SYNC_INTERVAL_MS = 60_000;
+let taskSyncInFlight: Promise<void> | null = null;
+let taskLastSyncSucceededAt = 0;
+
+const parseSyncTimestamp = (value?: string) => {
+    const parsed = Date.parse(value || "");
+    return Number.isFinite(parsed) ? parsed : 0;
+};
 
 export const useTaskStore = create<TaskState>()(persist((set, get) => ({
     _rawTasks: [],
@@ -175,7 +184,17 @@ export const useTaskStore = create<TaskState>()(persist((set, get) => ({
         });
     },
 
-    syncFromMemory: async () => {
+    syncFromMemory: async (options = {}) => {
+        if (taskSyncInFlight) return taskSyncInFlight;
+
+        const now = Date.now();
+        const state = get();
+        const lastSync = Math.max(taskLastSyncSucceededAt, parseSyncTimestamp(state.lastSyncTime));
+        if (!options.force && state.tasks.length > 0 && lastSync && now - lastSync < TASK_MIN_SYNC_INTERVAL_MS) {
+            return;
+        }
+
+        taskSyncInFlight = (async () => {
         try {
             const res = await fetch("/api/memory/tasks");
             if (res.ok) {
@@ -197,9 +216,15 @@ export const useTaskStore = create<TaskState>()(persist((set, get) => ({
                     });
                 }
             }
+            taskLastSyncSucceededAt = Date.now();
         } catch (error) {
             console.error("Failed to sync Tasks from Memory B", error);
+        } finally {
+            taskSyncInFlight = null;
         }
+        })();
+
+        return taskSyncInFlight;
     },
 
     getTasksByAssignee: (userId) => get().tasks.filter((t) => t.assignee_id === userId),
