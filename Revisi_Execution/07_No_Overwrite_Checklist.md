@@ -711,3 +711,12 @@ For critical fields:
 - [x] Generated SI appears in Document Drive as a virtual PDF and does not become an uploaded document row.
 - [x] Document Drive listing no longer mutates schema or fetches file bytes during list load.
 - [x] Ran `npx tsc --noEmit`.
+
+## 63. 2026-05-25 Forecast Sales Production Load Guard Safety Record
+
+- [x] Forecast Sales API schema guard still preserves missing-column compatibility, but now checks `information_schema` first and only alters missing columns.
+- [x] GET `/api/memory/projects` remains authenticated and read-only for business data.
+- [x] POST/PUT/DELETE Forecast Sales actions still run the same compatibility guard before mutation.
+- [x] Forecast Sales dashboard data formulas were not changed; only the initial loading presentation was changed.
+- [x] Ran `npx tsc --noEmit`.
+- [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.
