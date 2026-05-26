@@ -167,7 +167,7 @@ export default function SourcesPage() {
         return acc;
     }, {} as Record<string, { count: number, totalStock: number }>);
 
-    if (isInitializing) {
+    if (isInitializing && sources.length === 0) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-32" subtitleWidth="w-[28rem]" metricCount={5} cardCount={6} />

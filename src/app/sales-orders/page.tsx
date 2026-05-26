@@ -65,7 +65,7 @@ export default function SalesOrdersPage() {
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
     const paginatedData = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-    if (isInitializing) {
+    if (isInitializing && orders.length === 0) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-44" subtitleWidth="w-72" metricCount={4} cardCount={5} />

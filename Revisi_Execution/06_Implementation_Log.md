@@ -2874,3 +2874,42 @@ Verification:
 Remaining risk:
 
 - Needs browser smoke test with executive and non-executive accounts to confirm the simplified approval UI is hidden/shown correctly in production.
+
+## 2026-05-26 - Cold-Load Skeleton Gate Tuning
+
+Type:
+
+- Code
+- UX
+- Performance
+
+Changed:
+
+- `src/app/page.tsx`
+- `src/app/projects/page.tsx`
+- `src/app/shipment-monitor/page.tsx`
+- `src/app/sources/page.tsx`
+- `src/app/sales-monitor/page.tsx`
+- `src/app/market-price/page.tsx`
+- `src/app/pl-forecast/client.tsx`
+- `src/app/profit-loss/page.tsx`
+- `src/app/quality/page.tsx`
+- `src/app/blending/page.tsx`
+- `src/app/transshipment/page.tsx`
+- `src/app/meetings/page.tsx`
+- `src/app/sales-orders/page.tsx`
+- `src/app/purchase-requests/page.tsx`
+- `src/app/my-tasks/page.tsx`
+- `src/app/all-tasks/page.tsx`
+- `src/app/approval-inbox/page.tsx`
+
+What changed:
+
+- Skeleton loaders are now cold-load gates only: they remain visible only while the module has no primary data.
+- If persisted data or the first endpoint payload has already populated the module slice, the page renders immediately while the remaining sync continues in the background.
+- This keeps the previous fix that prevents false-zero cold screens, but avoids long skeleton waits caused by slower optional endpoints.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `git diff --check` passed with only existing Windows CRLF warnings.

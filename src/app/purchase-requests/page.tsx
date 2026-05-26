@@ -69,7 +69,7 @@ export default function PurchaseRequestsPage() {
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
     const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-    if (isInitializing) {
+    if (isInitializing && purchases.length === 0) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-56" subtitleWidth="w-[30rem]" metricCount={4} cardCount={5} />

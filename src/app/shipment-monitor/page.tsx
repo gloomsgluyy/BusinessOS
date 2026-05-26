@@ -1886,7 +1886,7 @@ export default function ShipmentMonitorPage() {
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
     const paginatedData = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-    if (isInitializing) {
+    if (isInitializing && shipments.length === 0) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-52" subtitleWidth="w-96" metricCount={6} cardCount={6} />

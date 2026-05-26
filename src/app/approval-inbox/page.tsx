@@ -122,7 +122,7 @@ export default function ApprovalInboxPage() {
         );
     }
 
-    if (isInitializing) {
+    if (isInitializing && srsItems.length === 0 && tasks.length === 0 && orders.length === 0 && purchases.length === 0) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-44" subtitleWidth="w-[30rem]" metricCount={4} cardCount={5} />

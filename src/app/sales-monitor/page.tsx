@@ -410,7 +410,7 @@ export default function SalesMonitorPage() {
         });
     }, [showForm]);
 
-    if (isInitializing) {
+    if (isInitializing && deals.length === 0 && shipments.length === 0 && projects.length === 0) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-48" subtitleWidth="w-[30rem]" metricCount={5} cardCount={5} />

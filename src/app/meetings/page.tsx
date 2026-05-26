@@ -600,7 +600,7 @@ Be concise and professional.`;
         : true
     );
 
-    if (status === "loading" || isInitializing) {
+    if (status === "loading" || (isInitializing && meetings.length === 0)) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-36" subtitleWidth="w-[32rem]" metricCount={4} cardCount={5} />

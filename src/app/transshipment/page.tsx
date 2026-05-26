@@ -117,7 +117,7 @@ Give a 3-sentence mitigation recommendation focusing on route weather, bunker pr
         volume: shipments.reduce((sum, s) => sum + (s.quantity_loaded || 0), 0)
     };
 
-    if (isInitializing) {
+    if (isInitializing && shipments.length === 0) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-72" subtitleWidth="w-[34rem]" metricCount={6} cardCount={6} />

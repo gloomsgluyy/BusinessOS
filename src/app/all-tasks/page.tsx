@@ -71,7 +71,7 @@ export default function AllTasksPage() {
 
     const currentSelected = selectedTask ? tasks.find((t) => t.id === selectedTask.id) || null : null;
 
-    if (isInitializing) {
+    if (isInitializing && tasks.length === 0) {
       return (
         <AppShell>
           <ModulePageSkeleton titleWidth="w-36" subtitleWidth="w-72" metricCount={5} cardCount={5} />

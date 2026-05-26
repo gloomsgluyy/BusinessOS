@@ -619,7 +619,7 @@ export default function PLForecastClient() {
     const liveMargin = liveRevenue ? (liveProfit / liveRevenue) * 100 : 0;
 
     // Show loading while checking authentication
-    if (status === "loading" || isInitializing) {
+    if (status === "loading" || (isInitializing && plForecasts.length === 0 && shipments.length === 0 && projects.length === 0)) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-44" subtitleWidth="w-[32rem]" metricCount={5} cardCount={5} />

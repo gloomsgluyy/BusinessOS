@@ -828,7 +828,7 @@ export default function ProjectsPage() {
     };
   }, [cards]);
 
-  const isInitialForecastLoading = isInitializing;
+  const isInitialForecastLoading = isInitializing && projects.length === 0 && shipments.length === 0;
 
   const sourceCandidateRows = React.useMemo(() => {
     const target = {

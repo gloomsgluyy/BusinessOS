@@ -2114,7 +2114,8 @@ export default function DashboardPage() {
         );
     }
 
-    const showDashboardSkeleton = isLoading && !DISABLE_SKELETON_LOADERS;
+    const hasHydratedData = shipments.length > 0 || deals.length > 0 || sources.length > 0 || tasks.length > 0;
+    const showDashboardSkeleton = isLoading && !DISABLE_SKELETON_LOADERS && !hasHydratedData;
 
     return (
         <AppShell>

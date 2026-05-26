@@ -72,7 +72,7 @@ export default function ProfitLossPage() {
             .sort((a, b) => a.month.localeCompare(b.month));
     }, [approvedRevenue, approvedExpense]);
 
-    if (isInitializing) {
+    if (isInitializing && orders.length === 0 && purchases.length === 0) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-44" subtitleWidth="w-72" metricCount={4} cardCount={4} />

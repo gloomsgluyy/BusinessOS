@@ -387,7 +387,7 @@ export default function MarketPricePage() {
         }
     };
 
-    if (!mounted || isInitializing) {
+    if (!mounted || (isInitializing && marketPrices.length === 0)) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-64" subtitleWidth="w-72" metricCount={6} cardCount={4} />

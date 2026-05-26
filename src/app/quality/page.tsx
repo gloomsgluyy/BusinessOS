@@ -423,7 +423,7 @@ export default function QualityPage() {
         </div>
     );
 
-    if (isInitializing) {
+    if (isInitializing && qualityResults.length === 0 && shipments.length === 0) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-44" subtitleWidth="w-[30rem]" metricCount={5} cardCount={5} />

@@ -67,7 +67,7 @@ export default function BlendingPage() {
         tm: Math.round(inputs.reduce((s, inp) => s + inp.tm * inp.quantity, 0) / totalQty * 100) / 100,
     } : { gar: 0, ts: 0, ash: 0, tm: 0 };
 
-    if (isInitializing) {
+    if (isInitializing && blendingHistory.length === 0 && sources.length === 0) {
         return (
             <AppShell>
                 <ModulePageSkeleton titleWidth="w-56" subtitleWidth="w-[32rem]" metricCount={4} cardCount={4} />

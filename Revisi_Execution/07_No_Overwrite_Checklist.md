@@ -759,3 +759,12 @@ For critical fields:
 - [x] Forecast Sales API still enforces server-side executive approval permission.
 - [x] Project update store now throws on non-OK API response to avoid false local success.
 - [x] Ran `npx tsc --noEmit`.
+
+## 68. 2026-05-26 Cold-Load Skeleton Gate Safety Record
+
+- [x] Skeleton loaders remain available for true cold loads with no primary data.
+- [x] Modules no longer block rendering behind skeletons when their primary persisted/synced data is already available.
+- [x] Dashboard and Forecast Sales avoid false zero only when there is no hydrated primary data.
+- [x] No sync endpoint URLs, business formulas, upload behavior, approval logic, or document access rules were changed.
+- [x] Ran `npx tsc --noEmit`.
+- [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.
