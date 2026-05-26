@@ -545,6 +545,7 @@ export default function ProjectsPage() {
   const [shipmentDocDownloads, setShipmentDocDownloads] = React.useState<Record<string, ShipmentDocument[]>>({});
   const [loadingShipmentDocs, setLoadingShipmentDocs] = React.useState(false);
   const [downloadingRequiredZip, setDownloadingRequiredZip] = React.useState<Record<string, boolean>>({});
+  const [downloadingFco, setDownloadingFco] = React.useState<string | null>(null);
   const [approvalComment, setApprovalComment] = React.useState("");
   const [buyerFeedbackReason, setBuyerFeedbackReason] = React.useState("");
   const [convertingShipment, setConvertingShipment] = React.useState(false);
@@ -568,7 +569,7 @@ export default function ProjectsPage() {
   React.useEffect(() => {
     let active = true;
     setIsInitializing(true);
-    syncFromMemory({ force: true }).finally(() => {
+    syncFromMemory().finally(() => {
       if (active) setIsInitializing(false);
     });
     return () => {
@@ -1509,6 +1510,7 @@ export default function ProjectsPage() {
   };
 
   const downloadForecastSalesFco = async (project: ProjectCard) => {
+    if (downloadingFco) return;
     if (!project.projectRecord) {
       window.alert("FCO hanya tersedia untuk Forecast Sales master record.");
       return;
@@ -1518,15 +1520,11 @@ export default function ProjectsPage() {
       return;
     }
 
+    setDownloadingFco(project.id);
     const fcoNumber = buildFcoNumber(project);
     const generatedAt = new Date().toISOString();
-    await updateProject(project.projectRecord.id, {
-      fco_number: fcoNumber,
-      fco_generated_at: generatedAt,
-    } as Partial<ProjectItem>);
-    await syncFromMemory({ force: true });
-
     const p = project.projectRecord;
+    try {
     const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -1722,6 +1720,33 @@ export default function ProjectsPage() {
     doc.text(`Generated from approved Forecast Sales by ${p.approved_by_name || "Executive"}`, left, y + 14);
 
     doc.save(`${slugFile(fcoNumber)}-${slugFile(project.projectName)}.pdf`);
+
+    const optimisticRecord = {
+      ...p,
+      fco_number: fcoNumber,
+      fco_generated_at: generatedAt,
+    };
+    setSelectedProject((current) =>
+      current?.id === project.id
+        ? { ...current, projectRecord: optimisticRecord }
+        : current,
+    );
+
+    void updateProject(project.projectRecord.id, {
+      fco_number: fcoNumber,
+      fco_generated_at: generatedAt,
+    } as Partial<ProjectItem>)
+      .then(() => syncFromMemory())
+      .catch((error: any) => {
+        console.error("[forecast-sales] FCO history update failed", error);
+        window.alert("PDF sudah ter-download, tapi history FCO gagal tersimpan. Coba refresh lalu cek FCO Control.");
+      })
+      .finally(() => setDownloadingFco(null));
+    } catch (error: any) {
+      console.error("[forecast-sales] FCO download failed", error);
+      setDownloadingFco(null);
+      window.alert(error?.message || "FCO gagal di-download.");
+    }
   };
 
   const uploadProjectDocument = async (project: ProjectItem, index: number, file: File | null) => {
@@ -2121,6 +2146,32 @@ export default function ProjectsPage() {
           </div>
         </div>
 
+        {isInitialForecastLoading && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="rounded-xl border border-border/60 bg-card p-5 space-y-4 animate-pulse">
+                  <div className="flex justify-between gap-3">
+                    <div className="space-y-2 flex-1">
+                      <div className="h-4 w-2/3 rounded bg-accent" />
+                      <div className="h-3 w-1/2 rounded bg-accent/70" />
+                    </div>
+                    <div className="h-6 w-20 rounded bg-accent" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="h-12 rounded bg-accent/70" />
+                    <div className="h-12 rounded bg-accent/70" />
+                    <div className="h-12 rounded bg-accent/70" />
+                    <div className="h-12 rounded bg-accent/70" />
+                  </div>
+                  <div className="h-16 rounded bg-accent/50" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!isInitialForecastLoading && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filtered.map((p) => (
             <div key={p.id} onClick={() => setSelectedProject(p)} className="card-interactive cursor-pointer p-5 space-y-3">
@@ -2175,18 +2226,13 @@ export default function ProjectsPage() {
             </div>
           ))}
         </div>
+        )}
 
-        {filtered.length === 0 && (
+        {!isInitialForecastLoading && filtered.length === 0 && (
           <div className="text-center py-16 px-8 card-elevated border-dashed border-2">
-            {isInitialForecastLoading ? (
-              <Loader2 className="w-12 h-12 text-emerald-500 mx-auto mb-4 animate-spin" />
-            ) : (
-              <FolderKanban className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4" />
-            )}
-            <h3 className="text-lg font-bold mb-1">{isInitialForecastLoading ? "Syncing Forecast Sales" : "No Forecast Sales Data"}</h3>
-            <p className="text-sm text-muted-foreground">
-              {isInitialForecastLoading ? "Mengambil data terbaru dari server production." : "Tidak ada Forecast Sales yang cocok dengan filter saat ini."}
-            </p>
+            <FolderKanban className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4" />
+            <h3 className="text-lg font-bold mb-1">No Forecast Sales Data</h3>
+            <p className="text-sm text-muted-foreground">Tidak ada Forecast Sales yang cocok dengan filter saat ini.</p>
           </div>
         )}
 
@@ -2547,16 +2593,22 @@ export default function ProjectsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => downloadForecastSalesFco(selectedProject)}
+                    disabled={downloadingFco === selectedProject.id}
                     className={cn(
                       "px-3 py-2 rounded-lg text-xs font-semibold hover:shadow-md",
+                      downloadingFco === selectedProject.id && "opacity-70 cursor-wait",
                       selectedProject.projectRecord && mapMasterStatus(selectedProject.projectRecord.status) === "approved"
                         ? "bg-blue-600 text-white"
                         : "bg-accent text-muted-foreground",
                     )}
                     title="Download FCO PDF"
                   >
-                    <Download className="w-3.5 h-3.5 inline mr-1.5" />
-                    FCO
+                    {downloadingFco === selectedProject.id ? (
+                      <Loader2 className="w-3.5 h-3.5 inline mr-1.5 animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5 inline mr-1.5" />
+                    )}
+                    {downloadingFco === selectedProject.id ? "Preparing..." : "FCO"}
                   </button>
                   <button
                     onClick={() => downloadProjectSummaryReport(selectedProject)}

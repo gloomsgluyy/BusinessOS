@@ -66,6 +66,7 @@ Implemented in current revision:
 - Dashboard KPI cards exist for total, draft, CEO review, approved, FCO sent, buyer pending, deal, failed, revenue, and shipment GP; financial cards are role-restricted.
 - Dashboard KPI cards now expand into drill-down lists showing project name, buyer, offer by, and current status/feedback.
 - Dashboard now shows an initial syncing state instead of false zero values while production data is still loading.
+- Dashboard cold load now shows Forecast Sales card skeletons, and commercial store sync applies returned project/source/market/etc. payloads progressively instead of waiting for every endpoint.
 - `/api/memory/projects` keeps compatibility schema guards but avoids repeated hot-path `ALTER TABLE` scans by checking missing columns and caching the result per server instance.
 - Critical revision log exists for quantity, laycan, target selling price, and supplier candidates, storing old/new values, reason, user, and timestamp.
 
@@ -114,6 +115,7 @@ Latest implementation note:
 - 2026-05-25: DOC-008/DOC-009 strengthened. Document Drive is now public read-only, includes generated SI PDFs, uses clearer owner-based names, and avoids schema mutation during listing for faster load.
 - 2026-05-25: FS-018 strengthened. Forecast Sales dashboard cards are wider and no longer visually stretch all summary cards when one drilldown is opened.
 - 2026-05-25: Forecast Sales production load guard added. Project API compatibility checks now only alter missing columns, cache the guard per server instance, return no-store responses, and the page shows syncing state during initial load.
+- 2026-05-25: Forecast Sales progressive sync added. Store sync now applies each returned endpoint immediately, removes forced full refresh from initial Forecast Sales mount, and restores client-side skeleton cards for cold loads.
 - Legacy `ProjectItem`, `/projects`, `project_name`, and sheet tab compatibility remain intentionally unchanged.
 
 Implementation approach:

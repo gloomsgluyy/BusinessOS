@@ -2716,7 +2716,7 @@ SRS refs:
 What changed:
 
 - Forecast Sales API no longer runs every `ALTER TABLE IF NOT EXISTS` guard on every GET; it checks existing columns first, adds only missing columns, and caches the check per server instance.
-- Forecast Sales page now forces an initial sync on mount and shows a syncing state instead of rendering zero dashboard values while production data is still loading.
+- Forecast Sales page shows a syncing state instead of rendering zero dashboard values while production data is still loading.
 - Forecast Sales API responses explicitly return `Cache-Control: no-store` so dashboard data is not served from a stale route cache.
 
 Verification:
@@ -2727,3 +2727,62 @@ Verification:
 Remaining risk:
 
 - If Vercel/Supabase production database itself has no Forecast Sales rows, the dashboard will correctly show zero after sync; this patch prevents false-zero while the API is still loading or delayed.
+
+## 2026-05-25 - Forecast Sales Progressive Sync and Skeleton Restore
+
+Type:
+
+- Code
+- Performance
+- UI
+
+Changed:
+
+- `src/store/commercial-store.ts`
+- `src/app/projects/page.tsx`
+
+SRS refs:
+
+- UI-FS-001
+- Production readiness / perceived load performance
+
+What changed:
+
+- `syncFromMemory()` now applies each non-shipment endpoint as soon as that endpoint returns, instead of waiting for all remaining commercial endpoints before updating Forecast Sales/project state.
+- Initial Forecast Sales load no longer forces a full network refresh when cached/persisted commercial data can render immediately.
+- Forecast Sales card skeletons are restored for true cold loads so users see a proper loading surface instead of empty/zero data.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `git diff --check` passed with only existing Windows CRLF warnings.
+
+Root cause note:
+
+- The slow-feeling behavior was not the KPI dropdown layout itself. The heavier issue was the store sync barrier: a slow endpoint in the commercial sync batch could delay project/forecast data being applied, and the page had no proper client-side skeleton for that data phase.
+
+## 2026-05-25 - FCO Download Immediate Response
+
+Type:
+
+- Code
+- UX
+
+Changed:
+
+- `src/app/projects/page.tsx`
+
+SRS refs:
+
+- FS-005 / FCO generation and download
+
+What changed:
+
+- FCO PDF download now starts immediately after client-side PDF generation instead of waiting for the database history update and commercial sync first.
+- FCO button now shows a `Preparing...` state and disables duplicate clicks while the file is being prepared.
+- FCO number/generated-at is reflected optimistically in the open Forecast Sales modal; backend history update still runs after the download trigger.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `git diff --check` passed with only existing Windows CRLF warnings.

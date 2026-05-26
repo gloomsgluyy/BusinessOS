@@ -720,3 +720,22 @@ For critical fields:
 - [x] Forecast Sales dashboard data formulas were not changed; only the initial loading presentation was changed.
 - [x] Ran `npx tsc --noEmit`.
 - [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.
+
+## 64. 2026-05-25 Forecast Sales Progressive Sync Safety Record
+
+- [x] Store endpoint mapping logic was not changed; only the timing of when each successful endpoint payload is applied was changed.
+- [x] Shipment payload is still applied first when available.
+- [x] Slow optional endpoints no longer block project/forecast payloads from updating the UI.
+- [x] Forecast Sales initial load no longer forces a full refresh over persisted data.
+- [x] Skeleton UI is presentation-only and does not mutate Forecast Sales, Shipment, Source, Market Price, or document data.
+- [x] Ran `npx tsc --noEmit`.
+- [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.
+
+## 65. 2026-05-25 FCO Download Immediate Response Safety Record
+
+- [x] Changed only the Forecast Sales FCO button/handler path.
+- [x] PDF content generation logic and FCO number format were not changed.
+- [x] Database FCO history update still runs, but no longer blocks the browser download trigger.
+- [x] Added duplicate-click guard/loading state for the FCO button.
+- [x] Ran `npx tsc --noEmit`.
+- [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.
