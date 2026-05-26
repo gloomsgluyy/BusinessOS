@@ -1743,7 +1743,6 @@ export default function ProjectsPage() {
       fco_number: fcoNumber,
       fco_generated_at: generatedAt,
     } as Partial<ProjectItem>)
-      .then(() => syncFromMemory({ force: true }))
       .catch((error: any) => {
         console.error("[forecast-sales] FCO history update failed", error);
         window.alert("PDF sudah ter-download, tapi history FCO gagal tersimpan. Coba refresh lalu cek FCO Control.");
@@ -1785,7 +1784,6 @@ export default function ProjectsPage() {
         if (!current?.projectRecord || current.projectRecord.id !== project.id) return current;
         return { ...current, projectRecord: { ...current.projectRecord, template_checklist: nextChecklist } };
       });
-      await syncFromMemory({ force: true });
     } catch (error: any) {
       window.alert(error?.message || "Failed to upload document");
     } finally {
@@ -1803,7 +1801,6 @@ export default function ProjectsPage() {
       if (!current?.projectRecord || current.projectRecord.id !== project.id) return current;
       return { ...current, projectRecord: { ...current.projectRecord, template_checklist: nextChecklist } };
     });
-    await syncFromMemory({ force: true });
   };
 
   const buildProjectPayload = (statusOverride?: string): Partial<ProjectItem> & Pick<ProjectItem, "name"> => ({
@@ -1888,7 +1885,6 @@ export default function ProjectsPage() {
       } else {
         await addProject(payload as Omit<ProjectItem, "id" | "created_at" | "updated_at">);
       }
-      await syncFromMemory({ force: true });
       setShowForm(false);
       setRevisionReason("");
     } finally {
@@ -1915,7 +1911,6 @@ export default function ProjectsPage() {
         status,
         approval_comment: status === "rejected" ? comment : statusText,
       } as any);
-      await syncFromMemory({ force: true });
       setApprovalDecision("");
       setApprovalComment("");
       setSelectedProject(null);
@@ -2023,7 +2018,6 @@ export default function ProjectsPage() {
       } else {
         await addShipment(conversionPayload as Omit<ShipmentDetail, "id" | "created_at" | "updated_at">);
       }
-      await syncFromMemory({ force: true });
       if (!options.silent) {
         window.alert(existing ? "Shipment berhasil diperbarui dari Forecast Sales." : "Shipment berhasil dibuat dari Forecast Sales.");
       }
@@ -2061,8 +2055,6 @@ export default function ProjectsPage() {
         },
         { silent: true },
       );
-    } else {
-      await syncFromMemory({ force: true });
     }
     setSelectedProject(null);
   };

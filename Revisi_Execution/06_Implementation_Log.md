@@ -2924,6 +2924,40 @@ Remaining risk:
 
 - Needs production smoke test on the Vercel domain to compare perceived navigation timing after cache warm-up.
 
+## 2026-05-26 - Forecast Sales CRUD Latency Fix
+
+Type:
+
+- Code
+- Performance
+- UX
+
+Changed:
+
+- `src/store/commercial-store.ts`
+- `src/app/projects/page.tsx`
+
+Root cause:
+
+- Several Forecast Sales CRUD actions waited for a small PUT/POST and then immediately waited for `syncFromMemory({ force: true })`.
+- That forced sync refetched the full commercial bundle: shipments, sources, quality, market prices, meetings, P&L forecasts, sales deals, projects, and blending.
+- Approval status changes were especially affected because changing one project status waited for the full commercial sync before closing the modal/toast.
+
+What changed:
+
+- Project API responses are now mapped and merged directly into the commercial store after `addProject`/`updateProject`.
+- Forecast Sales save, approval status, FCO history, template checklist upload/toggle, buyer feedback, and deal-to-shipment conversion no longer block on full commercial refetch.
+- Full forced sync remains for heavier actions where the backend currently mutates data outside the normal project response path, such as supplier-candidate selection and urgency analysis.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `git diff --check` passed with only existing Windows CRLF warnings.
+
+Remaining risk:
+
+- API routes still contain runtime schema ensure/`ALTER TABLE IF NOT EXISTS` guards. Those are compatible but can make serverless cold-start CRUD slower and should be moved toward migrations or startup-only readiness checks in a follow-up hardening pass.
+
 ## 2026-05-26 - Cold-Load Skeleton Gate Tuning
 
 Type:

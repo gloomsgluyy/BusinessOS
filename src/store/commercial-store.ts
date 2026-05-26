@@ -333,6 +333,61 @@ interface CommercialState {
     syncFromMemory: (options?: CommercialSyncOptions) => Promise<void>;
 }
 
+const mapProjectItem = (project: any): ProjectItem => ({
+    id: project.id,
+    name: project.name,
+    segment: project.segment,
+    buyer: project.buyer,
+    status: project.status,
+    notes: project.notes,
+    buyer_country: project.buyerCountry,
+    commodity: project.commodity,
+    quantity: project.quantity,
+    laycan_start: project.laycanStart,
+    laycan_end: project.laycanEnd,
+    port_of_loading: project.portOfLoading,
+    sales_term: project.salesTerm,
+    target_selling_price: project.targetSellingPrice,
+    price_basis: project.priceBasis,
+    payment_terms: project.paymentTerms,
+    surveyor: project.surveyor,
+    gar: project.gar,
+    tm: project.tm,
+    ts: project.ts,
+    ash: project.ash,
+    vm: project.vm,
+    size: project.size,
+    supplier_candidates: project.supplierCandidates,
+    below_spec_reason: project.belowSpecReason,
+    below_spec_acknowledged_at: project.belowSpecAcknowledgedAt,
+    below_spec_acknowledged_by_name: project.belowSpecAcknowledgedByName,
+    blending_scenario: project.blendingScenario,
+    rough_pnl: project.roughPnl,
+    created_by: project.createdBy,
+    created_by_name: project.createdByName,
+    approved_by: project.approvedBy,
+    approved_by_name: project.approvedByName,
+    approved_at: project.approvedAt,
+    approval_history: project.approvalHistory,
+    revision_history: project.revisionHistory,
+    fco_number: project.fcoNumber,
+    fco_generated_at: project.fcoGeneratedAt,
+    fco_history: project.fcoHistory,
+    buyer_feedback_status: project.buyerFeedbackStatus,
+    buyer_feedback_reason: project.buyerFeedbackReason,
+    buyer_feedback_updated_at: project.buyerFeedbackUpdatedAt,
+    buyer_feedback_history: project.buyerFeedbackHistory,
+    template_type: project.templateType,
+    template_checklist: project.templateChecklist,
+    urgency_score: project.urgencyScore,
+    urgency_level: project.urgencyLevel,
+    urgency_report: project.urgencyReport,
+    last_urgency_analyzed_at: project.lastUrgencyAnalyzedAt,
+    created_at: project.createdAt,
+    updated_at: project.updatedAt,
+    is_deleted: project.isDeleted,
+});
+
 const COMMERCIAL_MIN_SYNC_INTERVAL_MS = 60_000;
 let commercialSyncInFlight: Promise<void> | null = null;
 let commercialLastSyncSucceededAt = 0;
@@ -457,61 +512,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         });
         if (res.ok) {
             const data = await res.json();
-            const project = data.project;
-            const mapped: ProjectItem = {
-                id: project.id,
-                name: project.name,
-                segment: project.segment,
-                buyer: project.buyer,
-                status: project.status,
-                notes: project.notes,
-                buyer_country: project.buyerCountry,
-                commodity: project.commodity,
-                quantity: project.quantity,
-                laycan_start: project.laycanStart,
-                laycan_end: project.laycanEnd,
-                port_of_loading: project.portOfLoading,
-                sales_term: project.salesTerm,
-                target_selling_price: project.targetSellingPrice,
-                price_basis: project.priceBasis,
-                payment_terms: project.paymentTerms,
-                surveyor: project.surveyor,
-                gar: project.gar,
-                tm: project.tm,
-                ts: project.ts,
-                ash: project.ash,
-                vm: project.vm,
-                size: project.size,
-                supplier_candidates: project.supplierCandidates,
-                below_spec_reason: project.belowSpecReason,
-                below_spec_acknowledged_at: project.belowSpecAcknowledgedAt,
-                below_spec_acknowledged_by_name: project.belowSpecAcknowledgedByName,
-                blending_scenario: project.blendingScenario,
-                rough_pnl: project.roughPnl,
-                created_by: project.createdBy,
-                created_by_name: project.createdByName,
-                approved_by: project.approvedBy,
-                approved_by_name: project.approvedByName,
-                approved_at: project.approvedAt,
-                approval_history: project.approvalHistory,
-                revision_history: project.revisionHistory,
-                fco_number: project.fcoNumber,
-                fco_generated_at: project.fcoGeneratedAt,
-                fco_history: project.fcoHistory,
-                buyer_feedback_status: project.buyerFeedbackStatus,
-                buyer_feedback_reason: project.buyerFeedbackReason,
-                buyer_feedback_updated_at: project.buyerFeedbackUpdatedAt,
-                buyer_feedback_history: project.buyerFeedbackHistory,
-                template_type: project.templateType,
-                template_checklist: project.templateChecklist,
-                urgency_score: project.urgencyScore,
-                urgency_level: project.urgencyLevel,
-                urgency_report: project.urgencyReport,
-                last_urgency_analyzed_at: project.lastUrgencyAnalyzedAt,
-                created_at: project.createdAt,
-                updated_at: project.updatedAt,
-                is_deleted: project.isDeleted,
-            };
+            const mapped = mapProjectItem(data.project);
             set((state) => {
                 const raw = [mapped, ...state._rawProjects];
                 return { _rawProjects: raw, projects: raw.filter((x) => !x.is_deleted) };
@@ -573,9 +574,11 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
             const error = await res.json().catch(() => ({}));
             throw new Error(error?.error || "Failed to update Forecast Sales");
         }
+        const data = await res.json().catch(() => ({}));
+        const mapped = data.project ? mapProjectItem(data.project) : null;
         set((s) => {
             const raw = s._rawProjects.map((project) =>
-                project.id === id ? { ...project, ...u, updated_at: new Date().toISOString() } : project
+                project.id === id ? (mapped || { ...project, ...u, updated_at: new Date().toISOString() }) : project
             );
             return { _rawProjects: raw, projects: raw.filter((x) => !x.is_deleted) };
         });
@@ -1716,60 +1719,7 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
 
                         // Projects merge
                         if (projectRes?.success && projectRes.projects) {
-                            const mappedProjects: ProjectItem[] = projectRes.projects.map((project: any) => ({
-                                id: project.id,
-                                name: project.name,
-                                segment: project.segment,
-                                buyer: project.buyer,
-                                status: project.status,
-                                notes: project.notes,
-                                buyer_country: project.buyerCountry,
-                                commodity: project.commodity,
-                                quantity: project.quantity,
-                                laycan_start: project.laycanStart,
-                                laycan_end: project.laycanEnd,
-                                port_of_loading: project.portOfLoading,
-                                sales_term: project.salesTerm,
-                                target_selling_price: project.targetSellingPrice,
-                                price_basis: project.priceBasis,
-                                payment_terms: project.paymentTerms,
-                                surveyor: project.surveyor,
-                                gar: project.gar,
-                                tm: project.tm,
-                                ts: project.ts,
-                                ash: project.ash,
-                                vm: project.vm,
-                                size: project.size,
-                                supplier_candidates: project.supplierCandidates,
-                                below_spec_reason: project.belowSpecReason,
-                                below_spec_acknowledged_at: project.belowSpecAcknowledgedAt,
-                                below_spec_acknowledged_by_name: project.belowSpecAcknowledgedByName,
-                                blending_scenario: project.blendingScenario,
-                                rough_pnl: project.roughPnl,
-                                created_by: project.createdBy,
-                                created_by_name: project.createdByName,
-                                approved_by: project.approvedBy,
-                                approved_by_name: project.approvedByName,
-                                approved_at: project.approvedAt,
-                                approval_history: project.approvalHistory,
-                                revision_history: project.revisionHistory,
-                                fco_number: project.fcoNumber,
-                                fco_generated_at: project.fcoGeneratedAt,
-                                fco_history: project.fcoHistory,
-                                buyer_feedback_status: project.buyerFeedbackStatus,
-                                buyer_feedback_reason: project.buyerFeedbackReason,
-                                buyer_feedback_updated_at: project.buyerFeedbackUpdatedAt,
-                                buyer_feedback_history: project.buyerFeedbackHistory,
-                                template_type: project.templateType,
-                                template_checklist: project.templateChecklist,
-                                urgency_score: project.urgencyScore,
-                                urgency_level: project.urgencyLevel,
-                                urgency_report: project.urgencyReport,
-                                last_urgency_analyzed_at: project.lastUrgencyAnalyzedAt,
-                                created_at: project.createdAt,
-                                updated_at: project.updatedAt,
-                                is_deleted: project.isDeleted,
-                            }));
+                            const mappedProjects: ProjectItem[] = projectRes.projects.map(mapProjectItem);
                             updates._rawProjects = mappedProjects;
                             updates.projects = mappedProjects.filter((x) => !x.is_deleted);
                         }

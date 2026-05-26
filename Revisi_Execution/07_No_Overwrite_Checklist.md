@@ -779,3 +779,14 @@ For critical fields:
 - [x] Manual sync still bypasses cache with `force: true`.
 - [x] Ran `npx tsc --noEmit`.
 - [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.
+
+## 70. 2026-05-26 Forecast Sales CRUD Latency Safety Record
+
+- [x] Forecast Sales `updateProject` now merges the server-returned project row instead of requiring a full commercial refetch.
+- [x] Forecast Sales `addProject` and full sync use one shared project mapper so response/store shape stays consistent.
+- [x] Approval status changes no longer block on `syncFromMemory({ force: true })`.
+- [x] Save Forecast Sales, FCO history update, template checklist update, buyer feedback, and deal-to-shipment conversion no longer block on a full commercial refetch.
+- [x] Supplier candidate selection and urgency analysis still keep forced sync because those endpoints can mutate additional state that is not yet returned in the normal project update payload.
+- [x] No approval role rule, FCO content, document upload behavior, or shipment conversion payload was changed.
+- [x] Ran `npx tsc --noEmit`.
+- [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.
