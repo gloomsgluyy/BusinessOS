@@ -701,3 +701,13 @@ For critical fields:
 - [x] Global market scraper no longer duplicates the normal app boot commercial sync.
 - [x] Ran `npx tsc --noEmit`.
 - [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.
+
+## 63. 2026-05-25 Public Drive and Forecast Dashboard Safety Record
+
+- [x] Forecast Sales dashboard layout changed only in summary card presentation; dashboard data/status logic was not changed.
+- [x] Document Drive public access is read-only and scoped to `/document-drive` plus `/api/document-drive/*`.
+- [x] Logged-out users still cannot access other modules through middleware.
+- [x] Critical shipment documents remain hidden/blocked for public and non-executive users.
+- [x] Generated SI appears in Document Drive as a virtual PDF and does not become an uploaded document row.
+- [x] Document Drive listing no longer mutates schema or fetches file bytes during list load.
+- [x] Ran `npx tsc --noEmit`.

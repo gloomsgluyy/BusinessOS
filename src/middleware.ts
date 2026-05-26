@@ -6,6 +6,7 @@ export default withAuth(
         const token = req.nextauth.token
         const path = req.nextUrl.pathname
         const role = (token?.role as string)?.toUpperCase();
+        const isPublicDocumentDrive = path === "/document-drive" || path.startsWith("/api/document-drive");
 
         if (path === "/projects") {
             const nextUrl = req.nextUrl.clone();
@@ -13,8 +14,12 @@ export default withAuth(
             return NextResponse.redirect(nextUrl);
         }
 
+        if (isPublicDocumentDrive) {
+            return NextResponse.next();
+        }
+
         if (role === "STAFF") {
-            const allowedDocumentPath = path === "/document-drive" || path.startsWith("/api/document-drive");
+            const allowedDocumentPath = isPublicDocumentDrive;
             if (!allowedDocumentPath) {
                 if (path.startsWith("/api/")) {
                     return NextResponse.json({ error: "Forbidden. Document Drive access only." }, { status: 403 });
@@ -39,6 +44,7 @@ export default withAuth(
             authorized: ({ token, req }) => {
                 // Explicitly allow maintenance sync route without a session
                 if (req.nextUrl.pathname.startsWith("/api/maintenance/sync")) return true;
+                if (req.nextUrl.pathname === "/document-drive" || req.nextUrl.pathname.startsWith("/api/document-drive")) return true;
                 return !!token;
             },
         },

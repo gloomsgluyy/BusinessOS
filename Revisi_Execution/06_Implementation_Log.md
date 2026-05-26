@@ -2646,3 +2646,51 @@ Verification:
 Reason:
 
 - Supabase Query Performance showed query storm symptoms: thousands of shipment reads, repeated runtime schema operations, and thousands of P&L forecast updates. Read endpoints must stay read-only in production.
+
+## 2026-05-25 - Public Document Drive, SI Listing, and Forecast Dashboard Layout
+
+Type:
+
+- Code
+- UI
+- Performance
+- Documentation
+
+Changed:
+
+- `src/app/projects/page.tsx`
+- `src/app/document-drive/page.tsx`
+- `src/app/api/document-drive/route.ts`
+- `src/app/api/document-drive/files/[sourceType]/[ownerId]/[docId]/route.ts`
+- `src/app/api/system/production-readiness/route.ts`
+- `src/middleware.ts`
+- `SRS_CoalTrade_OS_Revisi/04_Document_Management.md`
+- `SRS_CoalTrade_OS_Revisi/08_Forecast_Sales_FCO_Revision.md`
+- `Revisi_Execution/02_Current_Code_vs_SRS_Gap.md`
+- `Revisi_Execution/03_Execution_Backlog.md`
+- `Revisi_Execution/04_Module_Implementation_Status.md`
+- `Revisi_Execution/07_No_Overwrite_Checklist.md`
+
+SRS refs:
+
+- FR-DOC-DRIVE-001 to FR-DOC-DRIVE-004
+- UI-FS-001
+- FR-SI-001
+
+What changed:
+
+- Forecast Sales summary cards now use wider responsive columns and `items-start`, so opening one dropdown does not visually stretch every card.
+- Document Drive route and API are public read-only; logged-out users can access Document Drive while other modules remain protected.
+- Document Drive now includes generated Shipping Instruction records as downloadable PDFs through the Drive proxy.
+- Document Drive titles now combine owner/project/shipment, document type, buyer, SI number/version where available, making search results clearer than generic labels.
+- Document Drive listing no longer runs schema `ALTER TABLE` guards on every request and uses bounded metadata-only selects for faster load.
+- Production readiness schema checks now run in parallel to reduce long loading time.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `git diff --check` passed for changed files with only existing Windows CRLF warnings.
+
+Remaining risk:
+
+- Public Drive intentionally excludes critical documents for logged-out users; critical access still requires executive login.

@@ -14,12 +14,12 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-type DriveSource = "all" | "forecast" | "shipment" | "daily_delivery";
-type DriveGroup = "all" | "required" | "additional" | "critical" | "domestic_handover" | "forecast";
+type DriveSource = "all" | "forecast" | "shipment" | "daily_delivery" | "shipping_instruction";
+type DriveGroup = "all" | "required" | "additional" | "critical" | "domestic_handover" | "forecast" | "shipping_instruction";
 
 type DriveDocument = {
   id: string;
-  sourceType: "forecast" | "shipment" | "daily_delivery";
+  sourceType: "forecast" | "shipment" | "daily_delivery" | "shipping_instruction";
   ownerId: string;
   ownerName: string;
   buyer?: string | null;
@@ -40,6 +40,7 @@ type DriveSummary = {
   forecast: number;
   shipment: number;
   dailyDelivery: number;
+  shippingInstruction?: number;
   required: number;
   additional: number;
   domestic: number;
@@ -49,6 +50,7 @@ const sourceLabels: Record<DriveDocument["sourceType"], string> = {
   forecast: "Forecast Sales",
   shipment: "Shipment",
   daily_delivery: "Domestic Handover",
+  shipping_instruction: "Shipping Instruction",
 };
 
 const groupLabels: Record<string, string> = {
@@ -57,6 +59,7 @@ const groupLabels: Record<string, string> = {
   critical: "Critical",
   domestic_handover: "Domestic",
   forecast: "Forecast",
+  shipping_instruction: "SI",
 };
 
 const emptySummary: DriveSummary = {
@@ -64,6 +67,7 @@ const emptySummary: DriveSummary = {
   forecast: 0,
   shipment: 0,
   dailyDelivery: 0,
+  shippingInstruction: 0,
   required: 0,
   additional: 0,
   domestic: 0,
@@ -116,7 +120,7 @@ export default function DocumentDrivePage() {
           q: query.trim(),
           source,
           group,
-          limit: "500",
+          limit: "160",
         });
         const res = await fetch(`/api/document-drive?${params.toString()}`, {
           cache: "no-store",
@@ -145,8 +149,8 @@ export default function DocumentDrivePage() {
     { label: "Forecast", value: summary.forecast, tone: "border-cyan-500/25" },
     { label: "Shipment", value: summary.shipment, tone: "border-blue-500/25" },
     { label: "Domestic", value: summary.dailyDelivery, tone: "border-amber-500/25" },
+    { label: "SI", value: summary.shippingInstruction || 0, tone: "border-emerald-500/25" },
     { label: "Required", value: summary.required, tone: "border-violet-500/25" },
-    { label: "Additional", value: summary.additional, tone: "border-slate-500/25" },
   ];
 
   return (
@@ -160,8 +164,13 @@ export default function DocumentDrivePage() {
             </div>
             <h1 className="mt-1 text-2xl font-bold tracking-tight">All operational documents</h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Pusat akses dokumen public dari Forecast Sales, Shipment Monitor, dan Domestic Handover.
+              Pusat akses dokumen public dari Forecast Sales, Shipment Monitor, Shipping Instruction, dan Domestic Handover.
             </p>
+            {!currentUser && (
+              <p className="mt-2 inline-flex rounded-md border border-border bg-card px-2 py-1 text-[11px] font-semibold text-muted-foreground">
+                Public read-only mode. Modul lain tetap terkunci sampai login.
+              </p>
+            )}
           </div>
           <button
             type="button"
@@ -196,7 +205,7 @@ export default function DocumentDrivePage() {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search document, project, buyer, uploader..."
+                placeholder="Search SI number, shipment, project, buyer, document type..."
                 className="h-9 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-sm outline-none focus:border-primary/60"
               />
             </div>
@@ -208,6 +217,7 @@ export default function DocumentDrivePage() {
               <option value="all">All Source</option>
               <option value="forecast">Forecast Sales</option>
               <option value="shipment">Shipment</option>
+              <option value="shipping_instruction">Shipping Instruction</option>
               <option value="daily_delivery">Domestic Handover</option>
             </select>
             <select
@@ -217,6 +227,7 @@ export default function DocumentDrivePage() {
             >
               <option value="all">All Group</option>
               <option value="forecast">Forecast</option>
+              <option value="shipping_instruction">Shipping Instruction</option>
               <option value="required">Required</option>
               <option value="additional">Additional</option>
               <option value="critical">Critical</option>
