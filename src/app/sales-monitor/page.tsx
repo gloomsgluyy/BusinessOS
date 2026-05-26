@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { ReportModal } from "@/components/shared/report-modal";
 import { Toast } from "@/components/shared/toast";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 
 const parseLooseNumber = (value: unknown): number => {
     if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -75,12 +76,13 @@ const PROJECT_SALES_STATUS_META: Record<ProjectSalesStatus, { label: string; col
 };
 
 export default function SalesMonitorPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
     const formRef = React.useRef<HTMLDivElement | null>(null);
 
     const { deals, syncFromMemory, addDeal, updateDeal, deleteDeal, shipments, projects } = useCommercialStore();
 
     React.useEffect(() => {
+        setIsInitializing(true);
         syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
     const { currentUser } = useAuthStore();
@@ -408,6 +410,13 @@ export default function SalesMonitorPage() {
         });
     }, [showForm]);
 
+    if (isInitializing) {
+        return (
+            <AppShell>
+                <ModulePageSkeleton titleWidth="w-48" subtitleWidth="w-[30rem]" metricCount={5} cardCount={5} />
+            </AppShell>
+        );
+    }
 
     return (
         <AppShell>

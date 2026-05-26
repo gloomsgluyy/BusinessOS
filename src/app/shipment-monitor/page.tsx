@@ -15,6 +15,7 @@ import {
 import { AIAgent } from "@/lib/ai-agent";
 import { ReportModal } from "@/components/shared/report-modal";
 import { Toast, ToastType } from "@/components/shared/toast";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -506,7 +507,7 @@ function ExpandableText({
 }
 
 export default function ShipmentMonitorPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
     const { data: session } = useSession();
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -522,6 +523,7 @@ export default function ShipmentMonitorPage() {
     const { dailyDeliveries, syncDeliveries, addDelivery, updateDelivery, deleteDelivery } = useDailyDeliveryStore();
 
     React.useEffect(() => {
+        setIsInitializing(true);
         syncFromMemory().finally(() => setIsInitializing(false));
         syncDeliveries();
     }, [syncFromMemory, syncDeliveries]);
@@ -1884,6 +1886,13 @@ export default function ShipmentMonitorPage() {
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
     const paginatedData = filtered.slice((page - 1) * pageSize, page * pageSize);
 
+    if (isInitializing) {
+        return (
+            <AppShell>
+                <ModulePageSkeleton titleWidth="w-52" subtitleWidth="w-96" metricCount={6} cardCount={6} />
+            </AppShell>
+        );
+    }
 
     return (
         <AppShell>

@@ -8,6 +8,7 @@ import { useTaskStore } from "@/store/task-store";
 import { useSalesStore } from "@/store/sales-store";
 import { usePurchaseStore } from "@/store/purchase-store";
 import { cn, formatRupiah, relativeDate } from "@/lib/utils";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 
 type SrsApprovalKind = "forecast_sales" | "early_si" | "source_change" | "barge_change";
 
@@ -46,7 +47,7 @@ const srsKindLabels: Record<SrsApprovalKind, string> = {
 };
 
 export default function ApprovalInboxPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
     const [srsItems, setSrsItems] = React.useState<SrsApprovalItem[]>([]);
     const [srsSummary, setSrsSummary] = React.useState<SrsApprovalSummary>({
         total: 0,
@@ -102,6 +103,7 @@ export default function ApprovalInboxPage() {
     }, []);
 
     React.useEffect(() => {
+        setIsInitializing(true);
         Promise.all([
             syncTasks(),
             syncSales(),
@@ -117,6 +119,14 @@ export default function ApprovalInboxPage() {
     if (!hasPermission("approval_inbox")) {
         return (
             <AppShell><div className="flex items-center justify-center h-full animate-fade-in"><div className="text-center space-y-2"><Shield className="w-10 h-10 text-muted-foreground/30 mx-auto" /><p className="text-sm text-muted-foreground">Access Restricted</p></div></div></AppShell>
+        );
+    }
+
+    if (isInitializing) {
+        return (
+            <AppShell>
+                <ModulePageSkeleton titleWidth="w-44" subtitleWidth="w-[30rem]" metricCount={4} cardCount={5} />
+            </AppShell>
         );
     }
 

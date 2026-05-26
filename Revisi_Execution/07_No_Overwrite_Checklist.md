@@ -739,3 +739,13 @@ For critical fields:
 - [x] Added duplicate-click guard/loading state for the FCO button.
 - [x] Ran `npx tsc --noEmit`.
 - [x] Ran `git diff --check`; only existing Windows CRLF warnings were reported.
+
+## 66. 2026-05-26 Final Revision Roll Forward and Skeleton Safety Record
+
+- [x] Re-applied the final public Drive, Forecast Sales loading, progressive sync, and FCO responsiveness revision path after rollback.
+- [x] Preserved the Supabase query-storm mitigation instead of restoring the heavier pre-mitigation sync behavior.
+- [x] Added a shared skeleton component for module-level initial loading.
+- [x] Replaced unused `setIsInitializing` patterns with real `isInitializing` UI gates across main modules.
+- [x] Kept skeleton changes presentation-only; no business data mutation, approval logic, document upload, FCO/SI generation, or finance formulas were changed.
+- [x] Dashboard and Forecast Sales skeletons now wait for initial sync completion instead of disappearing because stale persisted data exists.
+- [x] Ran `npx tsc --noEmit`.

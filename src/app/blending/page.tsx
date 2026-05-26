@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { CoalSpec, BlendingResult } from "@/types";
 import { Beaker, Plus, Trash2, History, ArrowRight, Download, Activity } from "lucide-react";
 import { ReportModal } from "@/components/shared/report-modal";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 
 interface BlendInput {
     name: string;
@@ -16,7 +17,7 @@ interface BlendInput {
 }
 
 export default function BlendingPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
 
     const { simulateBlend, blendingHistory, sources, syncFromMemory } = useCommercialStore();
     const { currentUser } = useAuthStore();
@@ -29,6 +30,7 @@ export default function BlendingPage() {
     const [isSimulating, setIsSimulating] = React.useState(false);
 
     React.useEffect(() => {
+        setIsInitializing(true);
         syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
 
@@ -65,6 +67,13 @@ export default function BlendingPage() {
         tm: Math.round(inputs.reduce((s, inp) => s + inp.tm * inp.quantity, 0) / totalQty * 100) / 100,
     } : { gar: 0, ts: 0, ash: 0, tm: 0 };
 
+    if (isInitializing) {
+        return (
+            <AppShell>
+                <ModulePageSkeleton titleWidth="w-56" subtitleWidth="w-[32rem]" metricCount={4} cardCount={4} />
+            </AppShell>
+        );
+    }
 
     return (
         <AppShell>

@@ -11,12 +11,13 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     Legend, ResponsiveContainer, LineChart, Line,
 } from "recharts";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function ProfitLossPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
 
     const { hasPermission } = useAuthStore();
     const orders = useSalesStore((s) => s.orders);
@@ -26,6 +27,7 @@ export default function ProfitLossPage() {
     const [period, setPeriod] = React.useState<"monthly" | "quarterly">("monthly");
 
     React.useEffect(() => {
+        setIsInitializing(true);
         Promise.all([
             syncSales(),
             syncPurchases()
@@ -69,6 +71,14 @@ export default function ProfitLossPage() {
             .map(([month, data]) => ({ month, ...data, profit: data.revenue - data.expense }))
             .sort((a, b) => a.month.localeCompare(b.month));
     }, [approvedRevenue, approvedExpense]);
+
+    if (isInitializing) {
+        return (
+            <AppShell>
+                <ModulePageSkeleton titleWidth="w-44" subtitleWidth="w-72" metricCount={4} cardCount={4} />
+            </AppShell>
+        );
+    }
 
     return (
         <AppShell>

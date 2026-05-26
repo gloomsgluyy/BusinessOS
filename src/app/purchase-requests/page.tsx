@@ -10,9 +10,10 @@ import { PURCHASE_STATUSES } from "@/lib/constants";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { PaginationControls } from "@/components/shared/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 
 export default function PurchaseRequestsPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
 
     const { currentUser, hasPermission } = useAuthStore();
     const purchases = usePurchaseStore((s) => s.purchases);
@@ -25,6 +26,7 @@ export default function PurchaseRequestsPage() {
     const rejectPurchase = usePurchaseStore((s) => s.rejectPurchase);
 
     React.useEffect(() => {
+        setIsInitializing(true);
         syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
 
@@ -66,6 +68,14 @@ export default function PurchaseRequestsPage() {
     const totalItems = filtered.length;
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
     const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+    if (isInitializing) {
+        return (
+            <AppShell>
+                <ModulePageSkeleton titleWidth="w-56" subtitleWidth="w-[30rem]" metricCount={4} cardCount={5} />
+            </AppShell>
+        );
+    }
 
     const handleAdd = () => {
         const amt = parseFloat(newAmount);

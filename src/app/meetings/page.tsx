@@ -15,6 +15,7 @@ import { useTaskStore } from "@/store/task-store";
 import { AIAgent } from "@/lib/ai-agent";
 import { jsPDF } from "jspdf";
 import { Toast } from "@/components/shared/toast";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 
 // ─── Type for extracted task ──────────────────────────────────────
 interface ExtractedTask {
@@ -77,11 +78,12 @@ function parseDatePart(dateStr: string): string {
 }
 
 export default function MeetingsPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
 
     const { meetings, syncFromMemory, addMeeting, updateMeeting } = useCommercialStore();
 
     React.useEffect(() => {
+        setIsInitializing(true);
         syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
     const { addTask } = useTaskStore();
@@ -598,8 +600,12 @@ Be concise and professional.`;
         : true
     );
 
-    if (status === "loading") {
-        return <AppShell><div className="flex h-[50vh] items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div></AppShell>;
+    if (status === "loading" || isInitializing) {
+        return (
+            <AppShell>
+                <ModulePageSkeleton titleWidth="w-36" subtitleWidth="w-[32rem]" metricCount={4} cardCount={5} />
+            </AppShell>
+        );
     }
 
 

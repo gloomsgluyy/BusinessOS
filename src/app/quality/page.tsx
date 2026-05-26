@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { ReportModal } from "@/components/shared/report-modal";
 import { Toast } from "@/components/shared/toast";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 import type { CoalSpec, QualityResult } from "@/types";
 
 const STATUS_CFG: Record<string, { label: string; color: string; icon: React.ElementType }> = {
@@ -117,10 +118,11 @@ function formatSpec(spec?: Partial<CoalSpec>) {
 }
 
 export default function QualityPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
     const { qualityResults, syncFromMemory, addQualityResult, updateQualityResult, shipments } = useCommercialStore();
 
     React.useEffect(() => {
+        setIsInitializing(true);
         Promise.all([syncFromMemory()]).finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
 
@@ -420,6 +422,14 @@ export default function QualityPage() {
             </div>
         </div>
     );
+
+    if (isInitializing) {
+        return (
+            <AppShell>
+                <ModulePageSkeleton titleWidth="w-44" subtitleWidth="w-[30rem]" metricCount={5} cardCount={5} />
+            </AppShell>
+        );
+    }
 
     return (
         <AppShell>

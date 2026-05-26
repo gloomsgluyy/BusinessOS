@@ -11,9 +11,10 @@ import { sendWhatsAppInvoice } from "@/lib/whatsapp-client";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { usePagination } from "@/hooks/use-pagination";
 import { PaginationControls } from "@/components/shared/pagination-controls";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 
 export default function SalesOrdersPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
 
     const { currentUser, hasPermission } = useAuthStore();
     const orders = useSalesStore((s) => s.orders);
@@ -25,6 +26,7 @@ export default function SalesOrdersPage() {
     const rejectOrder = useSalesStore((s) => s.rejectOrder);
 
     React.useEffect(() => {
+        setIsInitializing(true);
         syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
 
@@ -62,6 +64,14 @@ export default function SalesOrdersPage() {
     const totalItems = filtered.length;
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
     const paginatedData = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+    if (isInitializing) {
+        return (
+            <AppShell>
+                <ModulePageSkeleton titleWidth="w-44" subtitleWidth="w-72" metricCount={4} cardCount={5} />
+            </AppShell>
+        );
+    }
 
     const handleAdd = () => {
         const amt = parseFloat(newAmount);

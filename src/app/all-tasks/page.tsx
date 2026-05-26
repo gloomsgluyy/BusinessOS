@@ -11,9 +11,10 @@ import { useTaskStore } from "@/store/task-store";
 import { cn, getInitials } from "@/lib/utils";
 import { TASK_STATUSES, TASK_PRIORITIES } from "@/lib/constants";
 import { Task, TaskStatus } from "@/types";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 
 export default function AllTasksPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
 
     const { data: session } = useSession();
     const currentUser = session?.user as any;
@@ -24,6 +25,7 @@ export default function AllTasksPage() {
     const moveTask = useTaskStore((s) => s.moveTask);
 
     React.useEffect(() => {
+      setIsInitializing(true);
       syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
@@ -68,6 +70,14 @@ export default function AllTasksPage() {
     };
 
     const currentSelected = selectedTask ? tasks.find((t) => t.id === selectedTask.id) || null : null;
+
+    if (isInitializing) {
+      return (
+        <AppShell>
+          <ModulePageSkeleton titleWidth="w-36" subtitleWidth="w-72" metricCount={5} cardCount={5} />
+        </AppShell>
+      );
+    }
 
     return (
         <AppShell>

@@ -2786,3 +2786,54 @@ Verification:
 
 - `npx tsc --noEmit` passed.
 - `git diff --check` passed with only existing Windows CRLF warnings.
+
+## 2026-05-26 - Roll Forward Final Revision and Restore Module Skeleton Gates
+
+Type:
+
+- Code
+- UX
+- Production Stability
+
+Changed:
+
+- `src/components/shared/module-page-skeleton.tsx`
+- `src/app/page.tsx`
+- `src/app/projects/page.tsx`
+- `src/app/shipment-monitor/page.tsx`
+- `src/app/sources/page.tsx`
+- `src/app/sales-monitor/page.tsx`
+- `src/app/market-price/page.tsx`
+- `src/app/pl-forecast/client.tsx`
+- `src/app/profit-loss/page.tsx`
+- `src/app/quality/page.tsx`
+- `src/app/blending/page.tsx`
+- `src/app/transshipment/page.tsx`
+- `src/app/meetings/page.tsx`
+- `src/app/sales-orders/page.tsx`
+- `src/app/purchase-requests/page.tsx`
+- `src/app/my-tasks/page.tsx`
+- `src/app/all-tasks/page.tsx`
+- `src/app/approval-inbox/page.tsx`
+
+SRS refs:
+
+- Production readiness / loading-state correctness
+- UI-FS-001
+- UI-DOC-DRIVE-001
+
+What changed:
+
+- Rolled forward the final revision path back through the latest FCO responsiveness changes while keeping the Supabase query-storm mitigation in place.
+- Added a shared module skeleton surface so major operational modules use a consistent loading state.
+- Replaced dummy `setIsInitializing`-only patterns with real `isInitializing` gates across core modules.
+- Dashboard and Forecast Sales no longer hide skeletons just because stale/persisted local data exists; they keep the loading surface visible until the initial sync finishes.
+- Shipment Monitor, Source, Sales Monitor, Market Price, P&L Forecast, Profit & Loss, Quality, Blending, Transshipment, Meetings, Sales Orders, Purchase Requests, My Tasks, All Tasks, and Approval Inbox now avoid rendering misleading zero/empty business views during first fetch.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+
+Remaining risk:
+
+- Full browser verification should be done on Vercel after env points to the new Supabase DB, especially for perceived first-load timing and skeleton visibility on slow networks.

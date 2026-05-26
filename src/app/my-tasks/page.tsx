@@ -11,9 +11,10 @@ import { cn, getInitials, generateId } from "@/lib/utils";
 import { TASK_STATUSES, TASK_PRIORITIES, DEMO_USERS } from "@/lib/constants";
 import { Task, TaskStatus, TaskPriority } from "@/types";
 import { sendWhatsAppReminder } from "@/lib/whatsapp-client";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 
 export default function MyTasksPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
 
     const { data: session } = useSession();
     const currentUser = session?.user as any;
@@ -36,6 +37,7 @@ export default function MyTasksPage() {
     const addTask = useTaskStore((s) => s.addTask);
 
     React.useEffect(() => {
+        setIsInitializing(true);
         syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
@@ -79,6 +81,13 @@ export default function MyTasksPage() {
 
     const currentSelected = selectedTask ? tasks.find((t) => t.id === selectedTask.id) || null : null;
 
+    if (isInitializing) {
+        return (
+            <AppShell>
+                <ModulePageSkeleton titleWidth="w-36" subtitleWidth="w-56" metricCount={5} cardCount={5} />
+            </AppShell>
+        );
+    }
 
     return (
         <AppShell>

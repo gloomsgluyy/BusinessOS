@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { ReportModal } from "@/components/shared/report-modal";
 import { Toast } from "@/components/shared/toast";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
@@ -44,11 +45,12 @@ const emptySource: Partial<SourceSupplier> = {
 };
 
 export default function SourcesPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
 
     const { sources, syncFromMemory, addSource, updateSource, deleteSource } = useCommercialStore();
 
     React.useEffect(() => {
+        setIsInitializing(true);
         syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
     const [activeTab, setActiveTab] = React.useState<"sources" | "alerts" | "performance">("sources");
@@ -165,6 +167,13 @@ export default function SourcesPage() {
         return acc;
     }, {} as Record<string, { count: number, totalStock: number }>);
 
+    if (isInitializing) {
+        return (
+            <AppShell>
+                <ModulePageSkeleton titleWidth="w-32" subtitleWidth="w-[28rem]" metricCount={5} cardCount={6} />
+            </AppShell>
+        );
+    }
 
     return (
         <AppShell>

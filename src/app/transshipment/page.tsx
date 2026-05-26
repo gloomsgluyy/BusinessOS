@@ -9,16 +9,18 @@ import { ShipmentDetail, ShipmentStatus } from "@/types";
 import { SHIPMENT_STATUSES } from "@/lib/constants";
 import { ReportModal } from "@/components/shared/report-modal";
 import { AIAgent } from "@/lib/ai-agent";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 
 const safeNum = (v: number | null | undefined): number => (v != null && !isNaN(v) ? v : 0);
 const safeFmt = (v: number | null | undefined, decimals = 2): string => safeNum(v).toFixed(decimals);
 
 export default function TransshipmentPage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
 
     const { shipments, syncFromMemory, updateShipment, addShipment } = useCommercialStore();
 
     React.useEffect(() => {
+        setIsInitializing(true);
         syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
 
@@ -115,6 +117,13 @@ Give a 3-sentence mitigation recommendation focusing on route weather, bunker pr
         volume: shipments.reduce((sum, s) => sum + (s.quantity_loaded || 0), 0)
     };
 
+    if (isInitializing) {
+        return (
+            <AppShell>
+                <ModulePageSkeleton titleWidth="w-72" subtitleWidth="w-[34rem]" metricCount={6} cardCount={6} />
+            </AppShell>
+        );
+    }
 
     return (
         <AppShell>

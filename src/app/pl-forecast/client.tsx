@@ -4,9 +4,9 @@ import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useSession } from "next-auth/react";
 import { useCommercialStore } from "@/store/commercial-store";
-import { useRouter } from "next/navigation";
 import { DollarSign, TrendingUp, TrendingDown, Activity, Percent, Plus, X, Loader2, Edit3, Trash2, RefreshCw } from "lucide-react";
 import { Toast } from "@/components/shared/toast";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 import { cn } from "@/lib/utils";
 import { canReadModuleForRole, isExecutiveRole } from "@/lib/role-access";
 import { PLForecastItem, ProjectItem, ShipmentDetail } from "@/types";
@@ -97,10 +97,9 @@ const shipmentType = (sh: ShipmentDetail): "local" | "export" => {
 };
 
 export default function PLForecastClient() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
 
     const { data: session, status } = useSession();
-    const router = useRouter();
     const { plForecasts, addPLForecast, updatePLForecast, deletePLForecast, deals, shipments, projects, syncFromMemory } = useCommercialStore();
 
     const userRole = session?.user?.role || "";
@@ -108,10 +107,13 @@ export default function PLForecastClient() {
     const isHighLevel = isExecutiveRole(userRole);
 
     React.useEffect(() => {
-        Promise.all([
-            syncFromMemory()
-        ]).finally(() => setIsInitializing(false));
-    }, [hasAccess, router, syncFromMemory, status]);
+        if (status !== "authenticated" || !hasAccess) {
+            setIsInitializing(false);
+            return;
+        }
+        setIsInitializing(true);
+        syncFromMemory().finally(() => setIsInitializing(false));
+    }, [hasAccess, syncFromMemory, status]);
 
     const [showForm, setShowForm] = React.useState(false);
     const [isSaving, setIsSaving] = React.useState(false);
@@ -617,12 +619,10 @@ export default function PLForecastClient() {
     const liveMargin = liveRevenue ? (liveProfit / liveRevenue) * 100 : 0;
 
     // Show loading while checking authentication
-    if (status === "loading") {
+    if (status === "loading" || isInitializing) {
         return (
             <AppShell>
-                <div className="p-8 flex items-center justify-center">
-                    <Loader2 className="w-8 h-8 animate-spin" />
-                </div>
+                <ModulePageSkeleton titleWidth="w-44" subtitleWidth="w-[32rem]" metricCount={5} cardCount={5} />
             </AppShell>
         );
     }

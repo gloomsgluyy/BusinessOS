@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { Plus, TrendingUp, TrendingDown, Settings2, X, Calculator, Loader2, History, UserRound, Clock3, ChevronDown } from "lucide-react";
 import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { Toast } from "@/components/shared/toast";
+import { ModulePageSkeleton } from "@/components/shared/module-page-skeleton";
 import type { MarketPriceEntry, MarketPriceHistoryEntry } from "@/types";
 
 interface Formula {
@@ -86,11 +87,12 @@ function marketActorLabel(params: { name?: string | null; source?: string | null
 }
 
 export default function MarketPricePage() {
-    const [, setIsInitializing] = React.useState(false);
+    const [isInitializing, setIsInitializing] = React.useState(true);
 
     const { marketPrices, deals, shipments, sources, plForecasts, syncFromMemory, addMarketPrice } = useCommercialStore();
 
     React.useEffect(() => {
+        setIsInitializing(true);
         syncFromMemory().finally(() => setIsInitializing(false));
     }, [syncFromMemory]);
     const { hasPermission } = useAuthStore();
@@ -385,10 +387,10 @@ export default function MarketPricePage() {
         }
     };
 
-    if (!mounted) {
+    if (!mounted || isInitializing) {
         return (
             <AppShell>
-                <div className="flex items-center justify-center p-12 text-muted-foreground animate-pulse">Loading market data...</div>
+                <ModulePageSkeleton titleWidth="w-64" subtitleWidth="w-72" metricCount={6} cardCount={4} />
             </AppShell>
         );
     }
