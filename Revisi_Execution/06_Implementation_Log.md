@@ -2837,3 +2837,40 @@ Verification:
 Remaining risk:
 
 - Full browser verification should be done on Vercel after env points to the new Supabase DB, especially for perceived first-load timing and skeleton visibility on slow networks.
+
+## 2026-05-26 - Executive Approval UI Simplification
+
+Type:
+
+- Code
+- UX
+- Access Control
+
+Changed:
+
+- `src/app/projects/page.tsx`
+- `src/app/api/memory/projects/route.ts`
+- `src/store/commercial-store.ts`
+
+SRS refs:
+
+- Forecast Sales approval workflow
+- Executive-only approval controls
+
+What changed:
+
+- Forecast Sales approval controls are now visible only to strict executive roles: `CEO`, `DIRUT`, and `ASS_DIRUT`.
+- The modal approval action is simplified into a single `Set Approval` dropdown plus one `Apply` button.
+- Approval comment input only appears and is required when the executive selects `Reject`.
+- Approve and Request Revision still create approval history using system-generated status notes, so audit/history is preserved without making the UI busy.
+- Forecast Sales edit status dropdown hides approval-only states from non-executive users.
+- A toast popup confirms `Status changed to ...` after the approval update succeeds.
+- Store-level project update now throws on failed API response so forbidden/failed approval attempts do not show false success locally.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+
+Remaining risk:
+
+- Needs browser smoke test with executive and non-executive accounts to confirm the simplified approval UI is hidden/shown correctly in production.

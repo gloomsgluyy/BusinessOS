@@ -452,8 +452,8 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Forbidden: only CEO/DIRUT/ASS_DIRUT can approve Forecast Sales" }, { status: 403 });
     }
     const approvalComment = cleanText(data.approvalComment);
-    if (approvalTarget && approvalStatuses.has(approvalTarget) && !approvalComment) {
-      return NextResponse.json({ error: "Approval comment is required" }, { status: 400 });
+    if (approvalTarget === "rejected" && !approvalComment) {
+      return NextResponse.json({ error: "Reject reason is required" }, { status: 400 });
     }
     const toApprovalStatus = (nextStatus || "").toLowerCase();
     const nextBuyerFeedbackStatus = data.buyerFeedbackStatus !== undefined ? cleanText(data.buyerFeedbackStatus) : undefined;
@@ -471,12 +471,24 @@ export async function PUT(req: Request) {
     }
     const shouldSetApproval = toApprovalStatus === "approved";
     const shouldResetApproval = toApprovalStatus === "rejected" || toApprovalStatus === "waiting_approval" || toApprovalStatus === "revision_requested";
-    const shouldAppendApprovalHistory = Boolean(nextStatus && cleanText(nextStatus) !== cleanText(existing.status) && approvalComment);
+    const defaultApprovalComment =
+      approvalTarget === "approved"
+        ? "Approved"
+        : approvalTarget === "revision_requested"
+          ? "Revision requested"
+          : null;
+    const approvalHistoryComment = approvalComment || defaultApprovalComment;
+    const shouldAppendApprovalHistory = Boolean(
+      nextStatus &&
+      cleanText(nextStatus) !== cleanText(existing.status) &&
+      approvalStatuses.has(approvalTarget) &&
+      approvalHistoryComment,
+    );
     const approvalHistory = shouldAppendApprovalHistory
       ? JSON.stringify([
         {
           status: nextStatus,
-          comment: approvalComment,
+          comment: approvalHistoryComment,
           userId: session.user.id,
           userName: session.user.name || "Unknown",
           createdAt: new Date().toISOString(),

@@ -749,3 +749,13 @@ For critical fields:
 - [x] Kept skeleton changes presentation-only; no business data mutation, approval logic, document upload, FCO/SI generation, or finance formulas were changed.
 - [x] Dashboard and Forecast Sales skeletons now wait for initial sync completion instead of disappearing because stale persisted data exists.
 - [x] Ran `npx tsc --noEmit`.
+
+## 67. 2026-05-26 Executive Approval UI Safety Record
+
+- [x] Approval controls remain role-gated to `CEO`, `DIRUT`, and `ASS_DIRUT`.
+- [x] Non-executive users no longer see approval-only status options in the Forecast Sales edit form.
+- [x] Approval modal action is now a single dropdown and Apply button to reduce executive UI clutter.
+- [x] Reject remains comment-required; approve/revision do not require manual comment but still write approval history.
+- [x] Forecast Sales API still enforces server-side executive approval permission.
+- [x] Project update store now throws on non-OK API response to avoid false local success.
+- [x] Ran `npx tsc --noEmit`.

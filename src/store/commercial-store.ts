@@ -556,11 +556,15 @@ export const useCommercialStore = create<CommercialState>()(persist((set, get) =
         if (u.approved_by !== undefined) body.approvedBy = u.approved_by;
         if (u.approved_by_name !== undefined) body.approvedByName = u.approved_by_name;
         if (u.approved_at !== undefined) body.approvedAt = u.approved_at;
-        await fetch("/api/memory/projects", {
+        const res = await fetch("/api/memory/projects", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
         });
+        if (!res.ok) {
+            const error = await res.json().catch(() => ({}));
+            throw new Error(error?.error || "Failed to update Forecast Sales");
+        }
         set((s) => {
             const raw = s._rawProjects.map((project) =>
                 project.id === id ? { ...project, ...u, updated_at: new Date().toISOString() } : project

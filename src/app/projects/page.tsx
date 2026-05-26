@@ -3,12 +3,13 @@
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { cn } from "@/lib/utils";
-import { FolderKanban, Search, Plus, X, Edit, Trash2, CheckCircle2, XCircle, Clock3, ClipboardCheck, Wand2, AlertTriangle, Loader2, Download, UploadCloud, FileText, ExternalLink, ChevronDown } from "lucide-react";
+import { FolderKanban, Search, Plus, X, Edit, Trash2, CheckCircle2, ClipboardCheck, Wand2, AlertTriangle, Loader2, Download, UploadCloud, FileText, ExternalLink, ChevronDown } from "lucide-react";
 import { useCommercialStore } from "@/store/commercial-store";
 import { useAuthStore } from "@/store/auth-store";
 import { ProjectItem, ProjectSupplierCandidate, ShipmentDetail, ShipmentDocument, SourceSupplier } from "@/types";
 import { useSearchParams } from "next/navigation";
 import { jsPDF } from "jspdf";
+import { Toast } from "@/components/shared/toast";
 
 type ProjectStatus = "draft" | "waiting_approval" | "revision_requested" | "approved" | "rejected" | "upcoming" | "ongoing" | "completed" | "cancelled";
 
@@ -109,6 +110,8 @@ type BuyerFeedbackHistoryItem = {
   userName?: string;
   createdAt?: string;
 };
+
+type ApprovalDecision = "" | "approved" | "revision_requested" | "rejected";
 
 type RoughPnlSnapshot = {
   generatedAt?: string;
@@ -546,13 +549,16 @@ export default function ProjectsPage() {
   const [loadingShipmentDocs, setLoadingShipmentDocs] = React.useState(false);
   const [downloadingRequiredZip, setDownloadingRequiredZip] = React.useState<Record<string, boolean>>({});
   const [downloadingFco, setDownloadingFco] = React.useState<string | null>(null);
+  const [approvalDecision, setApprovalDecision] = React.useState<ApprovalDecision>("");
   const [approvalComment, setApprovalComment] = React.useState("");
+  const [approvalSaving, setApprovalSaving] = React.useState(false);
   const [buyerFeedbackReason, setBuyerFeedbackReason] = React.useState("");
   const [convertingShipment, setConvertingShipment] = React.useState(false);
   const [revisionReason, setRevisionReason] = React.useState("");
   const [blendQuantities, setBlendQuantities] = React.useState<Record<string, string>>({});
   const [supplierCandidates, setSupplierCandidates] = React.useState<ProjectSupplierCandidate[]>([]);
   const [candidateAction, setCandidateAction] = React.useState<string | null>(null);
+  const [toast, setToast] = React.useState<{ message: string; type: "success" | "error" } | null>(null);
   const role = String(currentUser?.role || "").toUpperCase();
   const canApprove = ["CEO", "DIRUT", "ASS_DIRUT"].includes(role);
   const canAnalyzeUrgency = ["CEO", "DIRUT", "ASS_DIRUT"].includes(role);
@@ -582,6 +588,7 @@ export default function ProjectsPage() {
   }, [searchParams]);
 
   React.useEffect(() => {
+    setApprovalDecision("");
     setApprovalComment("");
     setBuyerFeedbackReason(selectedProject?.projectRecord?.buyer_feedback_reason || "");
   }, [selectedProject?.id]);
@@ -1889,17 +1896,35 @@ export default function ProjectsPage() {
     }
   };
 
-  const applyApprovalDecision = async (status: "approved" | "revision_requested" | "rejected") => {
+  const applyApprovalDecision = async () => {
     if (!selectedProject?.projectRecord) return;
-    const comment = approvalComment.trim();
-    if (!comment) {
-      window.alert("Approval comment wajib diisi sebelum approve/revision/reject.");
+    const status = approvalDecision;
+    if (!status) {
+      setToast({ message: "Pilih status approval terlebih dahulu.", type: "error" });
       return;
     }
-    await updateProject(selectedProject.projectRecord.id, { status, approval_comment: comment } as any);
-    await syncFromMemory({ force: true });
-    setApprovalComment("");
-    setSelectedProject(null);
+    const comment = approvalComment.trim();
+    if (status === "rejected" && !comment) {
+      setToast({ message: "Reject wajib memakai comment/alasan.", type: "error" });
+      return;
+    }
+    const statusText = status === "approved" ? "Approved" : status === "revision_requested" ? "Revision Requested" : "Rejected";
+    setApprovalSaving(true);
+    try {
+      await updateProject(selectedProject.projectRecord.id, {
+        status,
+        approval_comment: status === "rejected" ? comment : statusText,
+      } as any);
+      await syncFromMemory({ force: true });
+      setApprovalDecision("");
+      setApprovalComment("");
+      setSelectedProject(null);
+      setToast({ message: `Status changed to ${statusText}.`, type: "success" });
+    } catch (error) {
+      setToast({ message: "Failed to change approval status.", type: "error" });
+    } finally {
+      setApprovalSaving(false);
+    }
   };
 
   const linkedShipmentFor = React.useCallback((project: ProjectCard | null) => {
@@ -2274,9 +2299,9 @@ export default function ProjectsPage() {
                 <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} className="px-3 py-2 rounded-lg bg-accent/30 border border-border text-sm">
                   <option value="draft">Draft</option>
                   <option value="waiting_approval">Waiting Approval</option>
-                  <option value="revision_requested">Revision Requested</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
+                  {canApprove && <option value="revision_requested">Revision Requested</option>}
+                  {canApprove && <option value="approved">Approved</option>}
+                  {canApprove && <option value="rejected">Rejected</option>}
                   <option value="upcoming">Upcoming</option>
                   <option value="ongoing">Ongoing</option>
                   <option value="completed">Completed</option>
@@ -2654,14 +2679,40 @@ export default function ProjectsPage() {
                       </div>
                       {canApprove && (
                         <div className="w-full md:w-auto space-y-2">
-                          <textarea
-                            value={approvalComment}
-                            onChange={(e) => setApprovalComment(e.target.value)}
-                            rows={2}
-                            placeholder="Approval comment wajib untuk approve, revision, atau reject"
-                            className="w-full md:w-96 px-3 py-2 rounded-lg bg-background border border-border text-xs resize-none"
-                          />
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-[minmax(180px,240px)_auto] gap-2">
+                            <select
+                              value={approvalDecision}
+                              onChange={(e) => {
+                                const next = e.target.value as ApprovalDecision;
+                                setApprovalDecision(next);
+                                if (next !== "rejected") setApprovalComment("");
+                              }}
+                              className="h-9 rounded-lg border border-border bg-background px-3 text-xs font-semibold outline-none focus:border-primary/50"
+                            >
+                              <option value="">Set Approval</option>
+                              <option value="approved">Approve</option>
+                              <option value="revision_requested">Request Revision</option>
+                              <option value="rejected">Reject</option>
+                            </select>
+                            <button
+                              onClick={applyApprovalDecision}
+                              disabled={!approvalDecision || approvalSaving}
+                              className="h-9 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {approvalSaving ? <Loader2 className="w-3.5 h-3.5 inline mr-1.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 inline mr-1.5" />}
+                              Apply
+                            </button>
+                          </div>
+                          {approvalDecision === "rejected" && (
+                            <textarea
+                              value={approvalComment}
+                              onChange={(e) => setApprovalComment(e.target.value)}
+                              rows={2}
+                              placeholder="Reject reason wajib diisi"
+                              className="w-full md:w-96 px-3 py-2 rounded-lg bg-background border border-border text-xs resize-none"
+                            />
+                          )}
+                          <div className="flex flex-wrap items-center justify-end gap-2">
                           {canAnalyzeUrgency && (
                             <button
                               onClick={() => selectedProject.projectRecord && runUrgencyAnalysis(selectedProject.projectRecord.id)}
@@ -2672,27 +2723,6 @@ export default function ProjectsPage() {
                               Analyze Urgency
                             </button>
                           )}
-                          <button
-                            onClick={() => applyApprovalDecision("approved")}
-                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/30 hover:bg-emerald-500/20"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => applyApprovalDecision("revision_requested")}
-                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 text-amber-700 border border-amber-500/30 hover:bg-amber-500/20"
-                          >
-                            <Clock3 className="w-3.5 h-3.5 inline mr-1" />
-                            Revision
-                          </button>
-                          <button
-                            onClick={() => applyApprovalDecision("rejected")}
-                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/30 hover:bg-rose-500/20"
-                          >
-                            <XCircle className="w-3.5 h-3.5 inline mr-1" />
-                            Reject
-                          </button>
                           </div>
                         </div>
                       )}
@@ -3242,6 +3272,9 @@ export default function ProjectsPage() {
               </div>
             </div>
           </div>
+        )}
+        {toast && (
+          <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
         )}
       </div>
     </AppShell>
